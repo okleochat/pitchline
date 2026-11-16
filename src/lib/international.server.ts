@@ -77,7 +77,7 @@ async function getJson(url: string): Promise<Record<string, unknown> | null> {
 function statusOf(event: Record<string, unknown>): { status: string; state: InternationalFixture["state"] } {
   const competition = (event.competitions as Record<string, unknown>[] | undefined)?.[0]
   const status = (competition?.status ?? event.status) as
-    | { type?: { name?: string; state?: string; completed?: boolean }; displayClock?: string; period?: number }
+    | { type?: { name?: string; shortDetail?: string; state?: string; completed?: boolean }; displayClock?: string; period?: number }
     | undefined
   const type = status?.type
   const name = String(type?.shortDetail ?? type?.name ?? "")

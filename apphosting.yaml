@@ -57,7 +57,3 @@ env:
     value: "true"
     availability:
       - RUNTIME
-  - variable: API_FOOTBALL_DATA_USE_ALLOWED
-    value: "true"
-    availability:
-      - RUNTIME

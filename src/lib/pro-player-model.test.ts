@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   buildPlayerSeasonStats,
+  deriveEspnPlayerScores,
   derivePlayerScores,
   deriveSquadFactors,
   normaliseSquadPlayer,
@@ -51,6 +52,69 @@ test("registered squad players join season statistics by provider player ID", ()
   }, stats)
   assert.equal(player?.position, "FW")
   assert.equal(player?.scores?.appearances, 24)
+})
+
+test("ESPN soccer category statistics are normalized into player-season scores", () => {
+  const payload = {
+    categories: [
+      {
+        name: "offensive",
+        stats: [
+          { name: "appearances", value: 24 },
+          { name: "minutes", value: 1850 },
+          { name: "rating", value: 7.42 },
+          { name: "goals", value: 14 },
+          { name: "assists", value: 5 },
+          { name: "shots", value: 58 },
+          { name: "shotsOnTarget", value: 31 },
+          { name: "keyPasses", value: 32 },
+        ],
+      },
+      {
+        name: "defensive",
+        stats: [
+          { name: "tackles", value: 12 },
+          { name: "interceptions", value: 4 },
+          { name: "duels", value: 90 },
+          { name: "duelsWon", value: 47 },
+        ],
+      },
+    ],
+  }
+  const scores = deriveEspnPlayerScores(payload)
+  assert.ok(scores)
+  assert.equal(scores.appearances, 24)
+  assert.equal(scores.minutes, 1850)
+  assert.equal(scores.seasonRating, 74.2)
+  assert.ok((scores.attack ?? 0) > 50)
+  assert.ok((scores.creativity ?? 0) > 50)
+  assert.ok((scores.defence ?? 0) > 40)
+})
+
+test("ESPN roster athlete records join season scores by athlete ID", () => {
+  const stats = new Map([["123", strongScores]])
+  const player = normaliseSquadPlayer({
+    athlete: {
+      id: "123",
+      fullName: "Example Striker",
+      jersey: "9",
+      position: { abbreviation: "F", name: "Forward" },
+    },
+  }, stats)
+  assert.equal(player?.id, "123")
+  assert.equal(player?.name, "Example Striker")
+  assert.equal(player?.number, 9)
+  assert.equal(player?.position, "FW")
+  assert.equal(player?.scores?.appearances, 25)
+})
+
+test("ESPN rows without a usable performance measure are not rated", () => {
+  assert.equal(deriveEspnPlayerScores({
+    categories: [{ stats: [
+      { name: "appearances", value: 10 },
+      { name: "minutes", value: 400 },
+    ] }],
+  }), null)
 })
 
 test("the whole registered squad remains neutral when performance coverage is too low", () => {

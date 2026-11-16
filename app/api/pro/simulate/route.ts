@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { requireProUser } from "@/lib/firebase/server-session"
 import { simulatePro, type ProTeam } from "@/lib/pro-sim"
-import { getProPlayerData } from "@/lib/providers/apifootball-players.server"
+import { getProPlayerData } from "@/lib/providers/espn-players.server"
 import type { LeagueId } from "@/data/football"
 
 export const runtime = "nodejs"
@@ -37,7 +37,14 @@ function teamInput(value: unknown): ProTeam | null {
   const league = leagueValue(item.league)
   if (!league) return null
   const rateLeague = leagueValue(item.rateLeague)
-  return { id, name, attack, defense, league, ...(rateLeague ? { rateLeague } : {}) }
+  const espnId = typeof item.espnId === "string" && /^\d{1,12}$/.test(item.espnId) ? item.espnId : undefined
+  const feedSlug = typeof item.feedSlug === "string" && /^[a-z0-9.-]{1,50}$/.test(item.feedSlug) ? item.feedSlug : undefined
+  return {
+    id, name, attack, defense, league,
+    ...(rateLeague ? { rateLeague } : {}),
+    ...(espnId ? { espnId } : {}),
+    ...(feedSlug ? { feedSlug } : {}),
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -77,8 +84,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const playerData = await getProPlayerData({
-      home: { id: home.id, name: home.name, league: home.league, rateLeague: home.rateLeague },
-      away: { id: away.id, name: away.name, league: away.league, rateLeague: away.rateLeague },
+      home: {
+        id: home.id, name: home.name, league: home.league, rateLeague: home.rateLeague,
+        espnId: home.espnId, feedSlug: home.feedSlug,
+      },
+      away: {
+        id: away.id, name: away.name, league: away.league, rateLeague: away.rateLeague,
+        espnId: away.espnId, feedSlug: away.feedSlug,
+      },
     })
     const homeFactors = playerData.adjustmentsApplied ? playerData.home?.factors : undefined
     const awayFactors = playerData.adjustmentsApplied ? playerData.away?.factors : undefined

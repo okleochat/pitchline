@@ -10,7 +10,7 @@ import {
   type Score,
 } from "./sim.ts"
 
-export type ProTeam = Pick<Team, "id" | "name" | "attack" | "defense" | "league" | "rateLeague">
+export type ProTeam = Pick<Team, "id" | "name" | "attack" | "defense" | "league" | "rateLeague" | "espnId" | "feedSlug">
 
 const POSSESSIONS_PER_MATCH = 180
 const POSSESSIONS_PER_SIDE = POSSESSIONS_PER_MATCH / 2

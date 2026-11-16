@@ -36,7 +36,7 @@ Source: [Hudl StatsBomb Open Data](https://github.com/hudl/open-data).
 - **Sportmonks** is the stronger paid alternative to evaluate for broader structured coverage. Its xG add-on publishes xG and xGOT for covered fixtures; confirm the exact leagues, historic depth, live entitlement and quote before subscribing. Its website describes coverage as per covered fixture, not universal. [Sportmonks xG add-on](https://www.sportmonks.com/football-api/xg-data/).
 - **BigBallsData** should not be treated as a free xG source without checking the precise plan entitlement. Its published tiers may reserve per-fixture xG for a paid tier; it is not the current integration target.
 - **Footballdata.io** can be considered for a narrow EPL feed, but it is not selected as the source of truth until its xG coverage, historical backfill, request limits, terms and uptime are verified.
-- **ESPN** remains the existing domestic fixture/standings and recent-form feed. A second provider will be used to fill capability gaps rather than replacing stable feeds without comparative testing.
+- **ESPN** is also the current Pro player-intelligence source. The live-board team IDs and competition slugs are reused to load current rosters and available player-season statistics; coverage is competition-dependent and low-coverage results leave Pro multipliers neutral. No API key is required. The integration is described in [PRO_PLAYER_DATA_SETUP.md](./PRO_PLAYER_DATA_SETUP.md).
 
 ## Odds handling
 

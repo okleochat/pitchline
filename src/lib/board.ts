@@ -1,6 +1,6 @@
 import type { Board } from "@/data/football"
 
-export type FormGame = { gf: number; ga: number; xgf?: number; xga?: number }
+export type FormGame = { gf: number; ga: number; xgf?: number; xga?: number; xgSource?: string }
 export type FormResult = {
   home: { games: FormGame[] } | null
   away: { games: FormGame[] } | null
@@ -13,7 +13,7 @@ export async function loadBoard(): Promise<Board> {
 }
 
 export async function loadForm(input: {
-  data: { homeSlug: string; homeEspn: string; awaySlug: string; awayEspn: string }
+  data: { homeSlug: string; homeEspn: string; awaySlug: string; awayEspn: string; homeName: string; awayName: string }
 }): Promise<FormResult> {
   const query = new URLSearchParams(input.data)
   const response = await fetch("/api/form?" + query.toString(), { cache: "no-store" })

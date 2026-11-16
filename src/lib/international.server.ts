@@ -115,7 +115,7 @@ export async function getInternationalFixtures(input?: { start?: string | null; 
       const status = statusOf(event)
       const venue = (first?.venue as { fullName?: string } | undefined)?.fullName
       fixtures.push({
-        id: `${competition.slug}:${String(event.id ?? kickoff + home.name + away.name)}`,
+        id: String(event.id ?? `${competition.slug}:${kickoff}:${home.name}:${away.name}`),
         competition: competition.name,
         region: competition.region,
         slug: competition.slug,

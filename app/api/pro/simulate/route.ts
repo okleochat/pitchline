@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { requireProUser } from "@/lib/firebase/server-session"
 import { simulatePro, type ProTeam } from "@/lib/pro-sim"
-import { getProPlayerData } from "@/lib/providers/sportapi-players.server"
+import { getProPlayerData } from "@/lib/providers/ea-fc-ratings.server"
 import type { LeagueId } from "@/data/football"
 
 export const runtime = "nodejs"

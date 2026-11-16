@@ -277,7 +277,7 @@ function espnSeasonYear(value: unknown): number | null {
   for (const candidate of candidates) {
     if (typeof candidate === "number" && Number.isInteger(candidate)) return candidate
     if (typeof candidate !== "string") continue
-    const match = candidate.match(/(?:seasons\/)?(20\\d{2})/i)
+    const match = candidate.match(/(?:seasons\/)?(20\d{2})/i)
     if (match) return Number(match[1])
   }
   return null
@@ -317,9 +317,8 @@ export function selectEspnSeasonStats(
     const rawStats = item.statistics ?? item.stats ?? item.statistics_$ref
     const reference = espnReference(rawStats)
     const embedded = record(rawStats)
-    const data = embedded && !reference ? embedded : (
-      item.categories || item.splits || item.stats ? item : null
-    )
+    const hasInlineMetrics = Boolean(item.categories || item.splits || Array.isArray(rawStats))
+    const data = embedded && !reference ? embedded : (hasInlineMetrics ? item : null)
     return { reference, data, season, index }
   }).filter((entry): entry is {
     reference: string | null
@@ -344,10 +343,14 @@ export function selectEspnSeasonStats(
   // A few endpoint variants return a direct statistics snapshot instead of a
   // statistics-log collection. Accept it only when it contains metric data.
   if (!entries.length && (root.categories || root.splits || root.statistics)) {
+    const directStatisticsReference = espnReference(root.statistics)
+    if (directStatisticsReference) {
+      return { reference: directStatisticsReference, data: null, season: null }
+    }
     const embedded = record(root.statistics)
     return {
       reference: null,
-      data: embedded ?? root,
+      data: embedded && (embedded.categories || embedded.splits) ? embedded : root,
       season: targetSeason,
     }
   }

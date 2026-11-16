@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { SiteHeader } from "@/components/site-header"
-import { ArrowLeftRight, ChevronDown, Minus, Pause, Play, Plus, RotateCcw } from "lucide-react"
+import { useFirebaseSession } from "@/components/auth/firebase-auth-provider"
+import { ArrowLeftRight, ChevronDown, Minus, Pause, Play, Plus, RotateCcw, Sparkles } from "lucide-react"
 import {
   LEAGUES,
   formRate,
@@ -16,8 +17,10 @@ import {
   type RateSample,
   type Team,
 } from "@/data/football"
-import { loadBoard, loadForm, type FormResult } from "@/lib/board"
+import { loadBoard, loadForm, loadProSimulation, type FormResult } from "@/lib/board"
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
+import { PRO_SIM_RUNS } from "@/lib/pro-sim-config"
+import type { ProReport } from "@/lib/pro-sim"
 import {
   DIXON_RHO,
   SIMS,
@@ -54,6 +57,7 @@ type DeskState = {
   model?: ModelKind
   form?: "season" | "5" | "10"
   level?: boolean
+  engineMode?: "pro" | "classic"
 }
 
 type FormWindow = "season" | "5" | "10"
@@ -620,6 +624,8 @@ export function Pitchline({
   initialLeague?: LeagueId
   showHeader?: boolean
 }) {
+  const session = useFirebaseSession()
+  const isPro = session.user?.isPro === true
   const firstInitialFixture = initial.fixtures.find((fixture) => fixture.league === initialLeague)
   const firstInitialTeam = initial.teams.find((team) => team.league === initialLeague)
   const [board, setBoard] = useState(initial)
@@ -636,6 +642,10 @@ export function Pitchline({
   const [sortKey, setSortKey] = useState<SortKey>("index")
   const [sortAsc, setSortAsc] = useState(false)
   const [ready, setReady] = useState(false)
+  const [engineMode, setEngineMode] = useState<"pro" | "classic">("classic")
+  const [proReport, setProReport] = useState<ProReport | null>(null)
+  const [proLoading, setProLoading] = useState(false)
+  const [proError, setProError] = useState<string | null>(null)
   const view = initialView
   const [pickKind, setPickKind] = useState<PickKind | "all">("all")
   const [pickLeague, setPickLeague] = useState<LeagueId | "all">("all")
@@ -653,6 +663,12 @@ export function Pitchline({
   useEffect(() => {
     setBoard(initial)
   }, [initial])
+
+  useEffect(() => {
+    if (session.loading) return
+    const saved = readDesk()
+    setEngineMode(isPro && saved?.engineMode === "classic" ? "classic" : isPro ? "pro" : "classic")
+  }, [session.loading, session.user?.uid, isPro])
 
   useEffect(() => {
     // The international route is date-scoped by its server page. Do not replace
@@ -730,9 +746,10 @@ export function Pitchline({
 
   useEffect(() => {
     if (!ready) return
-    const payload: DeskState = { league, homeId, awayId, edgePct, spread, totalLine, model, form: formWindow, level }
+    if (session.loading) return
+    const payload: DeskState = { league, homeId, awayId, edgePct, spread, totalLine, model, form: formWindow, level, engineMode: isPro ? engineMode : undefined }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
-  }, [ready, league, homeId, awayId, edgePct, spread, totalLine, model, formWindow, level])
+  }, [ready, session.loading, league, homeId, awayId, edgePct, spread, totalLine, model, formWindow, level, engineMode])
 
   const teamBy = (id: string) => board.teams.find((team) => team.id === id)
   const home = teamBy(homeId) ?? board.teams.find((team) => team.league === league) ?? board.teams[0]
@@ -786,10 +803,43 @@ export function Pitchline({
     return { ...shapePair(home, away, board.teams, level, homeSample, awaySample), homeSample, awaySample }
   }, [home, away, board.teams, level, formWindow, formNote, formPair, take])
 
-  const report = useMemo(
+  const classicReport = useMemo(
     () => (same ? null : simulate(desk.home, desk.away, edge, roll, model)),
     [same, desk.home, desk.away, edge, roll, model],
   )
+
+  useEffect(() => {
+    if (!isPro || engineMode !== "pro" || view !== "desk" || same) {
+      setProReport(null)
+      setProLoading(false)
+      setProError(null)
+      return
+    }
+
+    const controller = new AbortController()
+    setProReport(null)
+    setProLoading(true)
+    setProError(null)
+    loadProSimulation({
+      data: { home: desk.home, away: desk.away, edge, roll },
+      signal: controller.signal,
+    })
+      .then((result) => {
+        if (controller.signal.aborted) return
+        setProReport(result)
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setProError(error instanceof Error ? error.message : "The Pro simulation could not be completed.")
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setProLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll])
+
+  const report = isPro && engineMode === "pro" && view === "desk" ? proReport : classicReport
 
   const handicap = report ? splitHandicap(report.scores, spread) : null
   const totals = report ? splitTotal(report.scores, totalLine) : null
@@ -869,6 +919,7 @@ export function Pitchline({
       model,
       form: formWindow,
       level,
+      engineMode: isPro ? engineMode : undefined,
     } satisfies DeskState))
     window.location.assign("/")
   }
@@ -1110,6 +1161,38 @@ export function Pitchline({
             <p className="mt-1 text-sm text-muted">Home and away can come from any league.</p>
           </div>
         </div>
+
+        {isPro ? (
+          <div className="mt-4 rounded-xl border border-border bg-card p-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">Simulation engine</p>
+                <p className="mt-1 text-xs text-muted">Pro Engine is your default. You can switch to the classic model whenever you prefer.</p>
+              </div>
+              <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium">Pro access</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2" role="group" aria-label="Choose simulation engine">
+              <button
+                type="button"
+                aria-pressed={engineMode === "pro"}
+                onClick={() => setEngineMode("pro")}
+                className={`press flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium ${engineMode === "pro" ? "bg-primary text-primary-foreground" : "border border-border bg-background"}`}
+              >
+                <Sparkles className="size-4" />
+                Pro Engine
+              </button>
+              <button
+                type="button"
+                aria-pressed={engineMode === "classic"}
+                onClick={() => setEngineMode("classic")}
+                className={`press min-h-11 rounded-lg px-3 text-sm font-medium ${engineMode === "classic" ? "bg-primary text-primary-foreground" : "border border-border bg-background"}`}
+              >
+                Classic Monte Carlo
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
           <TeamSelect
             id="home-club"
@@ -1165,23 +1248,38 @@ export function Pitchline({
           </div>
         </div>
 
-        <div className="mt-5">
-          <ModelBar
-            model={model}
-            formWindow={formWindow}
-            level={level}
-            international={league === "int"}
-            onModel={setModel}
-            onForm={setFormWindow}
-            onLevel={setLevel}
-          />
-          <p className="mt-3 text-xs text-muted">
-            Independent Poisson is the default. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) lifts 0–0 and 1–1.{" "}
-            {league === "int"
-              ? "National-team scoring and conceding rates come from each team's previous completed fixtures in the same international competition. Teams without returned history use a neutral fallback."
-              : "The UEFA scale is a coarse association-level proxy for cross-league club comparisons, not a calibrated national-team strength measure."}
-          </p>
-        </div>
+        {isPro && engineMode === "pro" ? (
+          <div className="mt-5 rounded-xl border border-border p-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="size-4 text-primary" />
+              <p className="text-sm font-semibold">Phase-of-play simulation · 2,500 matches</p>
+            </div>
+            <p className="mt-2 text-sm text-muted">
+              Possessions move through build-up, progression, chance creation and finishing. The model adjusts for the score, late-game urgency and fatigue.
+            </p>
+            <p className="mt-2 text-xs text-muted">
+              Version 1 uses Pitchline's team-level attack and defensive rates. Confirmed starting XIs and player-specific ratings are not connected yet, so no player attributes are invented.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-5">
+            <ModelBar
+              model={model}
+              formWindow={formWindow}
+              level={level}
+              international={league === "int"}
+              onModel={setModel}
+              onForm={setFormWindow}
+              onLevel={setLevel}
+            />
+            <p className="mt-3 text-xs text-muted">
+              Independent Poisson is the default. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) lifts 0–0 and 1–1.{" "}
+              {league === "int"
+                ? "National-team scoring and conceding rates come from each team's previous completed fixtures in the same international competition. Teams without returned history use a neutral fallback."
+                : "The UEFA scale is a coarse association-level proxy for cross-league club comparisons, not a calibrated national-team strength measure."}
+            </p>
+          </div>
+        )}
 
         {formWindow !== "season" ? (
           <p className="mt-3 text-sm text-muted">
@@ -1224,23 +1322,46 @@ export function Pitchline({
             disabled={same || running}
           >
             <RotateCcw className="size-4" />
-            {running ? "Simulating…" : "Run 1,000 again"}
+            {running ? "Simulating…" : isPro && engineMode === "pro" ? `Run ${PRO_SIM_RUNS.toLocaleString("en-GB")} again` : `Run ${SIMS.toLocaleString("en-GB")} again`}
           </button>
-          <button
-            type="button"
-            className="press inline-flex h-11 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium disabled:opacity-40"
-            onClick={openTape}
-            disabled={same}
-          >
-            <Play className="size-4" />
-            Play one match
-          </button>
+          {!(isPro && engineMode === "pro") ? (
+            <button
+              type="button"
+              className="press inline-flex h-11 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium disabled:opacity-40"
+              onClick={openTape}
+              disabled={same}
+            >
+              <Play className="size-4" />
+              Play one match
+            </button>
+          ) : null}
         </div>
       </section>
 
-      {same || !report ? (
+      {same ? (
         <section className="panel mb-4">
           <p className="text-sm">Pick two different teams.</p>
+        </section>
+      ) : isPro && engineMode === "pro" && proLoading ? (
+        <section className="panel mb-4" aria-live="polite">
+          <p className="text-sm font-medium">Running the Pro phase-of-play simulation…</p>
+          <p className="mt-1 text-sm text-muted">Simulating 2,500 matches as possession sequences.</p>
+        </section>
+      ) : isPro && engineMode === "pro" && proError ? (
+        <section className="panel mb-4" role="alert">
+          <p className="text-sm font-medium">Pro simulation unavailable</p>
+          <p className="mt-1 text-sm text-muted">{proError}</p>
+          <button
+            type="button"
+            className="press mt-3 h-11 rounded-lg border border-border px-4 text-sm font-medium"
+            onClick={() => setEngineMode("classic")}
+          >
+            Switch to Classic Monte Carlo
+          </button>
+        </section>
+      ) : !report ? (
+        <section className="panel mb-4">
+          <p className="text-sm">The simulation is unavailable. Try running it again.</p>
         </section>
       ) : (
         <div className={running ? "opacity-60" : undefined} aria-busy={running}>
@@ -1293,6 +1414,34 @@ export function Pitchline({
                 </dl>
               </div>
             </div>
+                          {isPro && engineMode === "pro" && proReport ? (
+                <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm sm:grid-cols-3">
+                  <div>
+                    <dt className="text-xs text-muted">Possession</dt>
+                    <dd className="mt-1 font-medium tabular-nums">{home.short} {proReport.details.possessionHomePct.toFixed(1)}%</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted">Average shots</dt>
+                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.shotsHome.toFixed(1)}–{proReport.details.shotsAway.toFixed(1)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted">Shots on target</dt>
+                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.shotsOnTargetHome.toFixed(1)}–{proReport.details.shotsOnTargetAway.toFixed(1)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted">Build-up success</dt>
+                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.buildUpSuccessHomePct.toFixed(1)}%–{proReport.details.buildUpSuccessAwayPct.toFixed(1)}%</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted">Progression success</dt>
+                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.progressionSuccessHomePct.toFixed(1)}%–{proReport.details.progressionSuccessAwayPct.toFixed(1)}%</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted">Chance creation</dt>
+                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.chanceCreationHomePct.toFixed(1)}%–{proReport.details.chanceCreationAwayPct.toFixed(1)}%</dd>
+                  </div>
+                </dl>
+              ) : null}
             <dl className="mt-6 grid grid-cols-3 gap-3 border-t border-border pt-4">
               <div>
                 <dt className="text-xs text-muted">Both score</dt>
@@ -1316,7 +1465,7 @@ export function Pitchline({
           <div className="mb-4 grid gap-4 lg:grid-cols-2">
             <section className="panel">
               <h2 className="font-display text-2xl tracking-tight">Scorelines</h2>
-              <p className="mt-1 mb-4 text-sm text-muted">Share of the 1,000 matches. The ring marks the mode inside 0–4.</p>
+              <p className="mt-1 mb-4 text-sm text-muted">Share of the {report.n.toLocaleString("en-GB")} simulated matches. The ring marks the mode inside 0–4.</p>
               <ScoreMatrix report={report} />
               <ol className="mt-4 space-y-1">
                 {report.top.map((line) => (
@@ -1519,7 +1668,7 @@ export function Pitchline({
         </div>
       )}
 
-      {watching && !same ? (
+      {watching && !same && !(isPro && engineMode === "pro") ? (
         <section className="panel mb-4" ref={tapeRef}>
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="font-display text-2xl tracking-tight">Match tape</h2>
@@ -1643,24 +1792,28 @@ export function Pitchline({
 
       <footer className="px-1 text-sm text-muted">
         <p>
-          Expected goals equal a side’s attack times the opponent’s defense, scaled to a league average of 1.35, then
-          moved by the home edge.{" "}
-          {model === "dixon"
-            ? `Dixon–Coles (ρ = ${DIXON_RHO.toFixed(2)}) ties the low scorelines, then each of the ${SIMS.toLocaleString("en-GB")} matches is drawn from that table.`
-            : `Each of the ${SIMS.toLocaleString("en-GB")} matches draws the two goal totals independently from those rates.`}{" "}
-          {formWindow !== "season"
-            ? league === "int"
-              ? "Last 5 and last 10 reweight completed matches from the same international competition on the open match only. "
-              : "Last 5 and last 10 replace the season rates on the open match only. "
-            : ""}
-          {level
-            ? "The UEFA scale is on for clubs rated from different leagues. "
-            : ""}
-          {league === "int"
-            ? `National-team ratings use previous completed matches from the same competition schedule. Team rows show the number of historical matches returned. Teams without history use a neutral 1.35 goals-for and 1.35 goals-against fallback; those fallback-only teams are excluded from international Best Picks. Refreshed ${feedTimestamp(leagueStatus.updatedAt)}.`
-            : leagueStatus.standings === "live"
-              ? `Ratings are this season’s scoring, refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}), not a betting line.`
-              : `This competition is using saved ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}
+          {isPro && engineMode === "pro" ? (
+            "The Pro phase-of-play engine simulates build-up, progression, chance creation and finishing across 2,500 possession-sequence matches. It incorporates score-state urgency, fatigue and a generic substitution recovery. Version 1 uses team-level attacking and defensive rates; confirmed starting lineups and player-specific ratings are not connected yet. Treat it as experimental until historical out-of-sample testing confirms an improvement."
+          ) : (
+            <>
+              Expected goals equal a side’s attack times the opponent’s defense, scaled to a league average of 1.35, then
+              moved by the home edge.{" "}
+              {model === "dixon"
+                ? `Dixon–Coles (ρ = ${DIXON_RHO.toFixed(2)}) ties the low scorelines, then each of the ${SIMS.toLocaleString("en-GB")} matches is drawn from that table.`
+                : `Each of the ${SIMS.toLocaleString("en-GB")} matches draws the two goal totals independently from those rates.`}{" "}
+              {formWindow !== "season"
+                ? league === "int"
+                  ? "Last 5 and last 10 reweight completed matches from the same international competition on the open match only. "
+                  : "Last 5 and last 10 replace the season rates on the open match only. "
+                : ""}
+              {level ? "The UEFA scale is on for clubs rated from different leagues. " : ""}
+              {league === "int"
+                ? `National-team ratings use previous completed matches from the same competition schedule. Team rows show the number of historical matches returned. Teams without history use a neutral 1.35 goals-for and 1.35 goals-against fallback; those fallback-only teams are excluded from international Best Picks. Refreshed ${feedTimestamp(leagueStatus.updatedAt)}.`
+                : leagueStatus.standings === "live"
+                  ? `Ratings are this season’s scoring, refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}), not a betting line.`
+                  : `This competition is using saved ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}
+            </>
+          )}
         </p>
       </footer>
     </main>

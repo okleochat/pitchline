@@ -27,7 +27,7 @@ Pitchline does not use individual ESPN season-stat requests for this player-inte
 
 1. Read the selected club or national team's current ESPN roster.
 2. Normalize each roster player's name, position and nationality.
-3. Load the required two-character name-prefix shards from the private `ea_fc27_player_shards` Firestore collection.
+3. Load the required three-character name-prefix shards from the private `ea_fc27_player_shards` Firestore collection.
 4. Match by exact normalized name keys. Position and nationality can disambiguate duplicate names; an unresolved collision remains unmatched.
 5. Calculate per-player attack, creativity, defence and goalkeeper scores from EA's detailed attributes.
 6. Aggregate matched players by their current ESPN roster positions and estimate squad depth from the lower-rated half.

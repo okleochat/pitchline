@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download EA SPORTS FC 27 base-player ratings and sync club squads to Firestore.
+"""Download EA SPORTS FC 27 base-player ratings and sync private player-name shards to Firestore.
 
 This uses the public ratings feed requested by EA's own ratings page. It is a
 private-data ingestion utility for Pitchline; it does not bypass authentication,
@@ -156,6 +156,11 @@ def fold_name(value: str) -> str:
     ascii_text = ascii_text.lower().replace("&", " and ")
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", ascii_text)).strip()
 
+
+
+def is_mens_player(player: dict[str, Any]) -> bool:
+    gender = fold_name(str(player.get("gender") or ""))
+    return gender in {"men", "men s football", "mens football", "male", "mens"}
 
 
 def player_shard_id(name_key: str) -> str:

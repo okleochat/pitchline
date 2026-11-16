@@ -4,7 +4,7 @@
 
 Pro subscribers receive the **Pro Engine** by default. They can switch to the existing Classic Monte Carlo simulator. The selected mode is saved locally per browser. Free accounts use the Classic simulator.
 
-The Pro calculation is executed by \`POST /api/pro/simulate\`. The route calls \`requireProUser()\` before accepting simulation inputs, so hiding the engine selector is not the access-control boundary.
+The Pro calculation is executed by `POST /api/pro/simulate`. The route calls `requireProUser()` before accepting simulation inputs, so hiding the engine selector is not the access-control boundary.
 
 ## Version 1: Phase of Play
 
@@ -21,13 +21,13 @@ The Pro engine combines two distinct inputs:
 - **ESPN provides current roster membership and team identity.** Pitchline reuses the team's ESPN ID and competition slug from the live board.
 - **EA SPORTS FC 27 provides player-quality attributes.** Pitchline uses EA's overall rating, detailed attributes and position data to estimate player contributions.
 
-Pitchline does not use SportAPI.ai, API-Football or individual ESPN season-stat requests for this player-intelligence feature. This is not the same as an EA match-engine simulation.
+Pitchline does not use individual ESPN season-stat requests for this player-intelligence feature. This is not the same as an EA match-engine simulation.
 
 ### Data flow
 
 1. Read the selected club or national team's current ESPN roster.
 2. Normalize each roster player's name, position and nationality.
-3. Load the required two-character name-prefix shards from the private \`ea_fc27_player_shards\` Firestore collection.
+3. Load the required two-character name-prefix shards from the private `ea_fc27_player_shards` Firestore collection.
 4. Match by exact normalized name keys. Position and nationality can disambiguate duplicate names; an unresolved collision remains unmatched.
 5. Calculate per-player attack, creativity, defence and goalkeeper scores from EA's detailed attributes.
 6. Aggregate matched players by their current ESPN roster positions and estimate squad depth from the lower-rated half.

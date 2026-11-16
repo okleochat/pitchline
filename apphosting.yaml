@@ -1,0 +1,55 @@
+runConfig:
+  minInstances: 0
+  maxInstances: 4
+  concurrency: 60
+  cpu: 1
+  memoryMiB: 1024
+
+env:
+  - variable: FIREBASE_PROJECT_ID
+    value: pitchline-app
+    availability:
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: "AIzaSyD8ndpdBNSli3Xhl6YrnggML98CdZWBWno"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: pitchline-app.firebaseapp.com
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: pitchline-app
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: "1:1065415732349:web:d42fd2b8915ac5fcf0d514"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: pitchline-app.firebasestorage.app
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "1065415732349"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+    value: "G-1MMY7M7YT2"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: SPORTMONKS_XG_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME
+  - variable: SPORTMONKS_ODDS_ENABLED
+    value: "false"
+    availability:
+      - RUNTIME

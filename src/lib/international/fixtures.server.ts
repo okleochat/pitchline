@@ -291,9 +291,11 @@ export async function getUpcomingInternationalFixtures(days = 14): Promise<Inter
   const unavailable = boards
     .filter((item) => item.partial)
     .map((item) => item.source.name)
-  const now = Date.now()
-  // Lagos is UTC+1 year-round; endDate is a Lagos calendar date.
-  const end = new Date(endDate + "T22:59:59.999Z").getTime()
+  // Keep every event on the current Lagos calendar day, including matches
+  // already played or in progress, so the date page can show results. The
+  // shared simulator board separately filters to future pre-kickoff fixtures.
+  const start = new Date(startDate + "T00:00:00+01:00").getTime()
+  const end = new Date(endDate + "T23:59:59.999+01:00").getTime()
   const byId = new Map<string, InternationalFixture>()
 
   for (const { source, board } of boards) {
@@ -302,7 +304,7 @@ export async function getUpcomingInternationalFixtures(days = 14): Promise<Inter
       const fixture = mapEvent(event, source)
       if (!fixture) continue
       const kickoff = new Date(fixture.kickoff).getTime()
-      if (kickoff < now || kickoff > end) continue
+      if (kickoff < start || kickoff > end) continue
       if (!byId.has(fixture.id)) byId.set(fixture.id, fixture)
     }
   }

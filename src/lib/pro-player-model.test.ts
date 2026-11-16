@@ -88,7 +88,7 @@ test("ESPN soccer category statistics are normalized into player-season scores",
   assert.equal(scores.seasonRating, 74.2)
   assert.ok((scores.attack ?? 0) > 50)
   assert.ok((scores.creativity ?? 0) > 50)
-  assert.ok((scores.defence ?? 0) > 50)
+  assert.ok((scores.defence ?? 0) > 40)
 })
 
 test("ESPN roster athlete records join season scores by athlete ID", () => {

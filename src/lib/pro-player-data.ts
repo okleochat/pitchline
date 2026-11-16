@@ -33,12 +33,15 @@ export type TeamLineupFactors = {
 }
 
 export type ProTeamLineup = {
-  teamId: string
+  /** The Pitchline team label, not the provider's raw team record. */
   teamName: string
-  formation: string | null
-  coach: string | null
-  starters: LineupPlayer[]
-  substitutes: LineupPlayer[]
+  startingCount: number
+  ratedStartingCount: number
+  substituteCount: number
+  ratedSubstituteCount: number
+  attackIndex: number
+  creativityIndex: number
+  defenceIndex: number
   factors: TeamLineupFactors
 }
 
@@ -46,6 +49,7 @@ export type PlayerDataStatus =
   | "available"
   | "partial"
   | "not_configured"
+  | "not_licensed"
   | "fixture_not_selected"
   | "team_not_found"
   | "match_not_found"
@@ -56,8 +60,6 @@ export type ProPlayerData = {
   provider: "API-Football"
   status: PlayerDataStatus
   note: string
-  fixtureId?: string
-  retrievedAt?: string
   home: ProTeamLineup | null
   away: ProTeamLineup | null
   adjustmentsApplied: boolean

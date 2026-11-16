@@ -9,6 +9,7 @@ import {
 import type {
   LineupPlayer,
   PlayerDataStatus,
+  PlayerScores,
   PlayerTeamContext,
   ProPlayerData,
   ProTeamLineup,
@@ -238,7 +239,7 @@ function seasonPlayerResponse(payload: unknown[]): unknown[] {
 
 function parseLineupSide(
   value: unknown,
-  stats: Map<string, ReturnType<typeof statsValue>>,
+  stats: Map<string, PlayerScores>,
 ): ProTeamLineup | null {
   const row = record(value)
   const team = record(row?.team)
@@ -263,10 +264,6 @@ function parseLineupSide(
     substitutes: benchPlayers,
     factors,
   }
-}
-
-function statsValue(value: unknown) {
-  return value as import("@/lib/pro-player-data").PlayerScores | null
 }
 
 function ratedStarterCount(lineup: ProTeamLineup | null): number {

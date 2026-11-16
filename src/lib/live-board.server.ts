@@ -637,7 +637,7 @@ export function getLiveBoard(): Promise<Board> {
   return inflight
 }
 
-export type FormGame = { gf: number; ga: number; xgf?: number; xga?: number }
+export type FormGame = { gf: number; ga: number; xgf?: number; xga?: number; xgSource?: string }
 export type FormResult = {
   home: { games: FormGame[] } | null
   away: { games: FormGame[] } | null

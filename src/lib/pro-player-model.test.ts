@@ -6,6 +6,7 @@ import {
   derivePlayerScores,
   deriveSquadFactors,
   normaliseSquadPlayer,
+  selectEspnSeasonStats,
 } from "./pro-player-model.ts"
 
 const attackerStats = {
@@ -89,6 +90,72 @@ test("ESPN soccer category statistics are normalized into player-season scores",
   assert.ok((scores.attack ?? 0) > 50)
   assert.ok((scores.creativity ?? 0) > 50)
   assert.ok((scores.defence ?? 0) > 40)
+})
+
+test("ESPN Core API statistics-log references select the requested season", () => {
+  const selection = selectEspnSeasonStats({
+    items: [
+      {
+        season: { "$ref": "https://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2025?lang=en" },
+        statistics: { "$ref": "https://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/athletes/123/statistics/0?lang=en" },
+      },
+      {
+        season: { "$ref": "https://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/seasons/2026?lang=en" },
+        statistics: "https://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/athletes/123/statistics/1?lang=en",
+      },
+    ],
+  }, 2026)
+  assert.equal(selection.season, 2026)
+  assert.equal(selection.reference, "https://sports.core.api.espn.com/v2/sports/soccer/leagues/esp.1/athletes/123/statistics/1?lang=en")
+  assert.equal(selection.data, null)
+})
+
+test("ESPN Core API can fall back only to the immediately previous season", () => {
+  const selection = selectEspnSeasonStats({
+    items: [{
+      season: { "$ref": "https://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1/seasons/2025" },
+      statistics: { "$ref": "https://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1/athletes/123/statistics/0" },
+    }],
+  }, 2026)
+  assert.equal(selection.season, 2025)
+  assert.ok(selection.reference?.endsWith("/statistics/0"))
+  assert.equal(selectEspnSeasonStats({
+    items: [{
+      season: { "$ref": "https://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1/seasons/2024" },
+      statistics: { "$ref": "https://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1/athletes/123/statistics/0" },
+    }],
+  }, 2026).reference, null)
+})
+
+test("ESPN Core API statistics payloads inside splits are normalized", () => {
+  const scores = deriveEspnPlayerScores({
+    athlete: { id: "123" },
+    splits: {
+      categories: [
+        {
+          name: "general",
+          stats: [
+            { name: "appearances", value: 18 },
+            { name: "minutes", value: 1420 },
+            { name: "rating", value: 7.1 },
+          ],
+        },
+        {
+          name: "offensive",
+          stats: [
+            { name: "goals", value: 8 },
+            { name: "assists", value: 4 },
+            { name: "shots", value: 27 },
+            { name: "shotsOnTarget", value: 15 },
+          ],
+        },
+      ],
+    },
+  })
+  assert.ok(scores)
+  assert.equal(scores.appearances, 18)
+  assert.equal(scores.minutes, 1420)
+  assert.equal(scores.seasonRating, 71)
 })
 
 test("ESPN roster athlete records join season scores by athlete ID", () => {

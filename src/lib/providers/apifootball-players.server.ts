@@ -285,14 +285,14 @@ async function statsForSquad(
   teamId: string,
   players: SquadPlayer[],
   season: number,
-): Promise<unknown[]> {
+): Promise<Map<string, PlayerScores>> {
   if (team.league === "int") {
     // A national team's own match sample is too small for many players. Pull
     // each announced squad member's club-season statistics by player ID.
     const profiles = await mapWithConcurrency(players, 4, (player) =>
       playerStatsForPlayer(player.id, season)
     )
-    return profiles.flat()
+    return buildPlayerSeasonStats(profiles.flat())
   }
 
   const firstPage = await playerStatsForTeam(teamId, season, 1)
@@ -307,7 +307,7 @@ async function statsForSquad(
   // If a club is still early in its season, use the previous season only for
   // squad members missing from current-season records. Current-season records
   // always take priority when both are available.
-  let stats = buildPlayerSeasonStats(rows)
+  const stats = buildPlayerSeasonStats(rows)
   const ratedCount = players.filter((player) => stats.has(player.id)).length
   if (ratedCount < 8 && season > 2000) {
     const previousFirstPage = await playerStatsForTeam(teamId, season - 1, 1)
@@ -320,28 +320,7 @@ async function statsForSquad(
       if (!stats.has(playerId)) stats.set(playerId, score)
     }
   }
-  // Convert the merged records back to the response shape consumed by the
-  // common score builder so that every source follows the same join-by-ID path.
-  return players.flatMap((player) => {
-    const score = stats.get(player.id)
-    if (!score) return []
-    return [{
-      player: { id: Number(player.id), name: player.name },
-      statistics: [{
-        games: {
-          minutes: score.minutes,
-          appearences: score.appearances,
-          rating: score.seasonRating === null ? null : String(score.seasonRating / 10),
-        },
-        goals: { total: 0, assists: 0, saves: 0, conceded: 0 },
-        shots: { total: 0, on: 0 },
-        passes: { key: 0, accuracy: "0" },
-        tackles: { total: 0, interceptions: 0 },
-        duels: { total: 0, won: 0 },
-        dribbles: { attempts: 0, success: 0 },
-      }],
-    }]
-  })
+  return stats
 }
 
 async function loadTeamSquad(
@@ -358,8 +337,7 @@ async function loadTeamSquad(
   if (!basePlayers.length) return null
 
   const season = playerPerformanceSeason(date, team)
-  const playerRows = await statsForSquad(team, teamId, basePlayers, season)
-  const playerStats = buildPlayerSeasonStats(playerRows)
+  const playerStats = await statsForSquad(team, teamId, basePlayers, season)
   const players = rawPlayers
     .map((entry) => normaliseSquadPlayer(entry, playerStats))
     .filter((player): player is SquadPlayer => player !== null)

@@ -190,7 +190,7 @@ async function apiRequest(endpoint: string, params: Record<string, string>): Pro
   const errors = record(root.errors)
   if (errors && Object.values(errors).some((value) => Boolean(value))) {
     const values = Object.values(errors).map(String).join(" ")
-    if (/rate limit|requests limit/i.test(values)) throw new Error("rate_limited")
+    if (/rate limit|requests limit/i.test(values)) throw new Error("request_deferred")
     throw new Error("provider_unavailable")
   }
   return root.response
@@ -297,78 +297,117 @@ function squadEntries(response: unknown[], teamId: string): unknown[] {
   return []
 }
 
+type SquadStatsLookup = {
+  stats: Map<string, PlayerScores>
+  deferred: boolean
+}
+
 async function statsForSquad(
   team: PlayerTeamContext,
   teamId: string,
   players: SquadPlayer[],
   season: number,
-): Promise<Map<string, PlayerScores>> {
+): Promise<SquadStatsLookup> {
   if (team.league === "int") {
     // A national team's own match sample is too small for many players. Pull
     // each announced squad member's club-season statistics by player ID.
-    const profiles = await mapWithConcurrency(players, 4, (player) =>
-      playerStatsForPlayer(player.id, season)
-    )
-    return buildPlayerSeasonStats(profiles.flat())
+    // Requests that exceed the per-minute budget are skipped for this pass;
+    // their squad members are retried from the shared cache on the next poll.
+    const profiles = await mapWithConcurrency(players, 4, async (player) => {
+      try {
+        return await playerStatsForPlayer(player.id, season)
+      } catch (error) {
+        if (error instanceof Error && error.message === "request_deferred") return null
+        throw error
+      }
+    })
+    return {
+      stats: buildPlayerSeasonStats(profiles.flatMap((rows) => rows ?? [])),
+      deferred: profiles.some((rows) => rows === null),
+    }
   }
 
-  const firstPage = await playerStatsForTeam(teamId, season, 1)
-  const rows = [...firstPage]
-  // API-Football returns 20 player records per page. Only fetch a second page
-  // when the first page is full, which keeps quota use lower for small teams.
-  if (firstPage.length >= 20) {
-    const secondPage = await playerStatsForTeam(teamId, season, 2)
-    rows.push(...secondPage)
+  let deferred = false
+  let currentRows: unknown[] = []
+  try {
+    currentRows = await playerStatsForTeam(teamId, season, 1)
+    if (currentRows.length >= 20) {
+      try {
+        currentRows.push(...await playerStatsForTeam(teamId, season, 2))
+      } catch (error) {
+        if (error instanceof Error && error.message === "request_deferred") deferred = true
+        else throw error
+      }
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message === "request_deferred") {
+      return { stats: new Map(), deferred: true }
+    }
+    throw error
   }
 
-  // If a club is still early in its season, use the previous season only for
-  // squad members missing from current-season records. Current-season records
-  // always take priority when both are available.
-  const stats = buildPlayerSeasonStats(rows)
+  const stats = buildPlayerSeasonStats(currentRows)
   const ratedCount = players.filter((player) => stats.has(player.id)).length
   if (ratedCount < 8 && season > 2000) {
-    const previousFirstPage = await playerStatsForTeam(teamId, season - 1, 1)
-    const previousRows = [...previousFirstPage]
-    if (previousFirstPage.length >= 20) {
-      previousRows.push(...await playerStatsForTeam(teamId, season - 1, 2))
-    }
-    const previousStats = buildPlayerSeasonStats(previousRows)
-    for (const [playerId, score] of previousStats) {
-      if (!stats.has(playerId)) stats.set(playerId, score)
+    try {
+      const previousRows = await playerStatsForTeam(teamId, season - 1, 1)
+      if (previousRows.length >= 20) {
+        try {
+          previousRows.push(...await playerStatsForTeam(teamId, season - 1, 2))
+        } catch (error) {
+          if (error instanceof Error && error.message === "request_deferred") deferred = true
+          else throw error
+        }
+      }
+      const previousStats = buildPlayerSeasonStats(previousRows)
+      for (const [playerId, score] of previousStats) {
+        if (!stats.has(playerId)) stats.set(playerId, score)
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "request_deferred") deferred = true
+      else throw error
     }
   }
-  return stats
+  return { stats, deferred }
+}
+
+type TeamSquadLookup = {
+  squad: ProTeamSquad | null
+  deferred: boolean
 }
 
 async function loadTeamSquad(
   team: PlayerTeamContext,
   teamId: string,
   date: Date,
-): Promise<ProTeamSquad | null> {
+): Promise<TeamSquadLookup> {
   const rawResponse = await squadResponse(teamId)
   const rawPlayers = squadEntries(rawResponse, teamId)
   const emptyStats = new Map<string, PlayerScores>()
   const basePlayers = rawPlayers
     .map((entry) => normaliseSquadPlayer(entry, emptyStats))
     .filter((player): player is SquadPlayer => player !== null)
-  if (!basePlayers.length) return null
+  if (!basePlayers.length) return { squad: null, deferred: false }
 
   const season = playerPerformanceSeason(date, team)
-  const playerStats = await statsForSquad(team, teamId, basePlayers, season)
+  const lookup = await statsForSquad(team, teamId, basePlayers, season)
   const players = rawPlayers
-    .map((entry) => normaliseSquadPlayer(entry, playerStats))
+    .map((entry) => normaliseSquadPlayer(entry, lookup.stats))
     .filter((player): player is SquadPlayer => player !== null)
-  if (!players.length) return null
+  if (!players.length) return { squad: null, deferred: lookup.deferred }
 
   const derived = deriveSquadFactors(players)
   return {
-    teamName: team.name,
-    squadCount: players.length,
-    ratedPlayerCount: derived.factors.ratedPlayers,
-    attackIndex: derived.attackIndex,
-    creativityIndex: derived.creativityIndex,
-    defenceIndex: derived.defenceIndex,
-    factors: derived.factors,
+    squad: {
+      teamName: team.name,
+      squadCount: players.length,
+      ratedPlayerCount: derived.factors.ratedPlayers,
+      attackIndex: derived.attackIndex,
+      creativityIndex: derived.creativityIndex,
+      defenceIndex: derived.defenceIndex,
+      factors: derived.factors,
+    },
+    deferred: lookup.deferred,
   }
 }
 
@@ -414,14 +453,19 @@ export async function getProPlayerData(input: {
     }
 
     const now = new Date()
-    const [home, away] = await Promise.all([
+    const [homeLookup, awayLookup] = await Promise.all([
       loadTeamSquad(input.home, homeProviderId, now),
       loadTeamSquad(input.away, awayProviderId, now),
     ])
+    const home = homeLookup.squad
+    const away = awayLookup.squad
     if (!home || !away) {
+      const syncing = homeLookup.deferred || awayLookup.deferred
       return resultData(
-        "squad_not_available",
-        "The provider could not return a registered squad for both teams. The Pro simulation will use team-level inputs.",
+        syncing ? "syncing" : "squad_not_available",
+        syncing
+          ? "Player data is being fetched in safe batches to respect API-Football's per-minute limit. This simulation will refresh automatically."
+          : "The provider could not return a registered squad for both teams. The Pro simulation will use team-level inputs.",
         home,
         away,
       )
@@ -432,19 +476,22 @@ export async function getProPlayerData(input: {
       input.home.name + " " + home.ratedPlayerCount + "/" + home.squadCount,
       input.away.name + " " + away.ratedPlayerCount + "/" + away.squadCount,
     ].join("; ")
+    const syncing = !bothApplied && (homeLookup.deferred || awayLookup.deferred)
     return resultData(
-      bothApplied ? "available" : "partial",
+      bothApplied ? "available" : syncing ? "syncing" : "partial",
       bothApplied
         ? "Player-season data from both registered squads is incorporated into the Pro simulation. No matchday starting XI or formation is required."
-        : "The registered squads were found, but player-season statistics do not cover enough of both squads to adjust team strength. The model keeps player multipliers neutral. Coverage: " + coverageNote + ".",
+        : syncing
+          ? "Player-season data is loading in safe batches. The next batch will be requested automatically. Current coverage: " + coverageNote + "."
+          : "The registered squads were found, but player-season statistics do not cover enough of both squads to adjust team strength. The model keeps player multipliers neutral. Coverage: " + coverageNote + ".",
       home,
       away,
     )
   } catch (error) {
     const reason = error instanceof Error ? error.message : ""
-    const note = reason === "rate_limited"
-      ? "API-Football's daily or per-minute request limit was reached. Cached squad and player records will be reused when available."
+    const note = reason === "request_deferred" || reason === "rate_limited"
+      ? "API-Football's per-minute request budget is temporarily full. Player data will resume on the next automatic refresh."
       : "API-Football could not provide registered squad and player-season data. The Pro simulation will use team-level inputs."
-    return resultData("provider_error", note)
+    return resultData(reason === "request_deferred" || reason === "rate_limited" ? "syncing" : "provider_error", note)
   }
 }

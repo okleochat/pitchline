@@ -106,7 +106,11 @@ function clamp(n: number, lo: number, hi: number): number {
 }
 
 /** edge is a home scoring multiplier. 1 is a neutral pitch. */
-export function expectedGoals(home: Team, away: Team, edge: number): { homeXg: number; awayXg: number } {
+export function expectedGoals(
+  home: Pick<Team, "attack" | "defense">,
+  away: Pick<Team, "attack" | "defense">,
+  edge: number,
+): { homeXg: number; awayXg: number } {
   const safe = clamp(edge, 0.7, 1.6)
   const homeXg = clamp(home.attack * (away.defense / LEAGUE_AVG) * safe, 0.12, 4.8)
   const awayXg = clamp(away.attack * (home.defense / LEAGUE_AVG) / Math.sqrt(safe), 0.08, 4.4)

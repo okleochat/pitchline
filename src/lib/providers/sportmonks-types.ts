@@ -47,4 +47,4 @@ export type SportmonksFixtureResult = {
   fetchedAt: string
 }
 
-export type TeamXgForm = { xgf: number; xga: number; date: string }
+export type TeamXgForm = { xgf: number; xga: number; date: string; source: string }

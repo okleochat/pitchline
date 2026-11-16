@@ -153,7 +153,10 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
   const today = dateInLagos()
   const upcoming = upcomingCache.get(today + ":14")
   const upcomingEnd = addDays(today, 14)
-  if (upcoming && upcoming.expiresAt > Date.now() && date >= today && date <= upcomingEnd) {
+  // Today's scoreboard may already contain live and completed matches. The
+  // shared upcoming cache intentionally contains only future pre-kickoff
+  // fixtures, so only reuse it for strictly future dates.
+  if (upcoming && upcoming.expiresAt > Date.now() && date > today && date <= upcomingEnd) {
     const fixtures = upcoming.value.fixtures.filter((fixture) => {
       const kickoffParts = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Africa/Lagos",

@@ -118,7 +118,7 @@ Raw EA player records stay server-side. The browser receives only aggregate team
 
 ## 5. Refresh and verify
 
-A weekly refresh is a reasonable starting cadence. Run the same upload command again to update the EA ratings snapshot and its name shards. The Firestore documents include a sync timestamp so Pitchline can show which snapshot was used.
+The scheduled GitHub Actions workflow refreshes the EA ratings snapshot every week, and the Firestore metadata and player shards carry the same sync timestamp so Pitchline can show exactly which snapshot was used. No routine local command is required. For an early refresh, start **Sync EA FC 27 player ratings** from the GitHub Actions tab.
 
 After the first upload:
 

@@ -73,13 +73,14 @@ export function deriveEaPlayerScores(source: unknown): PlayerScores | null {
 
   const attack = weightedScore([
     [stat(root, stats, "finishing"), 0.21],
-    [stat(root, stats, "positioning"), 0.15],
-    [stat(root, stats, "shotPower"), 0.11],
-    [stat(root, stats, "longShots"), 0.06],
+    [stat(root, stats, "positioning"), 0.14],
+    [stat(root, stats, "shotPower"), 0.10],
+    [stat(root, stats, "longShots"), 0.05],
     [stat(root, stats, "volleys"), 0.04],
+    [stat(root, stats, "headingAccuracy", "heading"), 0.05],
     [shooting, 0.15],
-    [pace, 0.10],
-    [dribbling, 0.10],
+    [pace, 0.09],
+    [dribbling, 0.09],
     [stat(root, stats, "sprintSpeed", "acceleration"), 0.08],
   ]) ?? overall
 
@@ -94,15 +95,15 @@ export function deriveEaPlayerScores(source: unknown): PlayerScores | null {
   ]) ?? overall
 
   const defence = weightedScore([
-    [stat(root, stats, "defensiveAwareness"), 0.24],
-    [stat(root, stats, "standingTackle"), 0.17],
+    [stat(root, stats, "defensiveAwareness", "marking"), 0.22],
+    [stat(root, stats, "standingTackle"), 0.16],
     [stat(root, stats, "slidingTackle"), 0.09],
-    [stat(root, stats, "interceptions"), 0.14],
+    [stat(root, stats, "interceptions"), 0.13],
     [defending, 0.15],
-    [stat(root, stats, "strength"), 0.08],
+    [stat(root, stats, "strength"), 0.07],
     [stat(root, stats, "aggression"), 0.05],
-    [stat(root, stats, "headingAccuracy", "jumping"), 0.04],
-    [physicality, 0.04],
+    [stat(root, stats, "headingAccuracy", "heading", "jumping"), 0.06],
+    [physicality, 0.07],
   ]) ?? overall
 
   const goalkeeper = weightedScore([

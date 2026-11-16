@@ -1,6 +1,6 @@
 import type { Board } from "@/data/football"
 
-export type FormGame = { gf: number; ga: number }
+export type FormGame = { gf: number; ga: number; xgf?: number; xga?: number }
 export type FormResult = {
   home: { games: FormGame[] } | null
   away: { games: FormGame[] } | null

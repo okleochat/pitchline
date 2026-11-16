@@ -35,16 +35,48 @@ PAGE_SIZE = 100
 MAX_RETRIES = 4
 REQUEST_TIMEOUT = 45
 
-STAT_KEYS = (
-    "pac", "sho", "pas", "dri", "def", "phy",
-    "acceleration", "sprintSpeed", "finishing", "shotPower", "longShots",
-    "volleys", "penalties", "positioning", "crossing", "curve",
-    "freeKickAccuracy", "freeKick", "longPassing", "shortPassing", "vision", "agility",
-    "balance", "reactions", "ballControl", "dribbling", "composure",
-    "interceptions", "defensiveAwareness", "standingTackle", "slidingTackle",
-    "jumping", "stamina", "strength", "aggression", "heading", "headingAccuracy",
-    "gkDiving", "gkHandling", "gkKicking", "gkPositioning", "gkReflexes",
-)
+STAT_ALIASES = {
+    "pac": ("pac", "pace"),
+    "sho": ("sho", "shooting"),
+    "pas": ("pas", "passing"),
+    "dri": ("dri",),
+    "def": ("def", "defending"),
+    "phy": ("phy", "physicality"),
+    "crossing": ("crossing", "attackingCrossing"),
+    "finishing": ("finishing", "attackingFinishing"),
+    "headingAccuracy": ("headingAccuracy", "attackingHeadingAccuracy", "heading"),
+    "shortPassing": ("shortPassing", "attackingShortPassing"),
+    "volleys": ("volleys", "attackingVolleys"),
+    "dribbling": ("dribbling", "skillDribbling"),
+    "curve": ("curve", "skillCurve"),
+    "freeKickAccuracy": ("freeKickAccuracy", "skillFkAccuracy", "fkAccuracy", "freeKick"),
+    "longPassing": ("longPassing", "skillLongPassing"),
+    "ballControl": ("ballControl", "skillBallControl"),
+    "acceleration": ("acceleration", "movementAcceleration"),
+    "sprintSpeed": ("sprintSpeed", "movementSprintSpeed"),
+    "agility": ("agility", "movementAgility"),
+    "reactions": ("reactions", "movementReactions"),
+    "balance": ("balance", "movementBalance"),
+    "shotPower": ("shotPower", "powerShotPower"),
+    "jumping": ("jumping", "powerJumping"),
+    "stamina": ("stamina", "powerStamina"),
+    "strength": ("strength", "powerStrength"),
+    "longShots": ("longShots", "powerLongShots"),
+    "aggression": ("aggression", "mentalityAggression"),
+    "interceptions": ("interceptions", "mentalityInterceptions"),
+    "positioning": ("positioning", "mentalityPositioning"),
+    "vision": ("vision", "mentalityVision"),
+    "penalties": ("penalties", "mentalityPenalties"),
+    "composure": ("composure", "mentalityComposure"),
+    "defensiveAwareness": ("defensiveAwareness", "defendingAwareness", "marking"),
+    "standingTackle": ("standingTackle", "defendingStandingTackle"),
+    "slidingTackle": ("slidingTackle", "defendingSlidingTackle"),
+    "gkDiving": ("gkDiving", "goalkeepingDiving"),
+    "gkHandling": ("gkHandling", "goalkeepingHandling"),
+    "gkKicking": ("gkKicking", "goalkeepingKicking"),
+    "gkPositioning": ("gkPositioning", "goalkeepingPositioning"),
+    "gkReflexes": ("gkReflexes", "goalkeepingReflexes"),
+}
 
 
 def now_iso() -> str:
@@ -90,11 +122,13 @@ def normalise_player(raw: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     raw_stats = as_dict(raw.get("stats"))
-    stats = {
-        key: value
-        for key in STAT_KEYS
-        if (value := stat_number(raw_stats, key)) is not None
-    }
+    stats: dict[str, int | float] = {}
+    for canonical, aliases in STAT_ALIASES.items():
+        for raw_key in aliases:
+            value = stat_number(raw_stats, raw_key)
+            if value is not None:
+                stats[canonical] = value
+                break
 
     abilities = raw.get("playerAbilities")
     playstyles: list[str] = []

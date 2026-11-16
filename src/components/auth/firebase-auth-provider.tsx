@@ -19,6 +19,16 @@ async function syncServerSession(user: User | null): Promise<ClientUser | null> 
     await fetch("/api/auth/session", { method: "DELETE", cache: "no-store" })
     return null
   }
+
+  // Firebase also emits this callback for routine ID-token refreshes. Reuse
+  // a still-valid server session instead of trying to mint a new cookie with
+  // an old auth_time (which correctly requires a fresh sign-in).
+  const existing = await fetch("/api/me", { cache: "no-store" })
+  if (existing.ok) {
+    const current = (await existing.json()) as { user?: ClientUser | null }
+    if (current.user?.uid === user.uid) return current.user
+  }
+
   const idToken = await user.getIdToken()
   const session = await fetch("/api/auth/session", {
     method: "POST",

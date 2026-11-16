@@ -1,6 +1,6 @@
 import type { Team } from "@/data/football"
+import { PRO_SIM_RUNS } from "./pro-sim-config.ts"
 import {
-  LEAGUE_AVG,
   expectedGoals,
   hashSeed,
   mulberry32,
@@ -11,7 +11,6 @@ import {
 
 export type ProTeam = Pick<Team, "id" | "name" | "attack" | "defense">
 
-export const PRO_SIM_RUNS = 2_500
 const POSSESSIONS_PER_MATCH = 180
 const POSSESSIONS_PER_SIDE = POSSESSIONS_PER_MATCH / 2
 const BASE_BUILD_UP = 0.88

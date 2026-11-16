@@ -34,6 +34,7 @@ export type SportmonksFixture = {
   participants?: SportmonksParticipant[]
   league?: { name?: string }
   state?: { name?: string; short_name?: string; state?: string }
+  xGFixture?: SportmonksXgMetric[]
   xgfixture?: SportmonksXgMetric[]
   odds?: SportmonksOdd[]
   scores?: unknown[]

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getLiveBoard } from "@/lib/live-board.server"
+import { sportmonksConfig } from "@/lib/providers/sportmonks"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -17,6 +18,7 @@ export async function GET() {
     .map((value) => new Date(value).getTime())
     .filter(Number.isFinite)
     .reduce((oldest, value) => Math.min(oldest, value), Date.now())
+  const sportmonks = sportmonksConfig()
   const webFirebaseConfigured = [
     process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
     process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -45,6 +47,12 @@ export async function GET() {
     firebase: {
       webConfigured: webFirebaseConfigured,
       adminConfigured: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON),
+    },
+    dataProvider: {
+      name: "Sportmonks",
+      configured: sportmonks.configured,
+      xgEnabled: sportmonks.xgEnabled,
+      oddsEnabled: sportmonks.oddsEnabled,
     },
   }, {
     status: health === "degraded" ? 503 : 200,

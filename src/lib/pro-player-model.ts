@@ -45,11 +45,11 @@ export function positionFrom(value: unknown): PlayerPosition {
   const candidate = position?.shortLabel ?? position?.abbreviation ?? position?.abbr ?? position?.name ?? value
   const raw = typeof candidate === "string" ? candidate.trim().toUpperCase() : ""
   if (["G", "GK", "GKP"].includes(raw) || raw.includes("GOALKEEPER")) return "GK"
-  if (["CB", "LCB", "RCB", "LB", "RB", "LWB", "RWB", "SW"].includes(raw) ||
+  if (["D", "DF", "DEF", "CB", "LCB", "RCB", "LB", "RB", "LWB", "RWB", "SW"].includes(raw) ||
       raw.includes("DEFENDER") || raw.includes("BACK")) return "DF"
-  if (["CDM", "CM", "LCM", "RCM", "CAM", "LM", "RM", "DM"].includes(raw) ||
+  if (["M", "MF", "MID", "CDM", "CM", "LCM", "RCM", "CAM", "LM", "RM", "DM"].includes(raw) ||
       raw.includes("MIDFIELDER")) return "MF"
-  if (["ST", "CF", "LW", "RW", "LF", "RF"].includes(raw) ||
+  if (["F", "FW", "ATT", "ST", "CF", "LW", "RW", "LF", "RF"].includes(raw) ||
       raw.includes("FORWARD") || raw.includes("STRIKER") || raw.includes("ATTACKER")) return "FW"
   return "UNK"
 }

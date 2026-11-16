@@ -60,3 +60,9 @@ test("rolling builder validates completed-at timestamps and team identities", ()
   duplicate[1].away_team_id = duplicate[1].home_team_id
   assert.throws(() => prepareBacktestRows(duplicate, 5), /distinct home_team_id/)
 })
+
+test("raw builder omits xG columns if any prepared fixture lacks a full single-source xG window", () => {
+  const rows = parseCsv(rawCsv(), requiredRawColumns())
+  const prepared = prepareBacktestRows(rows, 5)
+  assert.ok(prepared.every((row) => !row.home_xg_for && !row.xg_source))
+})

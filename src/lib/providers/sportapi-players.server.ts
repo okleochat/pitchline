@@ -21,6 +21,8 @@ type CacheEntry = { expiresAt: number; value: unknown }
 type ProviderResponse = {
   status: number
   data: Dict | null
+  dailyRemaining: string | null
+  monthlyRemaining: string | null
 }
 type ResolvedTeam = {
   id: string
@@ -183,13 +185,29 @@ async function sportApiGet(path: string, apiKey: string): Promise<ProviderRespon
       },
       cache: "no-store",
     })
-    if (!response.ok) return { status: response.status, data: null }
+    const dailyRemaining = response.headers.get("X-RateLimit-Remaining")
+    const monthlyRemaining = response.headers.get("X-RateLimit-Month-Remaining")
+    if (!response.ok) {
+      return {
+        status: response.status,
+        data: null,
+        dailyRemaining,
+        monthlyRemaining,
+      }
+    }
     const payload: unknown = await response.json()
     const outer = record(payload)
-    if (!outer || outer.success === false) return { status: response.status, data: null }
-    return { status: response.status, data: outer }
+    if (!outer || outer.success === false) {
+      return {
+        status: response.status,
+        data: null,
+        dailyRemaining,
+        monthlyRemaining,
+      }
+    }
+    return { status: response.status, data: outer, dailyRemaining, monthlyRemaining }
   } catch {
-    return { status: 0, data: null }
+    return { status: 0, data: null, dailyRemaining: null, monthlyRemaining: null }
   }
 }
 
@@ -362,18 +380,28 @@ async function loadTeamSquad(
       (value) => value.data === null || !Array.isArray(responsePayload(value.data).matches) ||
         (responsePayload(value.data).matches as unknown[]).length === 0,
     )
+    const payload = response.data ? responsePayload(response.data) : null
     return {
       id: player.id,
       status: response.status,
       scores: response.data ? deriveSportApiPlayerScores(response.data, window.start, window.end) : null,
+      matchRows: Array.isArray(payload?.matches) ? payload.matches.length : 0,
+      dailyRemaining: response.dailyRemaining,
+      monthlyRemaining: response.monthlyRemaining,
     }
   })
 
   const playerStats = new Map<string, PlayerScores>()
   const statusCounts = new Map<number, number>()
+  let matchRows = 0
+  const dailyRemaining = statsRows.map((row) => row.dailyRemaining)
+    .filter((value): value is string => value !== null)
+  const monthlyRemaining = statsRows.map((row) => row.monthlyRemaining)
+    .filter((value): value is string => value !== null)
   statsRows.forEach((row) => {
     if (row.scores) playerStats.set(row.id, row.scores)
     statusCounts.set(row.status, (statusCounts.get(row.status) ?? 0) + 1)
+    matchRows += row.matchRows
   })
 
   console.info("[Pitchline SportAPI] Player-stat lookup", {
@@ -383,7 +411,10 @@ async function loadTeamSquad(
     rosterSize: basePlayers.length,
     attempted: candidates.length,
     rated: playerStats.size,
+    matchRows,
     httpStatuses: Object.fromEntries(statusCounts),
+    dailyRequestsRemaining: dailyRemaining.at(-1) ?? null,
+    monthlyRequestsRemaining: monthlyRemaining.at(-1) ?? null,
     seasonStart: window.start,
     seasonEnd: window.end,
   })

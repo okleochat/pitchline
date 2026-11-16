@@ -30,7 +30,7 @@ export type TeamPlayerFactors = {
   attackMultiplier: number
   creativityMultiplier: number
   defenceMultiplier: number
-  /** Average base rating of the lower-rated half of the club's EA player pool. */
+  /** Average base rating of the lower-rated half of matched ESPN roster players. */
   squadDepth: number
   ratedPlayers: number
   squadCount: number
@@ -46,7 +46,7 @@ export type ProSquadTopPlayer = {
 }
 
 export type ProTeamSquad = {
-  /** Pitchline's team label, not the EA database's raw club label. */
+  /** Pitchline's label for the current ESPN roster. */
   teamName: string
   squadCount: number
   ratedPlayerCount: number

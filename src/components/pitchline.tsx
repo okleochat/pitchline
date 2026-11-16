@@ -19,7 +19,8 @@ import {
 } from "@/data/football"
 import { loadBoard, loadForm, loadProSimulation, type FormResult } from "@/lib/board"
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
-import { PRO_SIM_RUNS, type ProReport } from "@/lib/pro-sim"
+import { PRO_SIM_RUNS } from "@/lib/pro-sim-config"
+import type { ProReport } from "@/lib/pro-sim"
 import {
   DIXON_RHO,
   SIMS,

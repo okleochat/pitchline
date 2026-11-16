@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server"
-import { getLiveBoardForPro } from "@/lib/live-board.server"
-import { getCurrentUser } from "@/lib/firebase/server-session"
+import { getLiveBoard } from "@/lib/live-board.server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
-    const user = await getCurrentUser()
-    const board = await getLiveBoardForPro(Boolean(user?.isPro))
+    const board = await getLiveBoard()
     return NextResponse.json(board, { headers: { "Cache-Control": "no-store, max-age=0" } })
   } catch {
     return NextResponse.json({ error: "board_unavailable" }, { status: 503 })

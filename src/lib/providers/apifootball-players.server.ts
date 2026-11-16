@@ -25,8 +25,6 @@ const SQUAD_CACHE_MS = 24 * 60 * 60 * 1000
 const PLAYER_CACHE_MS = 18 * 60 * 60 * 1000
 const API_WINDOW_MS = 60 * 1000
 const API_MAX_REQUESTS_PER_WINDOW = 6
-let apiWindowStartedAt = 0
-let apiWindowRequestCount = 0
 const apiCache = new Map<string, ApiCacheValue>()
 const inFlight = new Map<string, Promise<unknown>>()
 
@@ -146,22 +144,51 @@ async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Prom
   return task
 }
 
+async function reserveApiRequest(): Promise<void> {
+  const firestore = getFirebaseAdminFirestore()
+  const ref = firestore.collection("provider_api_rate_limits").doc("apifootball")
+  const now = Date.now()
+
+  await firestore.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(ref)
+    const stored = snapshot.data()
+    let windowStartedAt = typeof stored?.windowStartedAt === "number"
+      ? stored.windowStartedAt
+      : now
+    let requestCount = typeof stored?.requestCount === "number"
+      ? stored.requestCount
+      : 0
+
+    if (now - windowStartedAt >= API_WINDOW_MS || now < windowStartedAt) {
+      windowStartedAt = now
+      requestCount = 0
+    }
+    if (requestCount >= API_MAX_REQUESTS_PER_WINDOW) {
+      throw new Error("request_deferred")
+    }
+
+    transaction.set(ref, {
+      windowStartedAt,
+      requestCount: requestCount + 1,
+      updatedAt: now,
+      expiresAt: windowStartedAt + API_WINDOW_MS * 2,
+    })
+  })
+}
+
 async function apiRequest(endpoint: string, params: Record<string, string>): Promise<unknown[]> {
   const apiKey = process.env.API_FOOTBALL_KEY?.trim()
   if (!apiKey) throw new Error("not_configured")
 
-  // API-Football's Free plan allows 10 requests/minute. Keep a small safety
-  // margin per App Hosting instance; deferred lookups are resumed from cache
-  // on the next client refresh rather than bursting and risking a 429.
-  const now = Date.now()
-  if (now - apiWindowStartedAt >= API_WINDOW_MS) {
-    apiWindowStartedAt = now
-    apiWindowRequestCount = 0
+  // API-Football's Free plan allows 10 requests/minute. A shared Firestore
+  // transaction caps Pitchline at six across all App Hosting instances.
+  // Deferred lookups resume from cache on the next client refresh.
+  try {
+    await reserveApiRequest()
+  } catch (error) {
+    if (error instanceof Error && error.message === "request_deferred") throw error
+    throw new Error("provider_unavailable")
   }
-  if (apiWindowRequestCount >= API_MAX_REQUESTS_PER_WINDOW) {
-    throw new Error("request_deferred")
-  }
-  apiWindowRequestCount += 1
 
   const url = new URL(API_BASE + "/" + endpoint.replace(/^\//, ""))
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value)

@@ -2,7 +2,7 @@ import "server-only"
 
 import { getEspnJson } from "@/lib/espn/transport.server"
 import { INTERNATIONAL_COMPETITIONS, type CompetitionSource } from "./competitions"
-import { monthKeysInRange } from "./date-windows"
+import { canReuseUpcomingCache, monthKeysInRange } from "./date-windows"
 
 type Dict = Record<string, unknown>
 
@@ -156,7 +156,7 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
   // Today's scoreboard may already contain live and completed matches. The
   // shared upcoming cache intentionally contains only future pre-kickoff
   // fixtures, so only reuse it for strictly future dates.
-  if (upcoming && upcoming.expiresAt > Date.now() && date > today && date <= upcomingEnd) {
+  if (upcoming && upcoming.expiresAt > Date.now() && canReuseUpcomingCache(date, today, upcomingEnd)) {
     const fixtures = upcoming.value.fixtures.filter((fixture) => {
       const kickoffParts = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Africa/Lagos",

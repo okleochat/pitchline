@@ -344,7 +344,7 @@ def is_mens_player(player: dict[str, Any]) -> bool:
 
 
 def player_shard_id(name_key: str) -> str:
-    compact = re.sub(r"[^a-z0-9]", "", name_key.lower())
+    compact = re.sub(r"[^a-z0-9]", "", fold_name(name_key))
     return compact[:2].ljust(2, "_") if compact else "__"
 
 

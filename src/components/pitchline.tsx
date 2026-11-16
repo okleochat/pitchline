@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { AuthMenu } from "@/components/auth/auth-menu"
+import { SiteHeader } from "@/components/site-header"
 import { ArrowLeftRight, ChevronDown, Minus, Pause, Play, Plus, RotateCcw } from "lucide-react"
 import {
   LEAGUES,
@@ -613,7 +613,7 @@ function marketsFor(home: Team, away: Team, edge: number, fixture: Fixture, mode
   return rows.map((row) => ({ key: `${fixture.id}:${row.label}`, fixture, label: row.label, kind: row.kind, share: row.share }))
 }
 
-export function Pitchline({ initial }: { initial: Board }) {
+export function Pitchline({ initial, initialView = "desk" }: { initial: Board; initialView?: "desk" | "picks" }) {
   const [board, setBoard] = useState(initial)
   const [league, setLeague] = useState<LeagueId>("eng")
   const [homeId, setHomeId] = useState("eng-ars")
@@ -628,7 +628,7 @@ export function Pitchline({ initial }: { initial: Board }) {
   const [sortKey, setSortKey] = useState<SortKey>("index")
   const [sortAsc, setSortAsc] = useState(false)
   const [ready, setReady] = useState(false)
-  const [view, setView] = useState<"desk" | "picks">("desk")
+  const view = initialView
   const [pickKind, setPickKind] = useState<PickKind | "all">("all")
   const [pickLeague, setPickLeague] = useState<LeagueId | "all">("all")
   const [model, setModel] = useState<ModelKind>("plain")
@@ -678,7 +678,6 @@ export function Pitchline({ initial }: { initial: Board }) {
       if (typeof saved.edgePct === "number") setEdgePct(Math.min(140, Math.max(85, Math.round(saved.edgePct))))
       if (typeof saved.spread === "number") setSpread(roundHalf(saved.spread))
       if (typeof saved.totalLine === "number") setTotalLine(roundHalf(saved.totalLine))
-      if (saved.view === "picks" || saved.view === "desk") setView(saved.view)
       if (saved.model === "plain" || saved.model === "dixon") setModel(saved.model)
       if (saved.form === "season" || saved.form === "5" || saved.form === "10") setFormWindow(saved.form)
       if (typeof saved.level === "boolean") setLevel(saved.level)
@@ -832,13 +831,19 @@ export function Pitchline({ initial }: { initial: Board }) {
   }
 
   function openPick(pick: MarketPick) {
-    setRoll(0)
-    loadFixture(pick.fixture.homeId, pick.fixture.awayId, pick.fixture.league)
-    setView("desk")
-    window.setTimeout(() => {
-      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      deskRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" })
-    }, 40)
+    // Persist the selected fixture before navigating to the dedicated match desk page.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      league: pick.fixture.league,
+      homeId: pick.fixture.homeId,
+      awayId: pick.fixture.awayId,
+      edgePct,
+      spread,
+      totalLine,
+      model,
+      form: formWindow,
+      level,
+    } satisfies DeskState))
+    window.location.assign("/")
   }
 
   function rerun() {
@@ -866,48 +871,7 @@ export function Pitchline({ initial }: { initial: Board }) {
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-4 pt-4 pb-16 sm:px-6">
-      <header className="sticky top-0 z-10 -mx-4 mb-6 border-b border-border bg-background px-4 py-3 sm:-mx-6 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Mark />
-            <div>
-              <h1 className="font-display text-3xl leading-none tracking-tight">Pitchline</h1>
-              <p className="mt-1 text-sm text-muted">Football match simulator · {board.season}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <p className="max-w-xs text-sm text-muted">
-              A thousand matches from attack and defense. Not a tip — a counting model you can rerun.
-            </p>
-            <AuthMenu />
-          </div>
-        </div>
-      </header>
-
-      <div className="mb-4 flex gap-2" role="tablist" aria-label="View">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "desk"}
-          onClick={() => setView("desk")}
-          className={`press h-11 rounded-lg px-4 text-sm font-medium ${
-            view === "desk" ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"
-          }`}
-        >
-          Match desk
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "picks"}
-          onClick={() => setView("picks")}
-          className={`press h-11 rounded-lg px-4 text-sm font-medium ${
-            view === "picks" ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"
-          }`}
-        >
-          Best picks
-        </button>
-      </div>
+      <SiteHeader subtitle={`Football match simulator · ${board.season}`} />
 
       {view === "picks" ? (
         <section className="mb-6" aria-label="Best picks">

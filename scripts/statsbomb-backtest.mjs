@@ -71,8 +71,8 @@ export function buildPrematchRows(matches, windowSize = 5) {
     // Every fixture on a date is scored before any fixture from that date is added to history.
     // This conservative day boundary prevents same-day kick-off ordering from leaking features.
     for (const match of group) {
-      const homeKey = match.homeKey ?? match.homeTeam
-      const awayKey = match.awayKey ?? match.awayTeam
+      const homeKey = match.homeKey || match.homeTeam
+      const awayKey = match.awayKey || match.awayTeam
       const homeHistory = history.get(homeKey) ?? []
       const awayHistory = history.get(awayKey) ?? []
       if (homeHistory.length < windowSize || awayHistory.length < windowSize) continue

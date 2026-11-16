@@ -8,25 +8,38 @@ The Pro calculation is executed by `POST /api/pro/simulate`. The route calls `re
 
 ## Version 1: Phase of Play
 
-The first Pro engine simulates a match as a sequence of possessions. Each possession moves through four stages:
+The Pro engine simulates a match as a sequence of possessions. Each possession moves through build-up, progression, chance creation and finishing. The phase probabilities respond to team attacking and defending rates, match state, late-game urgency and a fatigue/substitution curve.
 
-1. Build-up
-2. Progression
-3. Chance creation
-4. Shot quality and finishing
+The model returns the same core markets and score samples as the Classic simulator, together with possession, shot, on-target, build-up and progression summaries.
 
-The phase probabilities respond to the matchup between each team's current attack and the opponent's goals-conceded rate. The match loop also accounts for the score state, late-game urgency, a fatigue curve and a small generic substitution recovery. It returns the same core markets and score samples as the Classic simulator, together with possession, shot, on-target, build-up and progression summaries.
+This is a different simulation structure, not a claim of proven predictive superiority. Until historical out-of-sample testing demonstrates an improvement, it should be described as an experimental Pro model.
 
-This is a new simulation approach, not a claim of proven predictive superiority. Its team-level inputs are the existing Pitchline team rates. Until it has passed historical out-of-sample testing, it should be described as an experimental Pro model.
+## Player and lineup intelligence milestone
 
-## Player data is a separate next layer
+The Pro endpoint can optionally enrich a selected upcoming fixture with API-Football starting lineups and player-season statistics.
 
-Version 1 does **not** claim to use actual starting XIs, player-specific finishing, goalkeeper ratings, fitness or individual tactical roles. Those values are not present in Pitchline's current match-board data, and the engine must not fabricate them.
+- Fixture lookup uses the ISO kickoff timestamp carried from ESPN's live fixture board, then matches the home/away sides against API-Football's upcoming schedule.
+- The connector retrieves each side's lineup, plus season player stats. Team and player responses are cached in Firestore's private `provider_api_cache` collection and locally per instance.
+- Player metrics are converted server-side into position-aware attack, creativity, defensive and goalkeeper indices. Only aggregate Pitchline indices, lineup coverage counts and the resulting multipliers are returned to the browser. Raw API payloads, player-level statistics and the API key are not returned to clients.
+- Player adjustments are applied only when both teams have at least seven rated starters and at least 60% starting-XI coverage. Otherwise neither side receives a lineup adjustment; the model falls back to the team-level Pro simulation.
+- The provider's lineup feed can be unavailable before kick-off or unsupported for a particular competition. When unavailable, Pitchline explicitly reports that it is using team-level inputs.
+- API-Football's free plan advertises 100 requests per day. Firestore caching is shared between App Hosting instances, but request use still needs monitoring.
 
-EA SPORTS FC player ratings are not integrated. EA's current User Agreement restricts copying, extracting or distributing EA content/data unless expressly authorised. EA's FC Community API is currently restricted to three approved community sites. The public ratings page is useful for manual research, but public visibility is not a commercial data licence.
+### Legal and configuration gate
 
-A possible no-subscription connector to evaluate is API-Football. Its current free plan advertises 100 requests/day and includes player and lineup endpoints, but request limits, competition coverage and data-use permissions must be confirmed before production reliance. The lineup endpoint is only populated shortly before kickoff for covered competitions. Add any API key as a server-side secret only; never send it to the browser.
+The connector is disabled unless both environment settings exist:
+
+- `API_FOOTBALL_KEY`: store as a Firebase App Hosting Secret Manager secret. Never place it in client-side configuration, source code or chat.
+- `API_FOOTBALL_DATA_USE_ALLOWED=true`: set only after receiving confirmation that the intended Pitchline Pro use is permitted and any necessary competition/rights-holder authorisations are in place.
+
+API-Football's published terms allow developers to build applications with its feed but say it does not grant a licence to publish the data in an application. The terms also warn that third-party rights may apply and that betting-related use may require additional permissions. The flag is therefore an explicit release gate, not a way to override those terms. See [API-Football terms](https://www.api-football.com/terms), [pricing](https://www.api-football.com/pricing) and [documentation](https://www.api-football.com/documentation-v3).
+
+For the exact Firebase setup and test steps, see [PRO_PLAYER_DATA_SETUP.md](./PRO_PLAYER_DATA_SETUP.md).
+
+## EA SPORTS FC ratings
+
+EA FC player ratings are not integrated. EA's public ratings page is not a commercial data licence, and its terms restrict extracting or redistributing EA content without authorisation. Pitchline derives its own indices from permitted football performance data instead.
 
 ## Validation before marketing claims
 
-Backtest this engine against the Classic simulator on the same historical fixture set, split chronologically into development and held-out periods. Compare 1X2, BTTS and totals using Brier score, log loss and calibration. Keep the model only where it improves out-of-sample forecasts. Do not claim EA-equivalent performance or betting profitability from simulation volume alone.
+Backtest the player-aware Pro engine against the team-level Pro engine and the Classic simulator on the same historical fixture set. Split chronologically into development and held-out periods. Compare 1X2, BTTS and totals using Brier score, log loss and calibration. Keep lineup effects only where they improve out-of-sample forecasts. Do not claim EA-equivalent performance or betting profitability from simulation volume alone.

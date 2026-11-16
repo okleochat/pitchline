@@ -522,6 +522,7 @@ async function loadLeague(
           homeId: homeTeam.id,
           awayId: awayTeam.id,
           when: kickLabel(whenIso, source.tz),
+          kickoffAt: whenIso,
         },
       })
     }
@@ -649,6 +650,7 @@ export async function mergeInternationalFixtures(board: Board, international: In
       homeId: home.id,
       awayId: away.id,
       when: dateLabel(fixture.kickoff),
+      kickoffAt: fixture.kickoff,
       competitionName: fixture.competition,
       competitionRegion: fixture.region,
     }]

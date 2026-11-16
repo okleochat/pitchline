@@ -989,7 +989,9 @@ export function Pitchline({
 
           {shownPicks.length === 0 ? (
             <section className="panel">
-              <p className="text-sm">No fixtures in this filter yet.</p>
+              <p className="text-sm">
+                No picks currently qualify for this selection. International matches without at least three previous results per team are deliberately withheld from Best Picks.
+              </p>
             </section>
           ) : (
             <div className="space-y-2">
@@ -1185,9 +1187,13 @@ export function Pitchline({
             {formNote === "loading"
               ? "Reading recent matches…"
               : formNote === "missing"
-                ? "Recent form needs the live tables. Season rates stay on."
+                ? league === "int"
+                  ? "No completed history returned for one or both teams. Competition-base rates stay on."
+                  : "Recent form needs the live tables. Season rates stay on."
                 : formNote === "error"
-                  ? "Recent matches did not load. Season rates stay on."
+                  ? league === "int"
+                    ? "International match history did not load. Competition-base rates stay on."
+                    : "Recent matches did not load. Season rates stay on."
                   : `Last ${take}: ${formSide(home.short, desk.homeSample, take)}. ${formSide(away.short, desk.awaySample, take)}.`}
           </p>
         ) : null}
@@ -1634,7 +1640,11 @@ export function Pitchline({
           {model === "dixon"
             ? `Dixon–Coles (ρ = ${DIXON_RHO.toFixed(2)}) ties the low scorelines, then each of the ${SIMS.toLocaleString("en-GB")} matches is drawn from that table.`
             : `Each of the ${SIMS.toLocaleString("en-GB")} matches draws the two goal totals independently from those rates.`}{" "}
-          {formWindow !== "season" ? "Last 5 and last 10 replace the season rates on the open match only. " : ""}
+          {formWindow !== "season"
+            ? league === "int"
+              ? "Last 5 and last 10 reweight completed matches from the same international competition on the open match only. "
+              : "Last 5 and last 10 replace the season rates on the open match only. "
+            : ""}
           {level
             ? "The UEFA scale is on for clubs rated from different leagues. "
             : ""}

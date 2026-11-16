@@ -40,6 +40,18 @@ function displayDate(date: string) {
   }).format(new Date(date + "T12:00:00Z"))
 }
 
+function displayKickoff(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Lagos",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(value))
+}
+
 export default async function InternationalPage({
   searchParams,
 }: {
@@ -53,10 +65,23 @@ export default async function InternationalPage({
     getLiveBoard(),
     getInternationalFixtures(date).catch(() => null),
   ])
+
+  const now = Date.now()
+  const allDateFixtures = fixtureResult?.fixtures ?? []
+  const upcomingFixtures = allDateFixtures.filter((fixture) => {
+    const kickoff = new Date(fixture.kickoff).getTime()
+    return !fixture.completed && fixture.statusState === "pre" && kickoff > now
+  })
+  const nonUpcomingFixtures = allDateFixtures.filter((fixture) => {
+    const kickoff = new Date(fixture.kickoff).getTime()
+    return fixture.completed || fixture.statusState === "in" || kickoff <= now
+  })
+
+  // Only simulate future fixtures. Historical results are displayed separately;
+  // using current team form to simulate a past match would leak future data.
   const board = fixtureResult
-    ? await mergeInternationalFixtures(baseBoard, fixtureResult.fixtures)
+    ? await mergeInternationalFixtures(baseBoard, upcomingFixtures)
     : baseBoard
-  const fixtures = board.fixtures.filter((fixture) => fixture.league === "int")
 
   return (
     <div>
@@ -67,7 +92,7 @@ export default async function InternationalPage({
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">National teams</p>
             <h1 className="mt-2 font-display text-4xl tracking-tight">International football</h1>
             <p className="mt-2 max-w-2xl text-sm text-muted">
-              AFCON, Nations League, World Cup and continental qualifiers, and other major national-team competitions. Choose a fixture to open the same simulator used for club matches.
+              AFCON, Nations League, World Cup and continental qualifiers, and other major national-team competitions. Upcoming fixtures use the same Pitchline simulator as club matches.
             </p>
           </div>
           <form action="/international" method="get" className="flex items-end gap-2">
@@ -92,21 +117,55 @@ export default async function InternationalPage({
             <p className="mt-2 text-sm text-muted">ESPN's national-team scoreboard could not be reached. The club match desk and Best Picks remain available.</p>
           </section>
         </div>
-      ) : fixtures.length === 0 ? (
+      ) : null}
+
+      {fixtureResult && upcomingFixtures.length > 0 ? (
+        <Pitchline initial={board} initialLeague="int" showHeader={false} />
+      ) : null}
+
+      {fixtureResult && upcomingFixtures.length === 0 && nonUpcomingFixtures.length === 0 ? (
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <section className="panel">
             <h2 className="font-display text-2xl">No major international fixtures on this date</h2>
-            <p className="mt-2 text-sm text-muted">
-              Try another date. When a national-team fixture is available, selecting it opens the full Pitchline simulator, including 1X2, goals, BTTS, scoreline distributions and the match tape.
-            </p>
-            <p className="mt-3 text-xs text-muted">
-              National-team ratings use that team's previous completed international competition matches. If ESPN returns no history, the simulator clearly uses a neutral fallback rather than club-team ratings.
-            </p>
+            <p className="mt-2 text-sm text-muted">Try another date. When a national-team fixture is available, Pitchline will load its match simulator here.</p>
           </section>
         </div>
-      ) : (
-        <Pitchline initial={board} initialLeague="int" showHeader={false} />
-      )}
+      ) : null}
+
+      {fixtureResult && nonUpcomingFixtures.length > 0 ? (
+        <section className="mx-auto mt-6 max-w-6xl px-4 sm:px-6" aria-label="International results">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="font-display text-2xl tracking-tight">Played / in progress</h2>
+            <p className="text-xs text-muted">Results and kick-off times in West Africa Time</p>
+          </div>
+          <div className="space-y-2">
+            {nonUpcomingFixtures.map((fixture) => (
+              <article key={fixture.id} className="panel">
+                <p className="text-xs text-muted">{fixture.competition} · {fixture.region}</p>
+                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
+                  <p className="truncate text-sm font-medium">{fixture.home.name}</p>
+                  <p className="font-display text-lg tabular-nums">
+                    {fixture.score.home !== null && fixture.score.away !== null
+                      ? fixture.score.home + "–" + fixture.score.away
+                      : "vs"}
+                  </p>
+                  <p className="truncate text-right text-sm font-medium">{fixture.away.name}</p>
+                </div>
+                <p className="mt-2 text-xs text-muted">{displayKickoff(fixture.kickoff)} · {fixture.status}</p>
+              </article>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            Past matches are shown as results, not simulated with today's ratings. This prevents future match results from leaking into historical predictions.
+          </p>
+        </section>
+      ) : null}
+
+      {fixtureResult?.partial ? (
+        <p className="mx-auto mt-5 max-w-6xl px-4 text-xs text-muted sm:px-6">
+          Some competition feeds did not respond; the fixtures shown may be incomplete.
+        </p>
+      ) : null}
     </div>
   )
 }

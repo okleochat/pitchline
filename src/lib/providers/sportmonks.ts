@@ -132,7 +132,7 @@ export async function getSportmonksFixtures(start: string, end: string): Promise
   const fixtures: SportmonksFixture[] = []
   let hasMore = true
   for (let page = 1; page <= FIXTURE_PAGE_LIMIT && hasMore; page += 1) {
-    const url = new URL(`${API_ROOT}/fixtures/between/date/${start}/${end}`)
+    const url = new URL(`${API_ROOT}/fixtures/between/${start}/${end}`)
     addDateRange(url, includes.join(";"), page)
     const body = await requestJson<{
       data?: SportmonksFixture[]

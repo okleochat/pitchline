@@ -14,14 +14,14 @@ The model returns the same core markets and score samples as the Classic simulat
 
 This is a different simulation structure, not a claim of proven predictive superiority. Until historical out-of-sample testing demonstrates an improvement, it should be described as an experimental Pro model.
 
-## Player and registered-squad intelligence
+## Player and current-squad intelligence
 
-The Pro endpoint enriches a team-vs-team simulation with player performance from each team's **registered squad**. It does not require a selected fixture, a kickoff timestamp, an announced starting XI or a predicted formation.
+The Pro endpoint enriches a team-vs-team simulation with player performance from each team's **current squad**. It does not require a selected fixture, a kickoff timestamp, an announced starting XI or a predicted formation.
 
 The data flow is:
 
 1. Match each Pitchline team to its API-Football team ID.
-2. Retrieve its current registered squad from `/players/squads?team={teamId}`.
+2. Retrieve its current current squad from `/players/squads?team={teamId}`.
 3. Join the squad's player IDs to season-performance records.
 4. Derive position-aware attack, creativity, defence and squad-depth indices.
 5. Apply the player-derived factors only when both teams have adequate player-data coverage.
@@ -40,7 +40,7 @@ These individual lookups are cached for 18 hours and run with limited concurrenc
 
 - Player scores are derived from available season statistics: goals, assists, shooting, key passes, passing, tackling, interceptions, duels, dribbling, goalkeeper saves and provider season rating.
 - Positions give the metrics different weights. Minutes played influence a player's contribution with diminishing returns, so a single high-minute player does not dominate the squad index.
-- The lower-usage portion of the registered squad contributes to the squad-depth index used in the late-match recovery curve. It is not a claim about who will be substituted or start.
+- The lower-usage portion of the current squad contributes to the squad-depth index used in the late-match recovery curve. It is not a claim about who will be substituted or start.
 - At least eight rated players and 30% squad coverage are required for a team's factors to be eligible. Factors are shrunk towards neutral in proportion to coverage.
 - Both teams must pass the coverage threshold. If either side fails, neither team's player factors are applied; the Pro engine still runs using the existing team-level inputs.
 

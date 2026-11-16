@@ -37,7 +37,7 @@ const COUNTRY_BY_LEAGUE: Partial<Record<Team["league"], string>> = {
   fra: "France",
   ned: "Netherlands",
   por: "Portugal",
-  tur: "Türkiye",
+  tur: "Turkey",
   ksa: "Saudi Arabia",
   mls: "USA",
   bra: "Brazil",
@@ -313,8 +313,18 @@ function averageScore(players: LineupPlayer[], key: "attack" | "creativity" | "d
   return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10
 }
 
-function publicLineup(teamName: string, lineup: ParsedLineup): ProTeamLineup {
+function publicLineup(teamName: string, lineup: ParsedLineup, applyFactors: boolean): ProTeamLineup {
   const ratedSubs = lineup.substitutes.filter((player) => player.scores !== null).length
+  const factors: TeamLineupFactors = applyFactors
+    ? lineup.factors
+    : {
+        ...lineup.factors,
+        attackMultiplier: 1,
+        creativityMultiplier: 1,
+        defenceMultiplier: 1,
+        benchStrength: 50,
+        applied: false,
+      }
   return {
     teamName,
     startingCount: lineup.starters.length,
@@ -324,7 +334,7 @@ function publicLineup(teamName: string, lineup: ParsedLineup): ProTeamLineup {
     attackIndex: averageScore(lineup.starters, "attack"),
     creativityIndex: averageScore(lineup.starters, "creativity"),
     defenceIndex: averageScore(lineup.starters, "defence"),
-    factors: lineup.factors,
+    factors,
   }
 }
 
@@ -430,7 +440,7 @@ export async function getProPlayerData(input: {
     }
 
     if (!homeLineup || !awayLineup) {
-      return resultData("partial", "The fixture was found, but the provider did not return a lineup for both teams.", homeLineup ? publicLineup(input.home.name, homeLineup) : null, awayLineup ? publicLineup(input.away.name, awayLineup) : null)
+      return resultData("partial", "The fixture was found, but the provider did not return a lineup for both teams.", homeLineup ? publicLineup(input.home.name, homeLineup, false) : null, awayLineup ? publicLineup(input.away.name, awayLineup, false) : null)
     }
     const bothApplied = homeLineup.factors.applied && awayLineup.factors.applied
     return resultData(
@@ -438,8 +448,8 @@ export async function getProPlayerData(input: {
       bothApplied
         ? "Both starting XIs have enough player-season coverage. Player-derived adjustments are applied to the Pro simulation."
         : "Lineups were found, but there is not enough player-stat coverage across both starting XIs to adjust team strength. The match stays on team-level Pro inputs.",
-      publicLineup(input.home.name, homeLineup),
-      publicLineup(input.away.name, awayLineup),
+      publicLineup(input.home.name, homeLineup, bothApplied),
+      publicLineup(input.away.name, awayLineup, bothApplied),
     )
   } catch (error) {
     const reason = error instanceof Error ? error.message : ""

@@ -29,15 +29,20 @@ export function aggregateMatchXg(events) {
   for (const event of events) {
     if (event?.type?.name !== "Shot") continue
     const team = event?.team?.name
+    const teamId = event?.team?.id
     const xg = finite(event?.shot?.statsbomb_xg)
-    if (typeof team !== "string" || !team.trim() || xg === null) {
+    if ((typeof team !== "string" || !team.trim()) && teamId == null || xg === null) {
       complete = false
       continue
     }
-    const current = totals.get(team) ?? { xgFor: 0, shots: 0 }
+    // Store both the stable StatsBomb team ID and its display name as aliases.
+    // Historical matches are keyed by ID to avoid name/alias collisions.
+    const key = teamId != null ? String(teamId) : String(team)
+    const current = totals.get(key) ?? { xgFor: 0, shots: 0 }
     current.xgFor += xg
     current.shots += 1
-    totals.set(team, current)
+    totals.set(key, current)
+    if (typeof team === "string" && team.trim()) totals.set(team, current)
   }
   return { totals, complete }
 }
@@ -191,8 +196,9 @@ async function runBacktest(options) {
     }
     const shotData = aggregateMatchXg(events)
     if (!shotData.complete) return null
-    const home = shotData.totals.get(match.homeTeam) ?? { xgFor: 0, shots: 0 }
-    const away = shotData.totals.get(match.awayTeam) ?? { xgFor: 0, shots: 0 }
+    const home = shotData.totals.get(match.homeKey || match.homeTeam) ?? shotData.totals.get(match.homeTeam)
+    const away = shotData.totals.get(match.awayKey || match.awayTeam) ?? shotData.totals.get(match.awayTeam)
+    if (!home || !away) return null
     if (!Number.isInteger(match.homeGoals) || !Number.isInteger(match.awayGoals)) return null
     if ((index + 1) % 20 === 0) process.stdout.write(`Processed ${index + 1}/${mapped.length}\n`)
     return { ...match, homeXg: home.xgFor, awayXg: away.xgFor }

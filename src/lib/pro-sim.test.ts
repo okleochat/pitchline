@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { PRO_SIM_RUNS, simulatePro } from "./pro-sim.ts"
+import { PRO_SIM_RUNS } from "./pro-sim-config.ts"
+import { simulatePro } from "./pro-sim.ts"
 
 const home = { id: "home", name: "Home FC", attack: 1.8, defense: 1.1 }
 const away = { id: "away", name: "Away FC", attack: 1.2, defense: 1.6 }

@@ -306,13 +306,15 @@ async function loadEaShard(shardId: string): Promise<EaShardDocument | null> {
 async function findEaMatches(
   roster: unknown[],
 ): Promise<{ matches: Map<string, Dict>; syncedAt: string | null }> {
-  const namedRoster = roster.map((entry) => ({
-    entry,
-    id: athleteId(entry),
-    names: rosterNameCandidates(entry),
-    position: rosterPosition(entry),
-    nationality: rosterNationality(entry),
-  })).filter((item): item is typeof item & { id: string } => Boolean(item.id))
+  const namedRoster = roster.flatMap((entry) => {
+    const id = athleteId(entry)
+    return id ? [{
+      id,
+      names: rosterNameCandidates(entry),
+      position: rosterPosition(entry),
+      nationality: rosterNationality(entry),
+    }] : []
+  })
 
   const shardIds = [...new Set(namedRoster.flatMap((item) =>
     item.names.map(playerNameShardId),

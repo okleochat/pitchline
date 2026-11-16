@@ -11,16 +11,7 @@ const RECENT_SIGN_IN_SECONDS = 5 * 60
 function sameOrigin(request: NextRequest): boolean {
   const origin = request.headers.get("origin")
   if (!origin) return false
-  try {
-    const parsed = new URL(origin)
-    const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
-    const requestHost = forwardedHost || request.headers.get("host") || request.nextUrl.host
-    const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()
-    const requestProtocol = forwardedProto ? forwardedProto + ":" : request.nextUrl.protocol
-    return parsed.host === requestHost && parsed.protocol === requestProtocol
-  } catch {
-    return false
-  }
+  try { return new URL(origin).origin === request.nextUrl.origin } catch { return false }
 }
 
 export async function POST(request: NextRequest) {

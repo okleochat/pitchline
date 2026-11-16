@@ -607,10 +607,12 @@ export function Pitchline({
   initial,
   initialView = "desk",
   initialLeague = "eng",
+  showHeader = true,
 }: {
   initial: Board
   initialView?: "desk" | "picks"
   initialLeague?: LeagueId
+  showHeader?: boolean
 }) {
   const firstInitialFixture = initial.fixtures.find((fixture) => fixture.league === initialLeague)
   const firstInitialTeam = initial.teams.find((team) => team.league === initialLeague)
@@ -647,6 +649,9 @@ export function Pitchline({
   }, [initial])
 
   useEffect(() => {
+    // The international route is date-scoped by its server page. Do not replace
+    // that selected date with the generic upcoming board on a background refresh.
+    if (initialLeague === "int") return
     let stop = false
     const pull = () => {
       loadBoard()
@@ -666,7 +671,7 @@ export function Pitchline({
       window.clearInterval(timer)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [board.updatedAt])
+  }, [board.updatedAt, initialLeague])
 
   useEffect(() => {
     const saved = readDesk()
@@ -882,7 +887,7 @@ export function Pitchline({
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-4 pt-4 pb-16 sm:px-6">
-      <SiteHeader subtitle={league === "int" ? "International match simulator" : `Football match simulator · ${board.season}`} />
+      {showHeader ? <SiteHeader subtitle={league === "int" ? "International match simulator" : `Football match simulator · ${board.season}`} /> : null}
 
       {view === "picks" ? (
         <section className="mb-6" aria-label="Best picks">

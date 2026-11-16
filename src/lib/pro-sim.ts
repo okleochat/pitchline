@@ -1,6 +1,6 @@
 import type { Team } from "@/data/football"
 import { PRO_SIM_RUNS } from "./pro-sim-config.ts"
-import type { TeamLineupFactors, ProPlayerData } from "./pro-player-data"
+import type { TeamPlayerFactors, ProPlayerData } from "./pro-player-data"
 import {
   expectedGoals,
   hashSeed,
@@ -68,14 +68,14 @@ function phaseProfile(
   attackMultiplier: number,
   defenceMultiplier: number,
   creativityMultiplier: number,
-  benchStrength: number,
+  squadDepth: number,
 ): PhaseProfile {
-  // Player-derived attack, creativity and defensive multipliers modify this phase profile when both lineups pass coverage.
+  // Player-derived squad attack, creativity and defensive multipliers modify this phase profile when both squads pass coverage.
   const adjustedAttack = attack * attackMultiplier * Math.sqrt(creativityMultiplier)
   const adjustedDefense = oppositionDefense * defenceMultiplier
   const mismatch = Math.tanh(Math.log((adjustedAttack + 0.35) / (adjustedDefense + 0.35)))
   const fatigue = minute <= 55 ? 1 : 1 - 0.06 * ((minute - 55) / 35)
-  const benchRecovery = clamp(1 + (benchStrength - 50) / 2000, 0.97, 1.03)
+  const squadRecovery = clamp(1 + (squadDepth - 50) / 2000, 0.97, 1.03)
   const squadDepthRecovery = minute >= 70 ? benchRecovery : 1
   const urgency = minute >= 55 && trailing ? 1.16 : minute >= 55 && leading ? 0.94 : 1
 
@@ -116,25 +116,26 @@ function emptyProbabilities(): MarketProbabilities {
  * lightweight fatigue/substitution curve alter those phase probabilities.
  *
  * Team-level attack/defence rates provide the stable baseline. When a permitted
- * player feed returns adequately covered starting XIs, derived team-level
- * lineup factors adjust the expected goals and phase transitions.
+ * player feed returns adequately covered registered squads, derived team-level
+ * squad factors adjust the expected goals and phase transitions. No matchday
+ * starting XI or formation is required.
  */
 export function simulatePro(
   home: ProTeam,
   away: ProTeam,
   edge: number,
   roll: number,
-  homeLineup?: TeamLineupFactors,
-  awayLineup?: TeamLineupFactors,
+  homeSquad?: TeamPlayerFactors,
+  awaySquad?: TeamPlayerFactors,
 ): ProReport {
   const safeEdge = clamp(edge, 0.7, 1.6)
-  const neutralFactors: TeamLineupFactors = {
+  const neutralFactors: TeamPlayerFactors = {
     attackMultiplier: 1, creativityMultiplier: 1, defenceMultiplier: 1,
-    benchStrength: 50, ratedStarters: 0, starterCount: 0, coverage: 0, applied: false,
+    squadDepth: 50, ratedPlayers: 0, squadCount: 0, coverage: 0, applied: false,
   }
-  const bothLineupsApplied = Boolean(homeLineup?.applied && awayLineup?.applied)
-  const homeFactors = bothLineupsApplied ? homeLineup! : neutralFactors
-  const awayFactors = bothLineupsApplied ? awayLineup! : neutralFactors
+  const bothSquadsApplied = Boolean(homeSquad?.applied && awaySquad?.applied)
+  const homeFactors = bothSquadsApplied ? homeSquad! : neutralFactors
+  const awayFactors = bothSquadsApplied ? awaySquad! : neutralFactors
   const adjustedHome = {
     attack: home.attack * homeFactors.attackMultiplier * Math.sqrt(homeFactors.creativityMultiplier),
     defense: home.defense * homeFactors.defenceMultiplier,
@@ -219,7 +220,7 @@ export function simulatePro(
         attackingFactors.attackMultiplier,
         defendingFactors.defenceMultiplier,
         attackingFactors.creativityMultiplier,
-        attackingFactors.benchStrength,
+        attackingFactors.squadDepth,
       )
 
       if (isHome) possessionsHome += 1

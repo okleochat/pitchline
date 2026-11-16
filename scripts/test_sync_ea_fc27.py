@@ -67,6 +67,20 @@ class SyncEaFc27Tests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             sync.validate_fc27_edition(players)
 
+    def test_prefixed_ea_detail_fields_normalize_to_pitchline_attribute_names(self):
+        raw = ea_player(5, "Test Club")
+        raw["stats"] = {
+            "attackingFinishing": {"value": 91},
+            "mentalityVision": {"value": 88},
+            "defendingStandingTackle": {"value": 79},
+            "goalkeepingReflexes": {"value": 90},
+        }
+        player = sync.normalise_player(raw)
+        self.assertEqual(player["stats"]["finishing"], 91)
+        self.assertEqual(player["stats"]["vision"], 88)
+        self.assertEqual(player["stats"]["standingTackle"], 79)
+        self.assertEqual(player["stats"]["gkReflexes"], 90)
+
     def test_gender_filter_includes_mens_records_and_excludes_womens(self):
         men = sync.normalise_player(ea_player(1, "Club A", "Men's Football"))
         women = sync.normalise_player(ea_player(2, "Club B", "Women's Football"))

@@ -292,7 +292,8 @@ export async function getUpcomingInternationalFixtures(days = 14): Promise<Inter
     .filter((item) => item.partial)
     .map((item) => item.source.name)
   const now = Date.now()
-  const end = new Date(endDate + "T23:59:59Z").getTime()
+  // Lagos is UTC+1 year-round; endDate is a Lagos calendar date.
+  const end = new Date(endDate + "T22:59:59.999Z").getTime()
   const byId = new Map<string, InternationalFixture>()
 
   for (const { source, board } of boards) {

@@ -1,12 +1,10 @@
 import { Pitchline } from "@/components/pitchline"
-import { getLiveBoardForPro } from "@/lib/live-board.server"
-import { getCurrentUser } from "@/lib/firebase/server-session"
+import { getLiveBoard } from "@/lib/live-board.server"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
 export default async function HomePage() {
-  const user = await getCurrentUser()
-  const board = await getLiveBoardForPro(Boolean(user?.isPro))
+  const board = await getLiveBoard()
   return <Pitchline initial={board} />
 }

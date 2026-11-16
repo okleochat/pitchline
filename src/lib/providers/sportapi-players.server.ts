@@ -312,7 +312,14 @@ async function loadTeamSquad(
   date: Date,
 ): Promise<TeamSquadLookup> {
   const resolved = await resolveTeam(team, apiKey)
-  if (!resolved.team) return { squad: null, providerUnavailable: true }
+  if (!resolved.team) {
+    console.warn("[Pitchline SportAPI] Team squad unavailable", {
+      team: team.name,
+      competition: team.rateLeague ?? team.league,
+      httpStatuses: resolved.statuses,
+    })
+    return { squad: null, providerUnavailable: true }
+  }
 
   const emptyStats = new Map<string, PlayerScores>()
   const basePlayers = resolved.team.players
@@ -320,7 +327,13 @@ async function loadTeamSquad(
     .filter((player): player is SquadPlayer => player !== null)
   if (!basePlayers.length) return { squad: null, providerUnavailable: false }
 
-  const candidates = balancedProfileOrder(basePlayers).slice(0, MAX_PROFILE_PLAYERS_PER_TEAM)
+  const minimumRatedRequired = Math.max(12, Math.ceil(basePlayers.length * 0.6))
+  const profileBudget = Math.min(
+    MAX_PROFILE_PLAYERS_PER_TEAM,
+    basePlayers.length,
+    minimumRatedRequired + 2,
+  )
+  const candidates = balancedProfileOrder(basePlayers).slice(0, profileBudget)
   const window = seasonWindow(date, team)
   const statsRows = await mapWithConcurrency(candidates, PROFILE_CONCURRENCY, async (player) => {
     const raw = resolved.team?.players.find((entry) => {

@@ -21,6 +21,7 @@ import { loadBoard, loadForm, loadProSimulation, type FormResult } from "@/lib/b
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
 import { PRO_SIM_RUNS } from "@/lib/pro-sim-config"
 import type { ProReport } from "@/lib/pro-sim"
+import type { ProPlayerData, ProTeamLineup } from "@/lib/pro-player-data"
 import {
   DIXON_RHO,
   SIMS,
@@ -97,6 +98,75 @@ function Crest({ team, large = false }: { team: Team; large?: boolean }) {
     >
       {team.short}
     </span>
+  )
+}
+
+function playerImpactText(value: number): string {
+  const delta = (value - 1) * 100
+  return (delta > 0 ? "+" : "") + delta.toFixed(1) + "%"
+}
+
+function ProLineupSummary({ lineup }: { lineup: ProTeamLineup }) {
+  return (
+    <div className="rounded-lg border border-border bg-background p-3">
+      <p className="text-sm font-semibold">{lineup.teamName}</p>
+      <p className="mt-1 text-xs text-muted">
+        Player data coverage · {lineup.ratedStartingCount}/{lineup.startingCount} starters · {lineup.ratedSubstituteCount}/{lineup.substituteCount} substitutes
+      </p>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div>
+          <p className="text-xs text-muted">Attack index</p>
+          <p className="mt-1 font-display text-xl tabular-nums">{lineup.attackIndex.toFixed(1)}</p>
+          <p className="text-xs text-muted">Impact {playerImpactText(lineup.factors.attackMultiplier)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted">Creativity index</p>
+          <p className="mt-1 font-display text-xl tabular-nums">{lineup.creativityIndex.toFixed(1)}</p>
+          <p className="text-xs text-muted">Impact {playerImpactText(lineup.factors.creativityMultiplier)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted">Defence index</p>
+          <p className="mt-1 font-display text-xl tabular-nums">{lineup.defenceIndex.toFixed(1)}</p>
+          <p className="text-xs text-muted">Conceding {playerImpactText(lineup.factors.defenceMultiplier)}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
+  const statusLabel: Record<ProPlayerData["status"], string> = {
+    available: "Player adjustments applied",
+    partial: "Player data partially available",
+    not_configured: "Player feed not configured",
+    not_licensed: "Player feed awaiting permission",
+    fixture_not_selected: "Select an upcoming fixture",
+    team_not_found: "Team mapping unavailable",
+    match_not_found: "Fixture mapping unavailable",
+    lineups_not_available: "Lineups not published yet",
+    provider_error: "Player data temporarily unavailable",
+  }
+  return (
+    <section className="mt-5 border-t border-border pt-4" aria-label="Player and lineup intelligence">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="font-display text-xl">Player & lineup intelligence</h3>
+        <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium">
+          {statusLabel[data.status]}
+        </span>
+      </div>
+      <p className="mt-2 text-sm text-muted">{data.note}</p>
+      {data.home || data.away ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {data.home ? <ProLineupSummary lineup={data.home} /> : null}
+          {data.away ? <ProLineupSummary lineup={data.away} /> : null}
+        </div>
+      ) : null}
+      {data.adjustmentsApplied ? (
+        <p className="mt-3 text-xs text-muted">
+          Both teams' player-derived indices are incorporated into the Pro match simulation. Indices are Pitchline calculations, not EA ratings or raw provider statistics.
+        </p>
+      ) : null}
+    </section>
   )
 }
 
@@ -756,6 +826,7 @@ export function Pitchline({
   const away = teamBy(awayId) ?? board.teams.find((team) => team.league === league && team.id !== home.id) ?? board.teams.find((team) => team.id !== home.id) ?? board.teams[0]
   const edge = edgePct / 100
   const same = home.id === away.id
+  const selectedFixture = board.fixtures.find((fixture) => fixture.homeId === home.id && fixture.awayId === away.id)
 
   useEffect(() => {
     if (formWindow === "season") {
@@ -821,7 +892,7 @@ export function Pitchline({
     setProLoading(true)
     setProError(null)
     loadProSimulation({
-      data: { home: desk.home, away: desk.away, edge, roll },
+      data: { home: desk.home, away: desk.away, edge, roll, ...(selectedFixture?.kickoffAt ? { fixture: { kickoffAt: selectedFixture.kickoffAt } } : {}) },
       signal: controller.signal,
     })
       .then((result) => {
@@ -837,7 +908,7 @@ export function Pitchline({
       })
 
     return () => controller.abort()
-  }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll])
+  }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll, selectedFixture?.kickoffAt])
 
   const report = isPro && engineMode === "pro" && view === "desk" ? proReport : classicReport
 
@@ -1442,6 +1513,7 @@ export function Pitchline({
                   </div>
                 </dl>
               ) : null}
+            {isPro && engineMode === "pro" && proReport?.playerData ? <ProPlayerDataPanel data={proReport.playerData} /> : null}
             <dl className="mt-6 grid grid-cols-3 gap-3 border-t border-border pt-4">
               <div>
                 <dt className="text-xs text-muted">Both score</dt>

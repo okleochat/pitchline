@@ -43,6 +43,7 @@ class SyncEaFc27Tests(unittest.TestCase):
         player = sync.normalise_player(ea_player(1, "Racing de Santander"))
         self.assertIsNotNone(player)
         self.assertEqual(player["name"], "Test Player")
+        self.assertEqual(player["nameKeys"], ["test player"])
         self.assertEqual(player["overall"], 81)
         self.assertEqual(player["position"], "CM")
         self.assertEqual(player["stats"]["pas"], 84)
@@ -59,19 +60,24 @@ class SyncEaFc27Tests(unittest.TestCase):
         self.assertEqual(sync.team_document_id("Atlético Madrid"), "atletico-madrid")
         self.assertEqual(sync.team_document_id("Racing de Santander"), "racing-de-santander")
 
-    def test_builds_compact_mens_club_documents(self):
+    def test_builds_compact_mens_player_name_shards(self):
         players = [
             sync.normalise_player(ea_player(1, "Racing de Santander")),
-            sync.normalise_player(ea_player(2, "Racing de Santander")),
+            sync.normalise_player(ea_player(2, "Real Sociedad")),
             sync.normalise_player(ea_player(3, "Women's Club", "Women's Football")),
         ]
-        documents = sync.firestore_team_documents(players, "2026-11-17T00:00:00Z")
-        self.assertEqual(set(documents), {"racing-de-santander"})
-        team = documents["racing-de-santander"]
-        self.assertEqual(team["playerCount"], 2)
-        self.assertEqual(team["database"], "EA SPORTS FC 27")
-        self.assertEqual(team["players"][0]["id"], "1")
-        self.assertEqual(team["syncedAt"], "2026-11-17T00:00:00Z")
+        documents = sync.firestore_player_shards(players, "2026-11-17T00:00:00Z")
+        self.assertIn("te", documents)
+        shard = documents["te"]
+        self.assertEqual(shard["playerCount"], 2)
+        self.assertEqual(shard["database"], "EA SPORTS FC 27")
+        self.assertEqual({player["id"] for player in shard["players"]}, {"1", "2"})
+        self.assertEqual(shard["syncedAt"], "2026-11-17T00:00:00Z")
+
+    def test_shard_ids_use_first_two_normalized_name_characters(self):
+        self.assertEqual(sync.player_shard_id("kylian mbappe"), "ky")
+        self.assertEqual(sync.player_shard_id("é"), "e_")
+        self.assertEqual(sync.player_shard_id(""), "__")
 
     def test_bad_or_unidentified_records_are_ignored(self):
         self.assertIsNone(sync.normalise_player({}))

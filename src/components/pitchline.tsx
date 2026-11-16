@@ -627,6 +627,7 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
   const [formPair, setFormPair] = useState<FormResult | null>(null)
   const [formNote, setFormNote] = useState<"idle" | "loading" | "ready" | "missing" | "error">("idle")
   const [priceMarket, setPriceMarket] = useState<PriceMarket>("home")
+  const deskRef = useRef<HTMLElement>(null)
   const [priceText, setPriceText] = useState("")
   const tapeRef = useRef<HTMLElement>(null)
   const runTimer = useRef<number | null>(null)

@@ -59,6 +59,7 @@ type FormWindow = "season" | "5" | "10"
 type PriceMarket = "home" | "draw" | "away" | "btts" | "over" | "under"
 
 const PICK_LINE = 0.8
+const MIN_INTL_HISTORY_FOR_PICKS = 3
 type PickKind = "result" | "goals" | "btts"
 type MarketPick = {
   key: string
@@ -151,6 +152,7 @@ function TeamSelect({
           return (
             team.name.toLowerCase().includes(q) ||
             team.short.toLowerCase().includes(q) ||
+            (team.competitionName ?? "").toLowerCase().includes(q) ||
             league.name.toLowerCase().includes(q) ||
             league.short.toLowerCase().includes(q)
           )
@@ -205,7 +207,8 @@ function TeamSelect({
           setQuery("")
         }}
       >
-        <span className="truncate">{selected?.name ?? "Choose a team"}</span>
+        <span className="min-w-0 truncate">{selected?.name ?? "Choose a team"}</span>
+      {selected?.competitionName ? <span className="max-w-28 shrink-0 truncate text-xs text-muted">{selected.competitionName}</span> : null}
         <ChevronDown className="size-4 shrink-0 text-muted" />
       </button>
       {open ? (
@@ -258,7 +261,7 @@ function TeamSelect({
                     onClick={() => choose(team.id)}
                   >
                     <span className="truncate">{team.name}</span>
-                    <span className="shrink-0 text-xs text-muted">{leagueShort(team.league)}</span>
+                    <span className="max-w-32 shrink-0 truncate text-xs text-muted">{team.competitionName ?? leagueShort(team.league)}</span>
                   </button>
                 )
               })
@@ -517,6 +520,7 @@ function ModelBar({
   model,
   formWindow,
   level,
+  international = false,
   onModel,
   onForm,
   onLevel,
@@ -524,6 +528,7 @@ function ModelBar({
   model: ModelKind
   formWindow: FormWindow
   level: boolean
+  international?: boolean
   onModel: (model: ModelKind) => void
   onForm: (form: FormWindow) => void
   onLevel: (level: boolean) => void
@@ -533,7 +538,7 @@ function ModelBar({
       label: "Rates",
       value: formWindow,
       options: [
-        { id: "season", label: "Season" },
+        { id: "season", label: international ? "Competition base" : "Season" },
         { id: "5", label: "Last 5" },
         { id: "10", label: "Last 10" },
       ],
@@ -558,9 +563,10 @@ function ModelBar({
       onPick: (id) => onLevel(id === "on"),
     },
   ]
+  const visibleGroups = international ? groups.filter((group) => group.label !== "Leagues") : groups
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
-      {groups.map((group) => (
+    <div className={international ? "grid gap-4 sm:grid-cols-2" : "grid gap-4 sm:grid-cols-3"}>
+      {visibleGroups.map((group) => (
         <div key={group.label} className="min-w-0">
           <p className="mb-2 text-sm font-medium">{group.label}</p>
           <div className="flex flex-wrap gap-2">
@@ -620,7 +626,7 @@ export function Pitchline({
   const [league, setLeague] = useState<LeagueId>(initialLeague)
   const [homeId, setHomeId] = useState(firstInitialFixture?.homeId ?? firstInitialTeam?.id ?? "eng-ars")
   const [awayId, setAwayId] = useState(firstInitialFixture?.awayId ?? initial.teams.find((team) => team.league === initialLeague && team.id !== firstInitialTeam?.id)?.id ?? "eng-liv")
-  const [edgePct, setEdgePct] = useState(118)
+  const [edgePct, setEdgePct] = useState(initialLeague === "int" ? 100 : 118)
   const [roll, setRoll] = useState(0)
   const [spread, setSpread] = useState(-0.5)
   const [totalLine, setTotalLine] = useState(2.5)
@@ -816,6 +822,11 @@ export function Pitchline({
       const homeTeam = byId.get(fixture.homeId)
       const awayTeam = byId.get(fixture.awayId)
       if (!homeTeam || !awayTeam || homeTeam.id === awayTeam.id) continue
+      // Do not surface probabilities based on the neutral placeholder ratings.
+      // International Best Picks require at least three prior games per team.
+      if (fixture.league === "int" &&
+        ((homeTeam.formMatches ?? 0) < MIN_INTL_HISTORY_FOR_PICKS ||
+         (awayTeam.formMatches ?? 0) < MIN_INTL_HISTORY_FOR_PICKS)) continue
       const shapedFixture = shapePair(homeTeam, awayTeam, board.teams, level, null, null)
       ranked.push(...marketsFor(shapedFixture.home, shapedFixture.away, edge, fixture, model))
     }
@@ -895,7 +906,7 @@ export function Pitchline({
             <div>
               <h2 className="font-display text-2xl tracking-tight">Best upcoming picks</h2>
               <p className="mt-1 max-w-xl text-sm text-muted">
-                Markets with model-assigned probability of at least 80%. Season rates, not last-5 form. Not a tip — a model estimate.
+                Markets with model-assigned probability of at least 80%. Club picks use season rates; national-team picks require at least three previous matches in that competition. International ratings are still exploratory, not independently calibrated.
               </p>
             </div>
             <p className="text-sm text-muted tabular-nums">
@@ -931,7 +942,7 @@ export function Pitchline({
                 onLevel={setLevel}
               />
               <p className="mt-3 text-xs text-muted">
-                Last 5 and last 10 use recency-weighted completed matches on the open match only. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) and the coarse UEFA association proxy apply when enabled. It is not a calibrated club-strength model.
+                Last 5 and last 10 use recency-weighted completed matches on the open match only. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) applies to both. The UEFA association proxy is for cross-league club comparisons, not national teams.
               </p>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -1004,7 +1015,7 @@ export function Pitchline({
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{pick.label}</span>
                       <span className="mt-1 block truncate text-sm text-muted">
-                        {leagueShort(pick.fixture.league)} · {pick.fixture.when}
+                        {pick.fixture.competitionName ?? leagueShort(pick.fixture.league)} · {pick.fixture.when}
                       </span>
                       <span className="mt-1 block truncate text-sm">
                         {awayTeam.name} at {homeTeam.name}
@@ -1062,7 +1073,7 @@ export function Pitchline({
                 onClick={() => loadFixture(homeTeam.id, awayTeam.id, fixture.league)}
                 className="fixture w-60 shrink-0 snap-start rounded-3xl border border-border bg-card p-4 text-left"
               >
-                <p className="text-xs text-muted">{fixture.when}</p>
+                <p className="text-xs text-muted">{fixture.competitionName ? fixture.competitionName + " · " : ""}{fixture.when}</p>
                 <div className="mt-3 flex items-center gap-2">
                   <Crest team={homeTeam} />
                   <span className="truncate text-sm font-medium">{homeTeam.name}</span>
@@ -1157,6 +1168,7 @@ export function Pitchline({
             model={model}
             formWindow={formWindow}
             level={level}
+            international={league === "int"}
             onModel={setModel}
             onForm={setFormWindow}
             onLevel={setLevel}
@@ -1215,7 +1227,7 @@ export function Pitchline({
 
       {same || !report ? (
         <section className="panel mb-4">
-          <p className="text-sm">Pick two different clubs.</p>
+          <p className="text-sm">Pick two different teams.</p>
         </section>
       ) : (
         <div className={running ? "opacity-60" : undefined} aria-busy={running}>
@@ -1573,7 +1585,16 @@ export function Pitchline({
                         onClick={() => setHomeId(row.team.id)}
                       >
                         <Crest team={row.team} />
-                        <span className="truncate">{row.team.name}</span>
+                        <span className="min-w-0 truncate">
+                          <span className="block truncate">{row.team.name}</span>
+                          {league === "int" ? (
+                            <span className="block truncate text-xs font-normal text-muted" title={row.team.ratingSource}>
+                              {row.team.competitionName} · {(row.team.formMatches ?? 0) > 0
+                                ? row.team.formMatches + " previous matches"
+                                : "No history · neutral rates"}
+                            </span>
+                          ) : null}
+                        </span>
                       </button>
                     </td>
                     <td className="py-1 pr-2 text-right tabular-nums">{row.team.attack.toFixed(2)}</td>

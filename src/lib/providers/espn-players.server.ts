@@ -142,7 +142,10 @@ function leagueSlug(team: PlayerTeamContext): string | null {
 function seasonFor(date: Date, team: PlayerTeamContext, slug: string): number {
   const year = date.getUTCFullYear()
   const seasonLeague = team.rateLeague && team.rateLeague !== "int" ? team.rateLeague : team.league
-  if (seasonLeague === "mls" || seasonLeague === "bra" || seasonLeague === "ksa" || seasonLeague === "mx") {
+  if (
+    seasonLeague === "mls" || seasonLeague === "bra" || seasonLeague === "ksa" || seasonLeague === "mx" ||
+    ["usa.1", "bra.1", "ksa.1", "mex.1"].includes(slug)
+  ) {
     return year
   }
   if (team.league === "int" && slug === "fifa.world") return year
@@ -243,6 +246,10 @@ function playerCompetitionSlug(raw: unknown, fallback: string): string {
     for (const candidate of candidates) {
       const slug = validSlug(candidate)
       if (slug) return slug
+      if (typeof candidate === "string") {
+        const match = candidate.match(/\/sports\/soccer\/([a-z0-9.]+)\/(?:teams|athletes)\//i)
+        if (match && validSlug(match[1])) return match[1]
+      }
     }
   }
   return fallback
@@ -251,8 +258,13 @@ function playerCompetitionSlug(raw: unknown, fallback: string): string {
 async function playerSeasonStats(slug: string, playerId: string, season: number): Promise<Dict | null> {
   const key = "espn-pro-player-stats:v1:" + slug + ":" + playerId + ":" + season
   return cached(key, PLAYER_STATS_CACHE_MS, async () => {
-    const url = ESPN_WEB_BASE + "/" + slug + "/athletes/" + playerId + "/stats?season=" + season
-    return getEspnJson(url)
+    const base = ESPN_WEB_BASE + "/" + slug + "/athletes/" + playerId
+    const stats = await getEspnJson(base + "/stats?season=" + season)
+    if (stats) return stats
+
+    // Some ESPN soccer competitions expose the same season snapshot through
+    // the athlete overview route rather than the dedicated stats route.
+    return getEspnJson(base + "/overview?season=" + season)
   })
 }
 

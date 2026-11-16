@@ -65,7 +65,7 @@ export function AuthMenu() {
             </div>
             {!firebaseConfigured ? (
               <div className="space-y-3 text-sm">
-                <p>Firebase sign-in is prepared but not activated yet. Add the Firebase web configuration and server service-account environment variables, then deploy the Firestore rules.</p>
+                <p>Firebase sign-in is prepared but not activated yet. Add the public Firebase web configuration, enable Email/Password and Google providers, and publish the Firestore rules. Firebase App Hosting uses its server identity (Application Default Credentials); Vercel needs the encrypted server-only FIREBASE_SERVICE_ACCOUNT_JSON variable.</p>
                 <p className="text-muted">Setup instructions are in docs/FIREBASE_SETUP.md. The simulator remains available without an account.</p>
               </div>
             ) : session.user ? (

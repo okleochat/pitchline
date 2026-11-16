@@ -31,6 +31,10 @@ export type Team = {
   mark: string
   ink: string
   scorers: [string, string, string]
+  /** Count of completed games used to derive a national-team rating, when known. */
+  formMatches?: number
+  /** Human-readable provenance for a rating derived from a non-league-table feed. */
+  ratingSource?: string
   /** ESPN team id when the live feed built this club. */
   espnId?: string
   /** ESPN league slug the recent-form feed should use. */

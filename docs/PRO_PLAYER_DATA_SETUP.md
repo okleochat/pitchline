@@ -45,7 +45,7 @@ Use a Pro account, choose any two teams in the Pro simulator, and run the simula
 - The panel should show **Player & squad intelligence**.
 - Each side should show the number of current squad members with usable season-stat records.
 - Attack, creativity, defence and squad-depth indices are calculated by Pitchline.
-- Player adjustments are applied only when both teams have at least eight rated players and at least 30% coverage.
+- Player adjustments are applied only when both teams have at least 12 rated players and at least 60% coverage.
 - If either team has insufficient coverage, the simulation still runs, but both teams' player-derived multipliers remain neutral.
 
 ## 6. Request quota and caching

@@ -41,7 +41,7 @@ These individual lookups are cached for 18 hours and run with limited concurrenc
 - Player scores are derived from available season statistics: goals, assists, shooting, key passes, passing, tackling, interceptions, duels, dribbling, goalkeeper saves and provider season rating.
 - Positions give the metrics different weights. Minutes played influence a player's contribution with diminishing returns, so a single high-minute player does not dominate the squad index.
 - The lower-usage portion of the current squad contributes to the squad-depth index used in the late-match recovery curve. It is not a claim about who will be substituted or start.
-- At least eight rated players and 30% squad coverage are required for a team's factors to be eligible. Factors are shrunk towards neutral in proportion to coverage.
+- At least 12 rated players and 60% current-squad coverage are required for a team's factors to be eligible. Factors are shrunk towards neutral in proportion to coverage.
 - Both teams must pass the coverage threshold. If either side fails, neither team's player factors are applied; the Pro engine still runs using the existing team-level inputs.
 
 The browser receives only aggregate Pitchline indices, coverage counts and bounded multipliers. Raw provider payloads, individual player records and the API key remain server-side.

@@ -240,7 +240,7 @@ export function deriveSquadFactors(players: SquadPlayer[]): DerivedSquadStrength
     ? depthScores.reduce((sum, score) => sum + score, 0) / depthScores.length
     : 50
 
-  const enoughData = squadCount >= 12 && ratedPlayers >= 8 && coverage >= 0.3
+  const enoughData = squadCount >= 12 && ratedPlayers >= 12 && coverage >= 0.6
   const shrink = enoughData ? Math.min(1, coverage) : 0
   const multiplier = (score: number, divisor: number, min: number, max: number) =>
     Math.min(max, Math.max(min, 1 + ((score - 50) / divisor) * shrink))

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getFirebaseAdminAuth } from "@/lib/firebase/admin"
+import { getFirebaseAdminAuth, getFirebaseAdminFirestore } from "@/lib/firebase/admin"
+import { FieldValue } from "firebase-admin/firestore"
 import { SESSION_COOKIE_NAME } from "@/lib/firebase/server-session"
 
 export const runtime = "nodejs"
@@ -28,6 +29,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "recent_sign_in_required" }, { status: 401 })
     }
     const session = await auth.createSessionCookie(body.idToken, { expiresIn: SESSION_DURATION_MS })
+
+    const profileRef = getFirebaseAdminFirestore().collection("users").doc(decoded.uid)
+    const profile = await profileRef.get()
+    const profileData = {
+      displayName: typeof decoded.name === "string" ? decoded.name : null,
+      photoURL: typeof decoded.picture === "string" ? decoded.picture : null,
+      updatedAt: FieldValue.serverTimestamp(),
+      ...(!profile.exists ? { createdAt: FieldValue.serverTimestamp() } : {}),
+    }
+    await profileRef.set(profileData, { merge: true })
+
     const response = NextResponse.json({ ok: true })
     response.cookies.set(SESSION_COOKIE_NAME, session, {
       httpOnly: true,

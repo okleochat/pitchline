@@ -9,8 +9,23 @@ export type ModelKind = "plain" | "dixon"
 
 export type Score = { h: number; a: number }
 
+export type MarketProbabilities = {
+  home: number
+  draw: number
+  away: number
+  btts: number
+  homeClean: number
+  awayClean: number
+  over15: number
+  under15: number
+  over25: number
+  under25: number
+  over35: number
+}
+
 export type Report = {
   n: number
+  probabilities: MarketProbabilities
   homeXg: number
   awayXg: number
   homeWins: number
@@ -155,6 +170,57 @@ function sampleGrid(cdf: number[], rng: () => number): { h: number; a: number } 
   return { h: Math.floor(lo / span), a: lo % span }
 }
 
+function probabilityGrid(homeXg: number, awayXg: number, model: ModelKind): number[][] {
+  if (model === "dixon") return jointGrid(homeXg, awayXg).grid
+  const homeP = poissonPmf(homeXg, DC_MAX)
+  const awayP = poissonPmf(awayXg, DC_MAX)
+  const grid = Array.from({ length: DC_MAX + 1 }, () => Array.from({ length: DC_MAX + 1 }, () => 0))
+  let sum = 0
+  for (let h = 0; h <= DC_MAX; h++) {
+    for (let a = 0; a <= DC_MAX; a++) {
+      grid[h][a] = homeP[h] * awayP[a]
+      sum += grid[h][a]
+    }
+  }
+  const normalizer = sum || 1
+  for (let h = 0; h <= DC_MAX; h++) {
+    for (let a = 0; a <= DC_MAX; a++) grid[h][a] /= normalizer
+  }
+  return grid
+}
+
+/** Exact headline market probabilities; the 1,000-run sample remains for visual distributions. */
+export function analyticalMarkets(
+  home: Team,
+  away: Team,
+  edge: number,
+  model: ModelKind = "plain",
+): MarketProbabilities {
+  const { homeXg, awayXg } = expectedGoals(home, away, edge)
+  const grid = probabilityGrid(homeXg, awayXg, model)
+  const result: MarketProbabilities = {
+    home: 0, draw: 0, away: 0, btts: 0, homeClean: 0, awayClean: 0,
+    over15: 0, under15: 0, over25: 0, under25: 0, over35: 0,
+  }
+  for (let h = 0; h <= DC_MAX; h++) {
+    for (let a = 0; a <= DC_MAX; a++) {
+      const p = grid[h][a]
+      if (h > a) result.home += p
+      else if (h === a) result.draw += p
+      else result.away += p
+      if (h > 0 && a > 0) result.btts += p
+      if (a === 0) result.homeClean += p
+      if (h === 0) result.awayClean += p
+      if (h + a >= 2) result.over15 += p
+      if (h + a <= 1) result.under15 += p
+      if (h + a >= 3) result.over25 += p
+      if (h + a <= 2) result.under25 += p
+      if (h + a >= 4) result.over35 += p
+    }
+  }
+  return result
+}
+
 export function analyticalSplit(
   home: Team,
   away: Team,
@@ -162,36 +228,8 @@ export function analyticalSplit(
   model: ModelKind = "plain",
 ): { homeXg: number; awayXg: number; home: number; draw: number; away: number } {
   const { homeXg, awayXg } = expectedGoals(home, away, edge)
-  if (model === "dixon") {
-    const { grid } = jointGrid(homeXg, awayXg)
-    let hw = 0
-    let dr = 0
-    let aw = 0
-    for (let h = 0; h <= DC_MAX; h++) {
-      for (let a = 0; a <= DC_MAX; a++) {
-        const p = grid[h][a]
-        if (h > a) hw += p
-        else if (h === a) dr += p
-        else aw += p
-      }
-    }
-    return { homeXg, awayXg, home: hw, draw: dr, away: aw }
-  }
-  const hp = poissonPmf(homeXg, 12)
-  const ap = poissonPmf(awayXg, 12)
-  let hw = 0
-  let dr = 0
-  let aw = 0
-  for (let h = 0; h <= 12; h++) {
-    for (let a = 0; a <= 12; a++) {
-      const p = hp[h] * ap[a]
-      if (h > a) hw += p
-      else if (h === a) dr += p
-      else aw += p
-    }
-  }
-  const sum = hw + dr + aw || 1
-  return { homeXg, awayXg, home: hw / sum, draw: dr / sum, away: aw / sum }
+  const p = analyticalMarkets(home, away, edge, model)
+  return { homeXg, awayXg, home: p.home, draw: p.draw, away: p.away }
 }
 
 function marginBin(margin: number): number {
@@ -202,6 +240,7 @@ function marginBin(margin: number): number {
 
 export function simulate(home: Team, away: Team, edge: number, roll: number, model: ModelKind = "plain"): Report {
   const { homeXg, awayXg } = expectedGoals(home, away, edge)
+  const probabilities = analyticalMarkets(home, away, edge, model)
   const seed =
     model === "dixon"
       ? hashSeed(`${home.id}|${away.id}|${edge.toFixed(3)}|${roll}|dixon`)
@@ -251,6 +290,7 @@ export function simulate(home: Team, away: Team, edge: number, roll: number, mod
 
   return {
     n: SIMS,
+    probabilities,
     homeXg,
     awayXg,
     homeWins,

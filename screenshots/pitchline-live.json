@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Pitchline — football match simulator",
+      "hasCanvas": false,
+      "bodyTextLen": 5317,
+      "bodyTextHash": "79caecda583531b3688cad70718f18c9c239326117b71a9f66e08e068413cb42",
+      "bodyTextPrefix": "Pitchline Football match simulator · 2026/27 A thousand matches ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/pitchline-live.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Pitchline — football match simulator",
+      "hasCanvas": false,
+      "bodyTextLen": 5194,
+      "bodyTextHash": "3aae78cbe2899d15a14d20d8ac1576b933d1d0dfff1c8fd230577eac49097646",
+      "bodyTextPrefix": "Pitchline Football match simulator · 2026/27 A thousand matches ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/pitchline-live-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/pitchline-live.json"
+}

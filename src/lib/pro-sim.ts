@@ -132,8 +132,9 @@ export function simulatePro(
     attackMultiplier: 1, creativityMultiplier: 1, defenceMultiplier: 1,
     benchStrength: 50, ratedStarters: 0, starterCount: 0, coverage: 0, applied: false,
   }
-  const homeFactors = homeLineup?.applied ? homeLineup : neutralFactors
-  const awayFactors = awayLineup?.applied ? awayLineup : neutralFactors
+  const bothLineupsApplied = Boolean(homeLineup?.applied && awayLineup?.applied)
+  const homeFactors = bothLineupsApplied ? homeLineup! : neutralFactors
+  const awayFactors = bothLineupsApplied ? awayLineup! : neutralFactors
   const adjustedHome = {
     attack: home.attack * homeFactors.attackMultiplier * Math.sqrt(homeFactors.creativityMultiplier),
     defense: home.defense * homeFactors.defenceMultiplier,

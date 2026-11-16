@@ -25,17 +25,36 @@ function serializeUser(decoded: DecodedIdToken, isPro: boolean): CurrentUser {
   }
 }
 
+/** A verified Firebase session remains valid even if Firestore is unavailable. */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const store = await cookies()
   const session = store.get(SESSION_COOKIE_NAME)?.value
   if (!session) return null
+
+  let decoded: DecodedIdToken
   try {
-    const decoded = await getFirebaseAdminAuth().verifySessionCookie(session, true)
-    const subscription = await getFirebaseAdminFirestore().collection("subscriptions").doc(decoded.uid).get()
-    return serializeUser(decoded, isSubscriptionActive(subscription.data(), Date.now()))
+    decoded = await getFirebaseAdminAuth().verifySessionCookie(session, true)
   } catch {
     return null
   }
+
+  let isPro = false
+  try {
+    const subscription = await getFirebaseAdminFirestore()
+      .collection("subscriptions")
+      .doc(decoded.uid)
+      .get()
+    isPro = isSubscriptionActive(subscription.data(), Date.now())
+  } catch (error) {
+    // Missing Firestore setup or read permissions must not invalidate login.
+    console.warn("[pitchline/auth] Could not read Pro entitlement; using Free access.", {
+      code: typeof error === "object" && error !== null && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : "unknown",
+    })
+  }
+
+  return serializeUser(decoded, isPro)
 }
 
 export async function requireSignedInUser(): Promise<CurrentUser> {

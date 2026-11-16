@@ -46,3 +46,8 @@ Backtest scores measure probability calibration and ranking accuracy. They are n
 ## Sportmonks xG response notes
 
 Pitchline reads team expected goals from the fixture `xGFixture` include. The API response exposes expected metrics with type ID `5304`, fixture participant IDs and numeric `data.value`. The app assigns home/away values by participant ID and stores only complete two-sided values with their source. See the [official fixtures date-range include reference](https://docs.sportmonks.com/v3/endpoints-and-entities/endpoints/fixtures/get-fixtures-by-date-range) and [expected-goals include guide](https://docs.sportmonks.com/v3/tutorials-and-guides/tutorials/expected/includes).
+
+
+## Secondary hosting
+
+See [FIREBASE_APP_HOSTING.md](./FIREBASE_APP_HOSTING.md) for the prepared Firebase App Hosting configuration and owner-side backend setup steps. Keep Vercel as the current production origin until Firebase independently passes live route, authentication and entitlement checks.

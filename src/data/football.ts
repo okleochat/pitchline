@@ -664,8 +664,20 @@ export function shapePair(
   const awayWeight = leagueWeight(awayLeague)
   const leveled = level && homeWeight !== awayWeight
   if (leveled) {
-    nextHome = { ...nextHome, attack: nextHome.attack * homeWeight, defense: nextHome.defense / homeWeight }
-    nextAway = { ...nextAway, attack: nextAway.attack * awayWeight, defense: nextAway.defense / awayWeight }
+    nextHome = {
+      ...nextHome,
+      attack: nextHome.attack * homeWeight,
+      defense: nextHome.defense / homeWeight,
+      xgFor: typeof nextHome.xgFor === "number" ? nextHome.xgFor * homeWeight : undefined,
+      xgAgainst: typeof nextHome.xgAgainst === "number" ? nextHome.xgAgainst / homeWeight : undefined,
+    }
+    nextAway = {
+      ...nextAway,
+      attack: nextAway.attack * awayWeight,
+      defense: nextAway.defense / awayWeight,
+      xgFor: typeof nextAway.xgFor === "number" ? nextAway.xgFor * awayWeight : undefined,
+      xgAgainst: typeof nextAway.xgAgainst === "number" ? nextAway.xgAgainst / awayWeight : undefined,
+    }
   }
   return { home: nextHome, away: nextAway, homeLeague, awayLeague, homeWeight, awayWeight, leveled }
 }

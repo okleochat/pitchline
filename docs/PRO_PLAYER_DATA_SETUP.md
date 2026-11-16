@@ -1,6 +1,6 @@
-# Enabling Pro player and registered-squad intelligence
+# Enabling Pro player and current-squad intelligence
 
-The API-Football connector enriches Pro simulations using each team's current registered squad and player-season performance. It does **not** wait for a fixture-specific starting XI or formation.
+The API-Football connector enriches Pro simulations using each team's current current squad and player-season performance. It does **not** wait for a fixture-specific starting XI or formation.
 
 ## 1. API-Football key
 
@@ -30,9 +30,9 @@ The repository intentionally does not hard-code the secret. Keep the key in Secr
 
 ## 4. How the player-data lookup works
 
-- API-Football `/players/squads?team={teamId}` supplies the team's current registered squad.
+- API-Football `/players/squads?team={teamId}` supplies the team's current current squad.
 - Club teams use `/players?team={teamId}&season={season}&page={page}` for the club's season player statistics. A second page is requested only when page one is full.
-- National teams use `/players?id={playerId}&season={season}` for each registered squad member so the model can use the player's club-season performance rather than a small national-team appearance sample.
+- National teams use `/players?id={playerId}&season={season}` for each current squad member so the model can use the player's club-season performance rather than a small national-team appearance sample.
 - No fixture ID, kickoff timestamp, fixture lineup, starting XI or formation is required.
 - The browser receives only aggregate indices and coverage counts. Individual provider records and the API key remain server-side.
 
@@ -43,13 +43,13 @@ The API-Football squads endpoint is a current-squad snapshot, not a historical a
 Use a Pro account, choose any two teams in the Pro simulator, and run the simulation. An upcoming fixture does not need to be selected.
 
 - The panel should show **Player & squad intelligence**.
-- Each side should show the number of registered squad members with usable season-stat records.
+- Each side should show the number of current squad members with usable season-stat records.
 - Attack, creativity, defence and squad-depth indices are calculated by Pitchline.
 - Player adjustments are applied only when both teams have at least eight rated players and at least 30% coverage.
 - If either team has insufficient coverage, the simulation still runs, but both teams' player-derived multipliers remain neutral.
 
 ## 6. Request quota and caching
 
-API-Football's published Free plan lists 100 requests per day. Team mapping is cached for seven days, registered-squad snapshots for 24 hours, and player statistics for 18 hours in the private Firestore `provider_api_cache` collection, with a local in-memory cache on each App Hosting instance.
+API-Football's published Free plan lists 100 requests per day. Team mapping is cached for seven days, current-squad snapshots for 24 hours, and player statistics for 18 hours in the private Firestore `provider_api_cache` collection, with a local in-memory cache on each App Hosting instance.
 
 For club teams, Pitchline requests one or two team-season statistics pages. For national teams, it requests the player-season record for each member of the current squad, with a concurrency limit of four. The first analysis of two national teams can therefore use a significant fraction of the free daily quota. Pitchline caps outgoing calls at six per App Hosting instance per minute; if more player records are needed, the Pro panel automatically resumes the lookup after a short interval. Repeating the same analysis reuses cached data. Monitor API-Football usage during initial testing.

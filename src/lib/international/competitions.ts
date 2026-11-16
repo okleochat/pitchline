@@ -26,7 +26,12 @@ export const INTERNATIONAL_COMPETITIONS: readonly CompetitionSource[] = [
   { slug: "concacaf.gold", name: "CONCACAF Gold Cup", confederation: "CONCACAF" },
   { slug: "concacaf.nations.league", name: "CONCACAF Nations League", confederation: "CONCACAF" },
   { slug: "afc.asian.cup", name: "AFC Asian Cup", confederation: "AFC" },
+  { slug: "conmebol.america_qual", name: "Copa América Qualifiers", confederation: "CONMEBOL" },
   { slug: "fifa.wwc", name: "FIFA Women's World Cup", confederation: "FIFA · Women" },
+  { slug: "fifa.wwcq.ply", name: "Women's World Cup Qualifying Playoffs", confederation: "FIFA · Women" },
+  { slug: "fifa.wworldq.uefa", name: "Women's World Cup Qualifiers — UEFA", confederation: "UEFA · Women" },
   { slug: "uefa.weuro", name: "UEFA Women's European Championship", confederation: "UEFA · Women" },
   { slug: "uefa.w.nations", name: "UEFA Women's Nations League", confederation: "UEFA · Women" },
+  { slug: "concacaf.w.gold", name: "CONCACAF W Gold Cup", confederation: "CONCACAF · Women" },
+  { slug: "conmebol.america.femenina", name: "Copa América Femenina", confederation: "CONMEBOL · Women" },
 ]

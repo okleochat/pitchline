@@ -255,6 +255,107 @@ function readEspnStats(source: unknown): Map<string, number> {
 }
 
 /**
+ * A Core API statistics-log row points to a separate season-statistics
+ * resource. ESPN exposes the season as a $ref and the statistics resource as
+ * a URL (or, in some responses, as an embedded object).
+ */
+export type EspnSeasonStatsSelection = {
+  reference: string | null
+  data: Dict | null
+  season: number | null
+}
+
+function espnSeasonYear(value: unknown): number | null {
+  const item = record(value)
+  const candidates = [
+    typeof value === "string" ? value : null,
+    item?.$ref,
+    item?.href,
+    item?.year,
+    item?.displayName,
+  ]
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isInteger(candidate)) return candidate
+    if (typeof candidate !== "string") continue
+    const match = candidate.match(/(?:seasons\/)?(20\\d{2})/i)
+    if (match) return Number(match[1])
+  }
+  return null
+}
+
+function espnReference(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim()
+  const item = record(value)
+  const reference = item?.$ref ?? item?.href ?? item?.ref
+  return typeof reference === "string" && reference.trim() ? reference.trim() : null
+}
+
+/**
+ * Select the requested season's Core API statistics resource. The immediately
+ * previous season is the only fallback: older career rows should not silently
+ * masquerade as current form.
+ */
+export function selectEspnSeasonStats(
+  source: unknown,
+  targetSeason: number,
+): EspnSeasonStatsSelection {
+  const root = record(source)
+  if (!root) return { reference: null, data: null, season: null }
+
+  const collection = root.items ?? root.entries ?? root.statistics
+  const entries = Array.isArray(collection)
+    ? collection
+    : Array.isArray(root.events)
+      ? root.events
+      : []
+
+  const candidates = entries.map((entry, index) => {
+    const item = record(entry)
+    if (!item) return null
+    const seasonValue = item.season ?? item.season_$ref ?? item.seasonRef ?? item.year
+    const season = espnSeasonYear(seasonValue)
+    const rawStats = item.statistics ?? item.stats ?? item.statistics_$ref
+    const reference = espnReference(rawStats)
+    const embedded = record(rawStats)
+    const data = embedded && !reference ? embedded : (
+      item.categories || item.splits || item.stats ? item : null
+    )
+    return { reference, data, season, index }
+  }).filter((entry): entry is {
+    reference: string | null
+    data: Dict | null
+    season: number | null
+    index: number
+  } => entry !== null && Boolean(entry.reference || entry.data))
+
+  const selected =
+    candidates.find((entry) => entry.season === targetSeason) ??
+    candidates.find((entry) => entry.season === targetSeason - 1) ??
+    null
+
+  if (selected) {
+    return {
+      reference: selected.reference,
+      data: selected.data,
+      season: selected.season,
+    }
+  }
+
+  // A few endpoint variants return a direct statistics snapshot instead of a
+  // statistics-log collection. Accept it only when it contains metric data.
+  if (!entries.length && (root.categories || root.splits || root.statistics)) {
+    const embedded = record(root.statistics)
+    return {
+      reference: null,
+      data: embedded ?? root,
+      season: targetSeason,
+    }
+  }
+
+  return { reference: null, data: null, season: null }
+}
+
+/**
  * Translate ESPN soccer's category/name/value payloads into the shared player
  * score inputs. We intentionally require actual performance metrics: a row
  * containing only a player ID or appearance count is not rated.

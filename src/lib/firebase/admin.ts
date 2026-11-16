@@ -1,14 +1,24 @@
 import "server-only"
 
-import { cert, getApps, initializeApp } from "firebase-admin/app"
+import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app"
 import { getAuth } from "firebase-admin/auth"
 import { getFirestore } from "firebase-admin/firestore"
 
 function getAdminApp() {
   const existing = getApps().find((app) => app.name === "pitchline-admin")
   if (existing) return existing
+
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-  if (!raw) throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not configured.")
+  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT
+
+  if (!raw) {
+    // Firebase App Hosting supplies Google Application Default Credentials
+    // through its runtime identity. Vercel can continue to use the JSON secret.
+    return initializeApp({
+      credential: applicationDefault(),
+      ...(projectId ? { projectId } : {}),
+    }, "pitchline-admin")
+  }
 
   let account: { project_id?: string; client_email?: string; private_key?: string }
   try {
@@ -26,7 +36,7 @@ function getAdminApp() {
       clientEmail: account.client_email,
       privateKey: account.private_key.replace(/\\n/g, "\n"),
     }),
-    projectId: process.env.FIREBASE_PROJECT_ID || account.project_id,
+    projectId: projectId || account.project_id,
   }, "pitchline-admin")
 }
 

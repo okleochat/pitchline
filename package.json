@@ -20,7 +20,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "start": "next start --hostname 0.0.0.0 --port 8080",
-    "backtest": "node --experimental-strip-types scripts/backtest.mjs"
+    "backtest": "node --experimental-strip-types scripts/backtest.mjs",
+    "backtest:statsbomb": "node --experimental-strip-types scripts/statsbomb-backtest.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

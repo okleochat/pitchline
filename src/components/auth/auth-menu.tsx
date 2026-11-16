@@ -1,8 +1,13 @@
 "use client"
 
 import { useState, type FormEvent } from "react"
-import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup, signOut } from "firebase/auth"
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+} from "firebase/auth"
 import { firebaseConfigured, firebaseErrorMessage, getFirebaseAuth } from "@/lib/firebase/client"
+import { signInWithGoogle } from "@/lib/firebase/google-sign-in"
 import { useFirebaseSession } from "./firebase-auth-provider"
 
 export function AuthMenu() {
@@ -26,32 +31,39 @@ export function AuthMenu() {
       setOpen(false)
     } catch (error) {
       setMessage(firebaseErrorMessage(error))
-    } finally { setBusy(false) }
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function googleSignIn() {
     setBusy(true)
     setMessage(null)
     try {
-      await signInWithPopup(getFirebaseAuth(), new GoogleAuthProvider())
+      await signInWithGoogle(getFirebaseAuth())
       setOpen(false)
     } catch (error) {
       setMessage(firebaseErrorMessage(error))
-    } finally { setBusy(false) }
+      setBusy(false)
+    }
   }
 
   async function logout() {
     setBusy(true)
     setMessage(null)
-    try { await signOut(getFirebaseAuth()) } catch (error) {
+    try {
+      await signOut(getFirebaseAuth())
+    } catch (error) {
       setMessage(firebaseErrorMessage(error))
-    } finally { setBusy(false) }
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
     <>
       <button type="button" className="press h-10 shrink-0 rounded-lg border border-border bg-card px-3 text-sm font-medium" onClick={() => { setMessage(session.error); setOpen(true) }}>
-        {session.user ? (session.user.isPro ? "Pitchline Pro" : "Account") : "Pro access"}
+        {session.user ? (session.user.isPro ? "Pitchline Pro" : "Account") : "Log in"}
       </button>
       {open ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
@@ -59,14 +71,14 @@ export function AuthMenu() {
             <div className="mb-5 flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted">Pitchline account</p>
-                <h2 id="pitchline-account-title" className="mt-1 font-display text-2xl">{session.user ? (session.user.isPro ? "Pitchline Pro" : "Your account") : "Unlock your workspace"}</h2>
+                <h2 id="pitchline-account-title" className="mt-1 font-display text-2xl">{session.user ? (session.user.isPro ? "Pitchline Pro" : "Your account") : "Sign in to Pitchline"}</h2>
               </div>
               <button type="button" className="press h-10 rounded-lg px-3 text-sm text-muted" onClick={() => setOpen(false)} aria-label="Close account panel">Close</button>
             </div>
             {!firebaseConfigured ? (
               <div className="space-y-3 text-sm">
-                <p>Firebase sign-in is prepared but not activated yet. Add the public Firebase web configuration, enable Email/Password and Google providers, and publish the Firestore rules. Firebase App Hosting uses its server identity (Application Default Credentials); Vercel needs the encrypted server-only FIREBASE_SERVICE_ACCOUNT_JSON variable.</p>
-                <p className="text-muted">Setup instructions are in docs/FIREBASE_SETUP.md. The simulator remains available without an account.</p>
+                <p>Firebase sign-in is not configured. Add the public Firebase web configuration, enable Email/Password and Google providers, and publish the Firestore rules.</p>
+                <p className="text-muted">The simulator remains available without an account.</p>
               </div>
             ) : session.user ? (
               <div className="space-y-4">

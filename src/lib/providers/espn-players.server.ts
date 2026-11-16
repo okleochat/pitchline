@@ -1,9 +1,14 @@
 import "server-only"
 
 import type { LeagueId } from "@/data/football"
-import { getEspnJson } from "@/lib/espn/transport.server"
+import { getEspnJson, getEspnJsonResult } from "@/lib/espn/transport.server"
 import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
-import { deriveEspnPlayerScores, deriveSquadFactors, normaliseSquadPlayer } from "@/lib/pro-player-model"
+import {
+  deriveEspnPlayerScores,
+  deriveSquadFactors,
+  normaliseSquadPlayer,
+  selectEspnSeasonStats,
+} from "@/lib/pro-player-model"
 import type {
   PlayerDataStatus,
   PlayerScores,
@@ -18,6 +23,7 @@ type CacheEntry = { expiresAt: number; value: unknown }
 
 const ESPN_SITE_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 const ESPN_WEB_BASE = "https://site.web.api.espn.com/apis/common/v3/sports/soccer"
+const ESPN_CORE_BASE = "https://sports.core.api.espn.com/v2/sports/soccer/leagues"
 const ROSTER_CACHE_MS = 12 * 60 * 60 * 1000
 const PLAYER_STATS_CACHE_MS = 8 * 60 * 60 * 1000
 const EMPTY_CACHE_MS = 15 * 60 * 1000
@@ -81,7 +87,12 @@ function cacheSet(key: string, value: unknown, ttl: number): void {
   }
 }
 
-async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
+async function cached<T>(
+  key: string,
+  ttl: number,
+  load: () => Promise<T>,
+  isEmpty: (value: T) => boolean = (value) => value === null,
+): Promise<T> {
   const existing = cacheGet<T>(key)
   if (existing.hit) return existing.value as T
   const pending = inFlight.get(key)
@@ -107,7 +118,7 @@ async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Prom
     }
 
     const value = await load()
-    const effectiveTtl = value === null ? EMPTY_CACHE_MS : ttl
+    const effectiveTtl = isEmpty(value) ? EMPTY_CACHE_MS : ttl
     cacheSet(key, value, effectiveTtl)
     try {
       await getFirebaseAdminFirestore()
@@ -259,17 +270,98 @@ function playerCompetitionSlug(raw: unknown, fallback: string): string {
   return fallback
 }
 
-async function playerSeasonStats(slug: string, playerId: string, season: number): Promise<Dict | null> {
-  const key = "espn-pro-player-stats:v1:" + slug + ":" + playerId + ":" + season
-  return cached(key, PLAYER_STATS_CACHE_MS, async () => {
-    const base = ESPN_WEB_BASE + "/" + slug + "/athletes/" + playerId
-    const stats = await getEspnJson(base + "/stats?season=" + season)
-    if (stats) return stats
+type PlayerStatsLookup = {
+  profile: Dict | null
+  source: "core-statisticslog" | "overview" | "none"
+  coreStatus: number
+  statisticsStatus: number | null
+  overviewStatus: number | null
+  seasonUsed: number | null
+}
 
-    // Some ESPN soccer competitions expose the same season snapshot through
-    // the athlete overview route rather than the dedicated stats route.
-    return getEspnJson(base + "/overview?season=" + season)
-  })
+function safeEspnCoreReference(reference: string): string | null {
+  try {
+    const url = new URL(reference, ESPN_CORE_BASE + "/")
+    if (url.hostname !== "sports.core.api.espn.com") return null
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null
+    url.protocol = "https:"
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+async function playerSeasonStats(
+  slug: string,
+  playerId: string,
+  season: number,
+): Promise<PlayerStatsLookup> {
+  const key = "espn-pro-player-stats:v2:" + slug + ":" + playerId + ":" + season
+  return cached(key, PLAYER_STATS_CACHE_MS, async () => {
+    const coreBase = ESPN_CORE_BASE + "/" + slug + "/athletes/" + playerId
+    const logResponse = await getEspnJsonResult(coreBase + "/statisticslog?lang=en&region=us")
+    let statisticsStatus: number | null = null
+    let seasonUsed: number | null = null
+
+    if (logResponse.data) {
+      const selection = selectEspnSeasonStats(logResponse.data, season)
+      seasonUsed = selection.season
+      if (selection.data) {
+        return {
+          profile: selection.data,
+          source: "core-statisticslog",
+          coreStatus: logResponse.status,
+          statisticsStatus: 200,
+          overviewStatus: null,
+          seasonUsed,
+        }
+      }
+
+      if (selection.reference) {
+        const referenceUrl = safeEspnCoreReference(selection.reference)
+        if (referenceUrl) {
+          const statisticsResponse = await getEspnJsonResult(referenceUrl)
+          statisticsStatus = statisticsResponse.status
+          if (statisticsResponse.data) {
+            return {
+              profile: statisticsResponse.data,
+              source: "core-statisticslog",
+              coreStatus: logResponse.status,
+              statisticsStatus,
+              overviewStatus: null,
+              seasonUsed,
+            }
+          }
+        }
+      }
+    }
+
+    // Keep the Web API overview as a compatibility fallback. Its /stats route
+    // is not used because ESPN's common/v3 soccer implementation does not
+    // expose the same season-stat resource available to US sports.
+    const overviewResponse = await getEspnJsonResult(
+      ESPN_WEB_BASE + "/" + slug + "/athletes/" + playerId + "/overview?season=" + season,
+    )
+    if (overviewResponse.data) {
+      return {
+        profile: overviewResponse.data,
+        source: "overview",
+        coreStatus: logResponse.status,
+        statisticsStatus,
+        overviewStatus: overviewResponse.status,
+        seasonUsed,
+      }
+    }
+
+    return {
+      profile: null,
+      source: "none",
+      coreStatus: logResponse.status,
+      statisticsStatus,
+      overviewStatus: overviewResponse.status,
+      seasonUsed,
+    }
+  }, (value) => value.profile === null)
 }
 
 async function mapWithConcurrency<T, R>(
@@ -347,16 +439,56 @@ async function loadTeamSquad(
     const statsSlug = playerCompetitionSlug(raw, slug)
     const season = seasonFor(date, team, statsSlug)
     try {
-      const profile = await playerSeasonStats(statsSlug, player.id, season)
-      return { id: player.id, scores: profile ? deriveEspnPlayerScores(profile) : null }
+      const lookup = await playerSeasonStats(statsSlug, player.id, season)
+      return {
+        id: player.id,
+        scores: lookup.profile ? deriveEspnPlayerScores(lookup.profile) : null,
+        lookup,
+      }
     } catch {
-      return { id: player.id, scores: null }
+      return {
+        id: player.id,
+        scores: null,
+        lookup: {
+          profile: null,
+          source: "none" as const,
+          coreStatus: 0,
+          statisticsStatus: null,
+          overviewStatus: null,
+          seasonUsed: null,
+        },
+      }
     }
   })
 
   const playerStats = new Map<string, PlayerScores>()
+  const sourceCounts = { core: 0, overview: 0, none: 0 }
+  const coreStatuses = new Map<number, number>()
+  const statisticsStatuses = new Map<number, number>()
   statsRows.forEach((row) => {
     if (row.scores) playerStats.set(row.id, row.scores)
+    if (row.lookup.source === "core-statisticslog") sourceCounts.core += 1
+    else if (row.lookup.source === "overview") sourceCounts.overview += 1
+    else sourceCounts.none += 1
+    coreStatuses.set(row.lookup.coreStatus, (coreStatuses.get(row.lookup.coreStatus) ?? 0) + 1)
+    if (row.lookup.statisticsStatus !== null) {
+      statisticsStatuses.set(
+        row.lookup.statisticsStatus,
+        (statisticsStatuses.get(row.lookup.statisticsStatus) ?? 0) + 1,
+      )
+    }
+  })
+
+  // One compact server log per team makes provider endpoint failures visible
+  // without exposing individual player IDs or raw athlete payloads.
+  console.info("[Pitchline ESPN] Player-stat lookup", {
+    competition: slug,
+    rosterSize: rawPlayers.length,
+    attempted: candidates.length,
+    rated: playerStats.size,
+    sources: sourceCounts,
+    coreHttpStatuses: Object.fromEntries(coreStatuses),
+    statisticsHttpStatuses: Object.fromEntries(statisticsStatuses),
   })
 
   const players = rawPlayers

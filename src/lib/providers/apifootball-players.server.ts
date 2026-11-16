@@ -21,7 +21,7 @@ type ApiCacheValue = { expiresAt: number; value: unknown }
 
 const API_BASE = "https://v3.football.api-sports.io"
 const TEAM_CACHE_MS = 7 * 24 * 60 * 60 * 1000
-const SQUAD_CACHE_MS = 7 * 24 * 60 * 60 * 1000
+const SQUAD_CACHE_MS = 24 * 60 * 60 * 1000
 const PLAYER_CACHE_MS = 18 * 60 * 60 * 1000
 const apiCache = new Map<string, ApiCacheValue>()
 const inFlight = new Map<string, Promise<unknown>>()

@@ -171,6 +171,7 @@ export function backtestRows(rows: BacktestInputRow[]): BacktestReport {
   if (!rows.length) throw new Error("No fixtures supplied.")
   const ids = new Set<string>()
   let xgSource: string | null = null
+  let xgRowCount = 0
   const scored = rows.map((row, index) => {
     const rowNumber = row._row ?? String(index + 2)
     if (!row.fixture_id || ids.has(row.fixture_id)) throw new Error("Row " + rowNumber + ": fixture_id must be unique.")
@@ -188,6 +189,7 @@ export function backtestRows(rows: BacktestInputRow[]): BacktestReport {
     const hasAnyXg = XG_COLUMNS.some((key) => String(row[key] ?? "").trim() !== "") || Boolean(row.xg_source?.trim())
     let xg: { home_xg_for: number; home_xg_against: number; away_xg_for: number; away_xg_against: number; source: string } | null = null
     if (hasAnyXg) {
+      xgRowCount += 1
       const missing = [...XG_COLUMNS, "xg_source"].filter((key) => !String(row[key] ?? "").trim())
       if (missing.length) throw new Error("Row " + rowNumber + ": xG features require all four xG columns and xg_source.")
       xg = {
@@ -197,7 +199,7 @@ export function backtestRows(rows: BacktestInputRow[]): BacktestReport {
         away_xg_against: numeric(row, "away_xg_against"),
         source: row.xg_source.trim(),
       }
-      if (xgSource && xgSource !== xg.source) xgSource = "Multiple source-attributed xG providers"
+      if (xgSource && xgSource !== xg.source) throw new Error("Row " + rowNumber + ": use one consistent xG source across a backtest.")
       else if (!xgSource) xgSource = xg.source
     }
 
@@ -233,6 +235,10 @@ export function backtestRows(rows: BacktestInputRow[]): BacktestReport {
       over25Y: hg + ag >= 3,
     }
   })
+
+  if (xgRowCount !== 0 && xgRowCount !== rows.length) {
+    throw new Error("xG features must be supplied for every fixture in a backtest, or for none of them. Mixed goals/xG inputs are not comparable.")
+  }
 
   const chronological = [...scored].sort((a, b) => Date.parse(a.date) - Date.parse(b.date))
   const splitIndex = Math.floor(chronological.length * 0.7)

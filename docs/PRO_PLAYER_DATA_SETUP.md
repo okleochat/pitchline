@@ -50,6 +50,6 @@ Use a Pro account, choose any two teams in the Pro simulator, and run the simula
 
 ## 6. Request quota and caching
 
-API-Football's published Free plan lists 100 requests per day. Team mapping and squad snapshots are cached for seven days; player statistics are cached for 18 hours in the private Firestore `provider_api_cache` collection, with a local in-memory cache on each App Hosting instance.
+API-Football's published Free plan lists 100 requests per day. Team mapping is cached for seven days, registered-squad snapshots for 24 hours, and player statistics for 18 hours in the private Firestore `provider_api_cache` collection, with a local in-memory cache on each App Hosting instance.
 
 For club teams, Pitchline requests one or two team-season statistics pages. For national teams, it requests the player-season record for each member of the current squad, with a concurrency limit of four. The first analysis of two national teams can therefore use a significant fraction of the free daily quota. Repeating the same analysis reuses cached data. Monitor API-Football usage during initial testing.

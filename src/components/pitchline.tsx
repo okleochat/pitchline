@@ -718,7 +718,6 @@ export function Pitchline({
   const [proReport, setProReport] = useState<ProReport | null>(null)
   const [proLoading, setProLoading] = useState(false)
   const [proError, setProError] = useState<string | null>(null)
-  const [proPlayerRefresh, setProPlayerRefresh] = useState(0)
   const view = initialView
   const [pickKind, setPickKind] = useState<PickKind | "all">("all")
   const [pickLeague, setPickLeague] = useState<LeagueId | "all">("all")
@@ -916,7 +915,7 @@ export function Pitchline({
       })
 
     return () => controller.abort()
-  }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll, proPlayerRefresh])
+  }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll])
 
   const report = isPro && engineMode === "pro" && view === "desk" ? proReport : classicReport
 

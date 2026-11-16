@@ -50,7 +50,8 @@ export async function POST(request: NextRequest) {
     })
     return response
   } catch {
-    return NextResponse.json({ error: "session_creation_failed" }, { status: 503 })
+    const code = process.env.FIREBASE_SERVICE_ACCOUNT_JSON ? "session_creation_failed" : "firebase_admin_not_configured"
+    return NextResponse.json({ error: code }, { status: 503 })
   }
 }
 

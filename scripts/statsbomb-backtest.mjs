@@ -23,9 +23,21 @@ function finite(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null
 }
 
-export function aggregateMatchXg(events) {
+export function aggregateMatchXg(events, expectedTeams = []) {
   const totals = new Map()
   let complete = true
+
+  // Initialise both sides at zero: a team with no shots in a match legitimately
+  // has 0.00 xG, but we only accept it when every event can be assigned to one
+  // of the two teams listed in the match metadata.
+  for (const expected of expectedTeams) {
+    const value = { xgFor: 0, shots: 0 }
+    const id = expected.id == null ? "" : String(expected.id)
+    const name = typeof expected.name === "string" ? expected.name : ""
+    if (id) totals.set(id, value)
+    if (name) totals.set(name, value)
+  }
+
   for (const event of events) {
     if (event?.type?.name !== "Shot") continue
     const team = event?.team?.name
@@ -35,14 +47,19 @@ export function aggregateMatchXg(events) {
       complete = false
       continue
     }
-    // Store both the stable StatsBomb team ID and its display name as aliases.
-    // Historical matches are keyed by ID to avoid name/alias collisions.
-    const key = teamId != null ? String(teamId) : String(team)
-    const current = totals.get(key) ?? { xgFor: 0, shots: 0 }
-    current.xgFor += xg
-    current.shots += 1
-    totals.set(key, current)
-    if (typeof team === "string" && team.trim()) totals.set(team, current)
+
+    const id = teamId == null ? "" : String(teamId)
+    const name = typeof team === "string" ? team : ""
+    const current = (id && totals.get(id)) || (name && totals.get(name))
+    if (expectedTeams.length && !current) {
+      complete = false
+      continue
+    }
+    const value = current ?? { xgFor: 0, shots: 0 }
+    value.xgFor += xg
+    value.shots += 1
+    if (id) totals.set(id, value)
+    if (name) totals.set(name, value)
   }
   return { totals, complete }
 }
@@ -194,7 +211,10 @@ async function runBacktest(options) {
     } catch {
       return null
     }
-    const shotData = aggregateMatchXg(events)
+    const shotData = aggregateMatchXg(events, [
+      { id: match.homeKey, name: match.homeTeam },
+      { id: match.awayKey, name: match.awayTeam },
+    ])
     if (!shotData.complete) return null
     const home = shotData.totals.get(match.homeKey || match.homeTeam) ?? shotData.totals.get(match.homeTeam)
     const away = shotData.totals.get(match.awayKey || match.awayTeam) ?? shotData.totals.get(match.awayTeam)

@@ -566,6 +566,8 @@ export async function mergeInternationalFixtures(board: Board, international: In
     espnId: string
     feedSlug: string
     color: string | null
+    competitionName: string
+    competitionRegion: string
   }>()
   for (const fixture of international) {
     for (const side of [fixture.home, fixture.away]) {
@@ -578,6 +580,8 @@ export async function mergeInternationalFixtures(board: Board, international: In
         espnId: side.espnId,
         feedSlug: fixture.competitionSlug,
         color: side.color,
+        competitionName: fixture.competition,
+        competitionRegion: fixture.region,
       })
     }
   }
@@ -604,14 +608,15 @@ export async function mergeInternationalFixtures(board: Board, international: In
       feedSlug: side.feedSlug,
       rateLeague: "int",
       formMatches: sample?.played ?? 0,
-      ratingSource: sample ? "last completed international competition matches" : "neutral fallback; no completed competition history returned",
+      competitionName: side.competitionName,
+      ratingSource: sample
+        ? side.competitionName + " · previous completed matches"
+        : side.competitionName + " · neutral fallback; no completed history returned",
     }
   }))
 
-  const teamByKey = new Map<string, Team>()
   const teamBySlugAndId = new Map<string, Team>()
   nationalTeams.forEach((team) => {
-    teamByKey.set(team.id, team)
     teamBySlugAndId.set((team.feedSlug ?? "") + ":" + (team.espnId ?? ""), team)
   })
 
@@ -635,6 +640,8 @@ export async function mergeInternationalFixtures(board: Board, international: In
       homeId: home.id,
       awayId: away.id,
       when: dateLabel(fixture.kickoff),
+      competitionName: fixture.competition,
+      competitionRegion: fixture.region,
     }]
   })
 

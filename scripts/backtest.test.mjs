@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { backtestRows, parseCsv } from "./backtest.mjs"
+import { backtestRows, parseCsv } from "../src/lib/backtest.ts"
 
 test("CSV parser handles quoted fields and reports model calibration", () => {
   const csv = [

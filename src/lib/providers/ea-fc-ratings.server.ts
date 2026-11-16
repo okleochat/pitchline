@@ -7,7 +7,6 @@ import {
   deriveSquadFactors,
   matchEaPlayerByName,
   normaliseEaSquadPlayer,
-  normalisePlayerName,
   playerNameShardId,
   positionFrom,
 } from "@/lib/pro-player-model"

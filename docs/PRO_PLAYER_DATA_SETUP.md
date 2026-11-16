@@ -7,8 +7,11 @@ Pitchline Pro uses ESPN for current-roster and player-season intelligence. It re
 The server-side adapter uses these ESPN soccer endpoints:
 
 - Current team roster: `/apis/site/v2/sports/soccer/{league}/teams/{teamId}/roster?limit=500`
-- Player season statistics: `/apis/common/v3/sports/soccer/{league}/athletes/{athleteId}/stats?season={year}`
-- Where a competition does not expose the dedicated stats response, the adapter also checks the athlete overview endpoint.
+- Player season-statistics log: `https://sports.core.api.espn.com/v2/sports/soccer/leagues/{league}/athletes/{athleteId}/statisticslog`
+- Season statistics: the `statistics` reference returned by the matching statistics-log row.
+- Compatibility fallback: `/apis/common/v3/sports/soccer/{league}/athletes/{athleteId}/overview?season={year}`
+
+The adapter deliberately does **not** call the `common/v3` soccer `/stats` route. ESPN's public common/v3 endpoint documentation identifies that route as unsupported for soccer; it is available for several US sports instead. The Core API uses reference-linked season records, so Pitchline selects the requested season (or, if absent, only the immediately preceding season) and dereferences its statistics resource.
 
 The ESPN team ID and competition slug come from Pitchline's existing live board. Pro does not perform a name-only team search and does not need a selected fixture, kickoff time, matchday starting XI or formation.
 
@@ -18,21 +21,23 @@ ESPN coverage can differ by competition and endpoint. A roster can be available 
 
 1. Load the selected teams' current ESPN roster snapshots.
 2. Join identifiable roster members to available player-season statistics by ESPN athlete ID.
-3. Derive position-aware attack, creativity, defence and squad-depth scores from the returned season metrics.
-4. Apply player-derived multipliers only when **both** teams have at least 12 rated players and at least 60% roster-stat coverage.
-5. If either side falls below the coverage threshold, keep both teams' player multipliers neutral. The Pro simulation still runs using team-level inputs.
+3. Prefer the requested season; use the immediately previous season only when no current-season record exists.
+4. Derive position-aware attack, creativity, defence and squad-depth scores from the returned season metrics.
+5. Apply player-derived multipliers only when **both** teams have at least 12 rated players and at least 60% roster-stat coverage.
+6. If either side falls below the coverage threshold, keep both teams' player multipliers neutral. The Pro simulation still runs using team-level inputs.
 
 For national-team fixtures, Pitchline first uses any current-club competition identity exposed in the roster data. If ESPN does not expose that identity, it falls back to the national-team competition feed. In that case, the available performance sample may reflect international competition rather than a player's domestic club season.
 
 The current-roster endpoint is a current snapshot. Pitchline does not label it as an officially registered tournament squad unless the ESPN roster itself represents that competition's official list.
 
-## 3. Caching and request controls
+## 3. Caching, diagnostics and request controls
 
 - Current rosters: 12-hour shared Firestore cache.
 - Player-season statistics: 8-hour shared Firestore cache.
 - Empty / unavailable lookups: 15-minute negative cache.
 - Maximum 22 player profiles per team per cold-cache pass, balanced across positions.
 - Maximum six profile lookups in flight at once.
+- Server logs record the competition, roster size, rated-player count, source counts and HTTP status counts. They do not include raw athlete payloads or individual player IDs.
 - Raw player payloads remain server-side; the browser receives only team-level indices and coverage counts.
 
 Repeated simulations reuse the shared `provider_api_cache` collection, with an instance-local memory cache as a fast path. A cache miss for one player does not block the rest of the roster from being evaluated.
@@ -50,7 +55,8 @@ After the App Hosting rollout completes:
 1. Sign in with a Pro account.
 2. Select two teams and run the Pro simulation; no fixture needs to be selected.
 3. Open **Player & squad intelligence** and check the source label, coverage counts, and derived indices.
-4. Test both club and international matches. Coverage can legitimately vary by competition and by roster availability.
-5. Confirm that low-coverage or unavailable player feeds leave the simulation running with neutral player multipliers.
+4. Test at least one club match in each supported competition and an international match. Coverage can legitimately vary by competition and by roster availability.
+5. If coverage is still zero, inspect the server logs for `[Pitchline ESPN] Player-stat lookup` and compare the Core API status counts with the competition being tested.
+6. Confirm that low-coverage or unavailable player feeds leave the simulation running with neutral player multipliers.
 
-A successful TypeScript build does not by itself prove that every ESPN competition has live player coverage. Verify representative teams in each competition and monitor the panel's coverage counts before describing the feature as universal.
+The Core API schema is not a stable, formally versioned public contract. A successful TypeScript build does not prove that every endpoint or competition returns live player statistics. Verify representative teams in production and monitor the panel's coverage counts before describing the feature as universal.

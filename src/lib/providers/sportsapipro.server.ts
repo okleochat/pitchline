@@ -46,7 +46,6 @@ export function sportsApiProCapabilities() {
   const configured = Boolean(process.env.SPORTS_APIPRO_API_KEY?.trim())
   return {
     configured,
-    internationalFixtures: configured,
     xgEnabled: configured && enabled("SPORTS_APIPRO_XG_ENABLED"),
     oddsEnabled: configured && enabled("SPORTS_APIPRO_ODDS_ENABLED"),
   }

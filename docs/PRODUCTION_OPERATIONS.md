@@ -42,3 +42,7 @@ npm run backtest -- --input prematch-rates.csv --output report.json
 The raw archive must include unique fixture/team IDs, kickoff, completed-at timestamp, goals and team names. The preparation step computes recency-weighted rates from the previous five completed matches only. If complete xG values from one source are present across the whole output set, it adds rolling xG/xGA; otherwise it exports a goals-only dataset. Matches without a full history window are omitted. Do not use current standings to reconstruct historical pre-match features.
 
 Backtest scores measure probability calibration and ranking accuracy. They are not betting ROI, proof of profitability or a substitute for an out-of-sample live paper-trading period.
+
+## Sportmonks xG response notes
+
+Pitchline reads team expected goals from the fixture `xGFixture` include. The API response exposes expected metrics with type ID `5304`, fixture participant IDs and numeric `data.value`. The app assigns home/away values by participant ID and stores only complete two-sided values with their source. See the [official fixtures date-range include reference](https://docs.sportmonks.com/v3/endpoints-and-entities/endpoints/fixtures/get-fixtures-by-date-range) and [expected-goals include guide](https://docs.sportmonks.com/v3/tutorials-and-guides/tutorials/expected/includes).

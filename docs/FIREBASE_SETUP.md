@@ -8,7 +8,8 @@ Firebase integration is in the codebase, but no Firebase project has been connec
 2. Add a Web App and copy its configuration values.
 3. Enable Authentication → Sign-in method → Email/Password.
 4. Enable Authentication → Sign-in method → Google and configure the support email.
-5. Create a Cloud Firestore database in production mode.
+5. Create a Cloud Firestore database in production mode. Choose the region carefully because Firestore's database location cannot be changed later.
+6. In Authentication → Settings → Authorized domains, confirm localhost and add the production domain plus the Vercel preview domain used for sign-in tests.
 
 ## 2. Deploy Firestore rules
 

@@ -4,7 +4,17 @@
  * without relying on the retired YYYYMMDD-YYYYMMDD form.
  */
 export function monthKeysInRange(startDate: string, endDate: string): string[] {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || endDate < startDate) {
+  const start = new Date(startDate + "T00:00:00Z")
+  const end = new Date(endDate + "T00:00:00Z")
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(endDate) ||
+    !Number.isFinite(start.getTime()) ||
+    !Number.isFinite(end.getTime()) ||
+    start.toISOString().slice(0, 10) !== startDate ||
+    end.toISOString().slice(0, 10) !== endDate ||
+    endDate < startDate
+  ) {
     throw new Error("A valid inclusive YYYY-MM-DD range is required.")
   }
   const months: string[] = []

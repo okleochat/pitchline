@@ -127,7 +127,7 @@ export async function getSportmonksFixtures(start: string, end: string): Promise
 
   const includes = ["participants", "league", "state"]
   if (config.xgEnabled) includes.push("xGFixture")
-  if (config.oddsEnabled) includes.push("odds.bookmaker", "odds.market")
+  if (config.oddsEnabled) includes.push("odds", "odds.bookmaker", "odds.market")
 
   const fixtures: SportmonksFixture[] = []
   let hasMore = true

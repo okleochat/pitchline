@@ -540,7 +540,7 @@ async function loadLeague(
   }
 }
 
-async function mergeInternationalFixtures(board: Board, international: InternationalFixture[]): Promise<Board> {
+export async function mergeInternationalFixtures(board: Board, international: InternationalFixture[]): Promise<Board> {
   if (!international.length) {
     return {
       ...board,

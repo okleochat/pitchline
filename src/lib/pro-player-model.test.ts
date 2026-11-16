@@ -1,251 +1,164 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import {
-  buildPlayerSeasonStats,
-  deriveEspnPlayerScores,
-  derivePlayerScores,
-  deriveSportApiPlayerScores,
+  deriveEaPlayerScores,
   deriveSquadFactors,
-  normaliseSquadPlayer,
+  normaliseEaSquadPlayer,
+  positionFrom,
+  teamNameKey,
 } from "./pro-player-model.ts"
 
-const attackerStats = {
-  games: { appearences: 24, minutes: 1850, rating: "7.42" },
-  goals: { total: 14, assists: 5 },
-  shots: { total: 58, on: 31 },
-  passes: { total: 410, key: 32, accuracy: "82" },
-  tackles: { total: 12, interceptions: 4 },
-  duels: { total: 90, won: 47 },
-  dribbles: { attempts: 35, success: 19 },
+const strongOutfield = {
+  id: "1001",
+  name: "Example Forward",
+  overall: 88,
+  position: "ST",
+  stats: {
+    pac: { value: 90 },
+    sho: { value: 88 },
+    pas: { value: 78 },
+    dri: { value: 86 },
+    def: { value: 42 },
+    phy: { value: 80 },
+    acceleration: { value: 91 },
+    sprintSpeed: { value: 89 },
+    finishing: { value: 90 },
+    shotPower: { value: 87 },
+    longShots: { value: 82 },
+    volleys: { value: 84 },
+    positioning: { value: 91 },
+    vision: { value: 76 },
+    shortPassing: { value: 79 },
+    longPassing: { value: 72 },
+    ballControl: { value: 88 },
+    defensiveAwareness: { value: 40 },
+    standingTackle: { value: 35 },
+    slidingTackle: { value: 30 },
+    interceptions: { value: 38 },
+    strength: { value: 78 },
+    aggression: { value: 70 },
+  },
 }
 
-const strongScores = {
-  attack: 85,
-  creativity: 82,
-  defence: 80,
-  goalkeeper: 80,
-  seasonRating: 82,
-  appearances: 25,
-  minutes: 2000,
+const strongGoalkeeper = {
+  id: "1002",
+  name: "Example Goalkeeper",
+  overall: 86,
+  position: "GK",
+  stats: {
+    gkDiving: { value: 88 },
+    gkHandling: { value: 84 },
+    gkKicking: { value: 78 },
+    gkPositioning: { value: 87 },
+    gkReflexes: { value: 90 },
+    reactions: { value: 85 },
+  },
 }
 
-test("player scores are derived from provider performance statistics", () => {
-  const score = derivePlayerScores(attackerStats)
+test("EA base ratings derive attacking and creative scores from detailed attributes", () => {
+  const score = deriveEaPlayerScores(strongOutfield)
   assert.ok(score)
-  assert.ok(score.attack !== null)
-  assert.ok(score.creativity !== null)
-  assert.ok(score.attack > 50)
-  assert.ok(score.creativity > 50)
-  assert.equal(score.appearances, 24)
-  assert.equal(score.seasonRating, 74.2)
+  assert.equal(score.seasonRating, 88)
+  assert.equal(score.appearances, 0)
+  assert.equal(score.minutes, 0)
+  assert.ok((score.attack ?? 0) > 80)
+  assert.ok((score.creativity ?? 0) > 70)
+  assert.ok((score.defence ?? 0) < 60)
 })
 
-test("registered squad players join season statistics by provider player ID", () => {
-  const stats = buildPlayerSeasonStats([{
-    player: { id: 9, name: "Example Striker" },
-    statistics: [attackerStats],
-  }])
-  const player = normaliseSquadPlayer({
-    id: 9,
-    name: "Example Striker",
-    number: 9,
-    position: "Attacker",
-  }, stats)
-  assert.equal(player?.position, "FW")
-  assert.equal(player?.scores?.appearances, 24)
+test("goalkeepers use EA's dedicated goalkeeper attributes", () => {
+  const score = deriveEaPlayerScores(strongGoalkeeper)
+  assert.ok(score)
+  assert.ok((score.goalkeeper ?? 0) >= 85)
+  assert.equal(positionFrom("GK"), "GK")
+  assert.equal(positionFrom("CB"), "DF")
+  assert.equal(positionFrom("CDM"), "MF")
+  assert.equal(positionFrom("RW"), "FW")
 })
 
-test("ESPN soccer category statistics are normalized into player-season scores", () => {
-  const payload = {
-    categories: [
-      {
-        name: "offensive",
-        stats: [
-          { name: "appearances", value: 24 },
-          { name: "minutes", value: 1850 },
-          { name: "rating", value: 7.42 },
-          { name: "goals", value: 14 },
-          { name: "assists", value: 5 },
-          { name: "shots", value: 58 },
-          { name: "shotsOnTarget", value: 31 },
-          { name: "keyPasses", value: 32 },
-        ],
-      },
-      {
-        name: "defensive",
-        stats: [
-          { name: "tackles", value: 12 },
-          { name: "interceptions", value: 4 },
-          { name: "duels", value: 90 },
-          { name: "duelsWon", value: 47 },
-        ],
-      },
-    ],
-  }
-  const scores = deriveEspnPlayerScores(payload)
-  assert.ok(scores)
-  assert.equal(scores.appearances, 24)
-  assert.equal(scores.minutes, 1850)
-  assert.equal(scores.seasonRating, 74.2)
-  assert.ok((scores.attack ?? 0) > 50)
-  assert.ok((scores.creativity ?? 0) > 50)
-  assert.ok((scores.defence ?? 0) > 40)
-})
-
-test("SportAPI per-match rows are aggregated into the selected current season only", () => {
-  const scores = deriveSportApiPlayerScores({
-    success: true,
-    totals: {
-      appearances: 46,
-      goals: 12,
-      assists: 6,
-      mins_played: 2775,
+test("EA face attributes and overall provide a safe fallback when detailed stats are absent", () => {
+  const score = deriveEaPlayerScores({
+    overall: 77,
+    position: "CM",
+    stats: {
+      pac: { value: 70 },
+      sho: { value: 72 },
+      pas: { value: 80 },
+      dri: { value: 78 },
+      def: { value: 65 },
+      phy: { value: 68 },
     },
-    matches: [
-      {
-        date: "2026-09-12",
-        mins_played: 90,
-        goals: 1,
-        assists: 0,
-        shots_total: 4,
-        tackles: 2,
-        saves: 0,
-      },
-      {
-        date: "2026-10-04",
-        mins_played: 75,
-        goals: 0,
-        assists: 1,
-        shots_total: 2,
-        tackles: 1,
-        saves: 0,
-      },
-      {
-        date: "2026-05-10",
-        mins_played: 90,
-        goals: 3,
-        assists: 0,
-        shots_total: 8,
-        tackles: 0,
-        saves: 0,
-      },
-    ],
-  }, "2026-08-01", "2027-07-31")
-
-  assert.ok(scores)
-  assert.equal(scores.appearances, 2)
-  assert.equal(scores.minutes, 165)
-  // The May row and the provider's career totals must not leak into season form.
-  assert.equal(scores.attack, 81.5)
-  assert.equal(scores.seasonRating, null)
+  })
+  assert.ok(score)
+  assert.ok((score.attack ?? 0) > 0)
+  assert.ok((score.creativity ?? 0) > (score.attack ?? 0))
+  assert.equal(score.seasonRating, 77)
 })
 
-test("SportAPI zero-only player rows are not counted as usable performance coverage", () => {
-  assert.equal(deriveSportApiPlayerScores({
-    matches: [{
-      date: "2026-10-10",
-      mins_played: 90,
-      goals: 0,
-      assists: 0,
-      shots_total: 0,
-      tackles: 0,
-      saves: 0,
-    }],
-  }, "2026-08-01", "2027-07-31"), null)
-})
-
-test("SportAPI returns no player rating when it provides no dated match rows for the season", () => {
-  assert.equal(deriveSportApiPlayerScores({
-    totals: { appearances: 40, goals: 10, mins_played: 2000 },
-    matches: [{ date: "2025-05-10", mins_played: 90, goals: 1 }],
-  }, "2026-08-01", "2027-07-31"), null)
-})
-
-test("SportAPI squad field names normalize to the shared player model", () => {
-  const stats = new Map([["4904", strongScores]])
-  const player = normaliseSquadPlayer({
-    id: 4904,
-    full_name: "David Raya",
-    position: "Goalkeeper",
-    jersey_number: 1,
-  }, stats)
-  assert.equal(player?.id, "4904")
-  assert.equal(player?.name, "David Raya")
-  assert.equal(player?.number, 1)
-  assert.equal(player?.position, "GK")
-  assert.equal(player?.scores?.appearances, 25)
-})
-
-test("ESPN roster athlete records join season scores by athlete ID", () => {
-  const stats = new Map([["123", strongScores]])
-  const player = normaliseSquadPlayer({
-    athlete: {
-      id: "123",
-      fullName: "Example Striker",
-      jersey: "9",
-      position: { abbreviation: "F", name: "Forward" },
-    },
-  }, stats)
-  assert.equal(player?.id, "123")
-  assert.equal(player?.name, "Example Striker")
-  assert.equal(player?.number, 9)
+test("EA player records normalize to the shared squad shape", () => {
+  const player = normaliseEaSquadPlayer(strongOutfield)
+  assert.equal(player?.id, "1001")
+  assert.equal(player?.name, "Example Forward")
   assert.equal(player?.position, "FW")
-  assert.equal(player?.scores?.appearances, 25)
+  assert.equal(player?.scores?.seasonRating, 88)
+  assert.equal(normaliseEaSquadPlayer(null), null)
+  assert.equal(normaliseEaSquadPlayer({ name: "Missing ID" }), null)
 })
 
-test("ESPN rows without a usable performance measure are not rated", () => {
-  assert.equal(deriveEspnPlayerScores({
-    categories: [{ stats: [
-      { name: "appearances", value: 10 },
-      { name: "minutes", value: 400 },
-    ] }],
-  }), null)
+test("club key normalization is accent and punctuation insensitive", () => {
+  assert.equal(teamNameKey("Racing de Santander"), "racing-de-santander")
+  assert.equal(teamNameKey("Atlético Madrid"), "atletico-madrid")
+  assert.equal(teamNameKey("Paris Saint-Germain"), "paris-saint-germain")
 })
 
-test("the whole registered squad remains neutral when performance coverage is too low", () => {
-  const players = Array.from({ length: 24 }, (_, index) => ({
-    id: String(index + 1),
-    name: "Squad player " + index,
-    number: index + 1,
-    position: index === 0 ? "GK" as const : index < 9 ? "DF" as const : index < 17 ? "MF" as const : "FW" as const,
-    scores: index < 6 ? strongScores : null,
-  }))
-  const result = deriveSquadFactors(players)
-  assert.equal(result.factors.applied, false)
-  assert.equal(result.factors.squadCount, 24)
-  assert.equal(result.factors.ratedPlayers, 6)
-  assert.equal(result.factors.attackMultiplier, 1)
-  assert.equal(result.factors.creativityMultiplier, 1)
-  assert.equal(result.factors.defenceMultiplier, 1)
+test("EA club ratings apply only when both teams have sufficient database coverage", () => {
+  const squad = Array.from({ length: 22 }, (_, index) => {
+    const record = index === 0
+      ? { ...strongGoalkeeper, id: "gk-" + index }
+      : {
+          ...strongOutfield,
+          id: "player-" + index,
+          name: "Player " + index,
+          position: index < 7 ? "CB" : index < 15 ? "CM" : "ST",
+          overall: 84 - index,
+        }
+    return normaliseEaSquadPlayer(record)!
+  })
+  const derived = deriveSquadFactors(squad)
+  assert.equal(derived.factors.squadCount, 22)
+  assert.equal(derived.factors.ratedPlayers, 22)
+  assert.equal(derived.factors.coverage, 1)
+  assert.equal(derived.factors.applied, true)
+  assert.ok(derived.attackIndex > 50)
+  assert.ok(derived.creativityIndex > 50)
+  assert.ok(derived.defenceIndex > 50)
+  assert.ok(derived.factors.squadDepth > 0)
+  assert.ok(derived.factors.attackMultiplier >= 0.93 && derived.factors.attackMultiplier <= 1.07)
+  assert.ok(derived.factors.creativityMultiplier >= 0.92 && derived.factors.creativityMultiplier <= 1.08)
+  assert.ok(derived.factors.defenceMultiplier >= 0.93 && derived.factors.defenceMultiplier <= 1.07)
 })
 
-test("well-covered squad statistics produce bounded non-neutral team factors", () => {
-  const players = Array.from({ length: 24 }, (_, index) => ({
-    id: String(index + 1),
-    name: "Squad player " + index,
-    number: index + 1,
-    position: index === 0 ? "GK" as const : index < 8 ? "DF" as const : index < 17 ? "MF" as const : "FW" as const,
-    scores: index < 18 ? {
-      ...strongScores,
-      minutes: 2200 - index * 65,
-      seasonRating: 82 - index * 0.2,
-    } : null,
-  }))
-  const result = deriveSquadFactors(players)
-  assert.equal(result.factors.applied, true)
-  assert.equal(result.factors.ratedPlayers, 18)
-  assert.equal(result.factors.squadCount, 24)
-  assert.ok(result.attackIndex > 50)
-  assert.ok(result.creativityIndex > 50)
-  assert.ok(result.defenceIndex > 50)
-  assert.ok(result.factors.attackMultiplier > 1 && result.factors.attackMultiplier <= 1.07)
-  assert.ok(result.factors.creativityMultiplier > 1 && result.factors.creativityMultiplier <= 1.08)
-  assert.ok(result.factors.defenceMultiplier < 1 && result.factors.defenceMultiplier >= 0.93)
-  assert.ok(result.factors.squadDepth > 0 && result.factors.squadDepth <= 100)
-})
-
-test("missing or invalid squad player records are ignored safely", () => {
-  assert.equal(normaliseSquadPlayer(null, new Map()), null)
-  assert.equal(normaliseSquadPlayer({ name: "No ID" }, new Map()), null)
-  assert.equal(normaliseSquadPlayer({ id: 1, name: "  " }, new Map()), null)
+test("incomplete EA coverage leaves the squad neutral", () => {
+  const squad = Array.from({ length: 24 }, (_, index) => {
+    if (index >= 8) {
+      return {
+        id: String(index),
+        name: "Unrated " + index,
+        number: null,
+        position: "UNK" as const,
+        scores: null,
+      }
+    }
+    return normaliseEaSquadPlayer({
+      ...strongOutfield,
+      id: String(index),
+      name: "Rated " + index,
+    })!
+  })
+  const derived = deriveSquadFactors(squad)
+  assert.equal(derived.factors.applied, false)
+  assert.equal(derived.factors.coverage, 8 / 24)
+  assert.equal(derived.factors.attackMultiplier, 1)
+  assert.equal(derived.factors.creativityMultiplier, 1)
+  assert.equal(derived.factors.defenceMultiplier, 1)
 })

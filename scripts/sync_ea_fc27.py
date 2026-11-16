@@ -15,7 +15,7 @@ import re
 import sys
 import time
 import unicodedata
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -76,8 +76,7 @@ def normalise_player(raw: dict[str, Any]) -> dict[str, Any] | None:
     if player_id is None or not str(player_id).strip():
         return None
     club = team.get("label")
-    if not isinstance(club, str) or not club.strip():
-        return None
+    club_label = club.strip() if isinstance(club, str) else ""
 
     common_name = raw.get("commonName")
     first_name = raw.get("firstName")
@@ -134,7 +133,7 @@ def normalise_player(raw: dict[str, Any]) -> dict[str, Any] | None:
         "overall": int(overall) if overall is not None else None,
         "position": position.get("shortLabel") if isinstance(position.get("shortLabel"), str) else "UNK",
         "alternatePositions": alternate_positions,
-        "club": club.strip(),
+        "club": club_label,
         "clubId": str(team.get("id") or ""),
         "league": raw.get("leagueName") if isinstance(raw.get("leagueName"), str) else "",
         "nationality": nationality.get("label") if isinstance(nationality.get("label"), str) else "",
@@ -250,10 +249,16 @@ def upload_firestore(documents: dict[str, dict[str, Any]], project_id: str) -> N
         batch.commit()
         print(f"Firestore sync: {min(start + batch_size, len(operations))}/{len(operations)} writes.")
 
+    unique_player_ids = {
+        str(player.get("id"))
+        for document in documents.values()
+        for player in document.get("players", [])
+        if player.get("id") is not None
+    }
     metadata = {
         "database": "EA SPORTS FC 27",
         "source": "EA public player ratings page",
-        "playerCount": sum(document["playerCount"] for document in documents.values()),
+        "playerCount": len(unique_player_ids),
         "shardCount": len(documents),
         "syncedAt": now_iso(),
     }

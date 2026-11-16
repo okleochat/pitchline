@@ -1,8 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { INTERNATIONAL_COMPETITIONS } from "./fixtures.server.ts"
+import { INTERNATIONAL_COMPETITIONS } from "./competitions.ts"
 
-test("international coverage includes major senior tournaments and qualifiers", () => {
+test("international coverage includes major tournaments and qualifiers", () => {
   const slugs = new Set(INTERNATIONAL_COMPETITIONS.map((item) => item.slug))
   for (const slug of [
     "caf.nations",
@@ -22,8 +22,5 @@ test("international coverage includes major senior tournaments and qualifiers", 
   ]) {
     assert.equal(slugs.has(slug), true, slug + " should be included")
   }
-})
-
-test("international competition feed does not require a SportsAPI key", () => {
   assert.equal(INTERNATIONAL_COMPETITIONS.length >= 14, true)
 })

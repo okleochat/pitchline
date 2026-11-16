@@ -711,7 +711,7 @@ export async function getRecentForm(input: {
   const homeXg = input.homeName ? xg.get(input.homeName) : undefined
   const awayXg = input.awayName ? xg.get(input.awayName) : undefined
   const chooseGames = (goals: FormGame[] | null, expected: { xgf: number; xga: number; date: string }[] | undefined) => {
-    if (expected && expected.length >= 5) return expected.map((game) => ({ gf: 0, ga: 0, xgf: game.xgf, xga: game.xga }))
+    if (expected && expected.length >= 10) return expected.map((game) => ({ gf: 0, ga: 0, xgf: game.xgf, xga: game.xga }))
     return goals
   }
   const homeGames = chooseGames(home, homeXg)

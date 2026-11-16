@@ -143,9 +143,9 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
   const statusLabel: Record<ProPlayerData["status"], string> = {
     available: "Squad adjustments applied",
     partial: "Player data coverage is partial",
-    team_not_found: "ESPN team mapping unavailable",
-    squad_not_available: "Current ESPN roster unavailable",
-    provider_error: "ESPN player data temporarily unavailable",
+    team_not_found: "SportAPI team mapping unavailable",
+    squad_not_available: "Current SportAPI squad unavailable",
+    provider_error: "SportAPI player data temporarily unavailable",
   }
   return (
     <section className="mt-5 border-t border-border pt-4" aria-label="Player and squad intelligence">
@@ -156,7 +156,7 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
         </span>
       </div>
       <p className="mt-2 text-sm text-muted">{data.note}</p>
-      <p className="mt-1 text-xs text-muted">Source: {data.provider} · Pitchline derives squad indices from current roster members and available player-season statistics. No matchday starting XI or formation is required.</p>
+      <p className="mt-1 text-xs text-muted">Source: {data.provider} · Pitchline derives squad indices from current roster members and this-season match-level player statistics. No matchday starting XI or formation is required.</p>
       {data.home || data.away ? (
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {data.home ? <ProSquadSummary squad={data.home} /> : null}

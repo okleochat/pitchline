@@ -743,6 +743,8 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
         homeEspn,
         awaySlug: away.feedSlug ?? "",
         awayEspn,
+        homeName: home.name,
+        awayName: away.name,
       },
     })
       .then((result) => {
@@ -1625,13 +1627,15 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
           {model === "dixon"
             ? `Dixon–Coles (ρ = ${DIXON_RHO.toFixed(2)}) ties the low scorelines, then each of the ${SIMS.toLocaleString("en-GB")} matches is drawn from that table.`
             : `Each of the ${SIMS.toLocaleString("en-GB")} matches draws the two goal totals independently from those rates.`}{" "}
-          {formWindow !== "season" ? "Last 5 and last 10 replace the season rates on the open match only. " : ""}
+          {formWindow !== "season" ? "Last 5 and last 10 replace the season rates on the open match only; source-attributed xG is preferred when complete, otherwise completed-match goals are used. " : ""}
           {level
             ? "The UEFA scale is on for clubs rated from different leagues. "
             : ""}
-          {leagueStatus.standings === "live"
-            ? `Ratings are this season’s scoring, refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}), not a betting line.`
-            : `This competition is using saved ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}
+          {home.xgSource && away.xgSource
+            ? `Both sides have source-attributed rolling xG/xGA from ${home.xgSource} and ${away.xgSource}.`
+            : leagueStatus.standings === "live"
+              ? `Goals-based ratings refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}); xG is used only when verified for both teams.`
+              : `This competition is using saved goals-based ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}
         </p>
       </footer>
     </main>

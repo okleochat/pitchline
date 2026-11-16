@@ -16,6 +16,12 @@ function lagosDate() {
   return `${values.year}-${values.month}-${values.day}`
 }
 
+function isValidDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(value + "T00:00:00Z")
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
 function shiftDate(date: string, days: number) {
   const value = new Date(date + "T12:00:00Z")
   value.setUTCDate(value.getUTCDate() + days)
@@ -50,13 +56,16 @@ export default async function InternationalPage({
 }) {
   const params = await searchParams
   const suppliedDate = Array.isArray(params.date) ? params.date[0] : params.date
-  const date = suppliedDate && /^\d{4}-\d{2}-\d{2}$/.test(suppliedDate) ? suppliedDate : lagosDate()
+  const date = suppliedDate && isValidDate(suppliedDate) ? suppliedDate : lagosDate()
 
   let fixtures: Awaited<ReturnType<typeof getInternationalFixtures>>["fixtures"] = []
+  let paginationPartial = false
   let error: string | null = null
   let configured = true
   try {
-    fixtures = (await getInternationalFixtures(date)).fixtures
+    const result = await getInternationalFixtures(date)
+    fixtures = result.fixtures
+    paginationPartial = result.paginationPartial
   } catch (cause) {
     if (cause instanceof SportsApiProError && cause.code === "not_configured") {
       configured = false
@@ -121,6 +130,7 @@ export default async function InternationalPage({
             <p className="text-sm text-muted">{fixtures.length} fixtures · SportsAPI Pro</p>
             <p className="text-xs text-muted">Kick-off times shown in West Africa Time</p>
           </div>
+          {paginationPartial ? <p className="mb-3 text-xs text-muted">This is a paginated feed preview. Some lower-priority tournaments may fall beyond the current request cap.</p> : null}
           <div className="space-y-2">
             {fixtures.map((fixture) => (
               <article key={fixture.id} className="panel flex flex-wrap items-center gap-4">

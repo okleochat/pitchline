@@ -52,6 +52,21 @@ const SEARCH_ALIASES: Record<string, string[]> = {
   "Nottingham Forest": ["Nott'm Forest", "Nottingham Forest"],
   "Paris Saint-Germain": ["Paris Saint Germain", "PSG"],
   "Bayern Munich": ["Bayern München"],
+  "United States": ["USA"],
+  USA: ["United States"],
+  "South Korea": ["Korea Republic"],
+  "Korea Republic": ["South Korea"],
+  "North Korea": ["Korea DPR"],
+  "Czechia": ["Czech Republic"],
+  "Czech Republic": ["Czechia"],
+  "Ivory Coast": ["Côte d'Ivoire"],
+  "Cote d'Ivoire": ["Ivory Coast"],
+  "DR Congo": ["Congo DR"],
+  "Congo DR": ["DR Congo"],
+  Iran: ["IR Iran"],
+  "IR Iran": ["Iran"],
+  Turkey: ["Türkiye"],
+  Türkiye: ["Turkey"],
 }
 
 function record(value: unknown): Dict | null {

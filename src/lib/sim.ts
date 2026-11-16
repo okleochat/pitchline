@@ -351,10 +351,11 @@ const GOAL_LINES = [
 ]
 
 function pickPlayer(team: Team, rng: () => number): string {
-  const bias = rng()
-  if (bias < 0.5) return team.scorers[0]
-  if (bias < 0.8) return team.scorers[1]
-  return team.scorers[2]
+  const knownNames = team.scorers.filter(
+    (name) => typeof name === "string" && name.trim().length > 0 && name.trim().toLowerCase() !== "attacker",
+  )
+  if (knownNames.length === 0) return "A player"
+  return knownNames[Math.floor(rng() * knownNames.length)]
 }
 
 function distinctMinutes(count: number, rng: () => number, taken: Set<number>): number[] {

@@ -15,6 +15,7 @@ test("window crossing a year boundary uses both years", () => {
 })
 
 test("invalid ranges are rejected", () => {
+  assert.throws(() => monthKeysInRange("2026-02-31", "2026-03-02"))
   assert.throws(() => monthKeysInRange("2026-11-30", "2026-11-01"))
   assert.throws(() => monthKeysInRange("yesterday", "2026-11-01"))
 })

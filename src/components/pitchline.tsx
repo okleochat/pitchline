@@ -1324,7 +1324,7 @@ export function Pitchline({
             <RotateCcw className="size-4" />
             {running ? "Simulating…" : isPro && engineMode === "pro" ? `Run ${PRO_SIM_RUNS.toLocaleString("en-GB")} again` : `Run ${SIMS.toLocaleString("en-GB")} again`}
           </button>
-{!(isPro && engineMode === "pro") ? (
+          {!(isPro && engineMode === "pro") ? (
             <button
               type="button"
               className="press inline-flex h-11 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium disabled:opacity-40"
@@ -1389,8 +1389,33 @@ export function Pitchline({
                   {report.mode.a} ({pctLabel(report.mode.n, report.n)})
                 </p>
               </div>
-              {isPro && engineMode === "pro" && proReport ? (
-                <dl className="grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm sm:grid-cols-3">
+              <div>
+                <div className="flex h-2 overflow-hidden rounded-full bg-sunken" aria-hidden>
+                  <span className="bg-primary" style={{ width: barWidth(report.probabilities.home) }} />
+                  <span className="bg-draw" style={{ width: barWidth(report.probabilities.draw) }} />
+                  <span className="bg-foreground" style={{ width: barWidth(report.probabilities.away) }} />
+                </div>
+                <dl className="mt-4 grid grid-cols-3 gap-2">
+                  <div>
+                    <dt className="text-xs text-muted">Home</dt>
+                    <dd className="font-display text-2xl tabular-nums">{exactPct(report.probabilities.home)}</dd>
+                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.home)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted">Draw</dt>
+                    <dd className="font-display text-2xl tabular-nums">{exactPct(report.probabilities.draw)}</dd>
+                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.draw)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted">Away</dt>
+                    <dd className="font-display text-2xl tabular-nums">{exactPct(report.probabilities.away)}</dd>
+                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.away)}</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+                          {isPro && engineMode === "pro" && proReport ? (
+                <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm sm:grid-cols-3">
                   <div>
                     <dt className="text-xs text-muted">Possession</dt>
                     <dd className="mt-1 font-medium tabular-nums">{home.short} {proReport.details.possessionHomePct.toFixed(1)}%</dd>
@@ -1417,31 +1442,6 @@ export function Pitchline({
                   </div>
                 </dl>
               ) : null}
-              <div>
-                <div className="flex h-2 overflow-hidden rounded-full bg-sunken" aria-hidden>
-                  <span className="bg-primary" style={{ width: barWidth(report.probabilities.home) }} />
-                  <span className="bg-draw" style={{ width: barWidth(report.probabilities.draw) }} />
-                  <span className="bg-foreground" style={{ width: barWidth(report.probabilities.away) }} />
-                </div>
-                <dl className="mt-4 grid grid-cols-3 gap-2">
-                  <div>
-                    <dt className="text-xs text-muted">Home</dt>
-                    <dd className="font-display text-2xl tabular-nums">{exactPct(report.probabilities.home)}</dd>
-                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.home)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted">Draw</dt>
-                    <dd className="font-display text-2xl tabular-nums">{exactPct(report.probabilities.draw)}</dd>
-                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.draw)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted">Away</dt>
-                    <dd className="font-display text-2xl tabular-nums">{exactPct(report.probabilities.away)}</dd>
-                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.away)}</dd>
-                  </div>
-                </dl>
-              </div>
-            </div>
             <dl className="mt-6 grid grid-cols-3 gap-3 border-t border-border pt-4">
               <div>
                 <dt className="text-xs text-muted">Both score</dt>
@@ -1668,7 +1668,7 @@ export function Pitchline({
         </div>
       )}
 
-      {watching && !same ? (
+      {watching && !same && !(isPro && engineMode === "pro") ? (
         <section className="panel mb-4" ref={tapeRef}>
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="font-display text-2xl tracking-tight">Match tape</h2>

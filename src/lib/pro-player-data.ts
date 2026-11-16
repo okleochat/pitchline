@@ -62,6 +62,7 @@ export type PlayerDataStatus =
   | "available"
   | "partial"
   | "team_not_found"
+  | "roster_unavailable"
   | "provider_error"
 
 export type ProPlayerData = {

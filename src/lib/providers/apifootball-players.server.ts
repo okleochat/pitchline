@@ -374,7 +374,7 @@ function resultData(
 /**
  * Fetch each team's current registered squad and join it to player-season
  * performance data. This does not look up a fixture or require matchday
- * matchday lineups. All raw provider responses and credentials remain server-side.
+ * lineups. All raw provider responses and credentials remain server-side.
  */
 export async function getProPlayerData(input: {
   home: PlayerTeamContext

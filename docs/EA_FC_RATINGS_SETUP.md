@@ -90,7 +90,7 @@ The workflow uses GitHub's short-lived OIDC identity; it does not need a long-li
 
 Each refresh uploads to a new versioned Firestore collection. It verifies the full set of shard documents and only then atomically updates `ea_fc27_meta/current.activeCollection`. Pitchline reads the active collection pointer, so the previous complete snapshot remains in use until the new one is ready.
 
-After publication, the immediately previous versioned collection is cleaned up on a best-effort basis. A cleanup issue does not roll back or invalidate the newly published snapshot.
+After publication, the just-replaced snapshot is retained for one refresh cycle so app instances with a briefly cached pointer can continue reading it. On the following refresh, the older retired snapshot is cleaned up on a best-effort basis. A cleanup issue does not roll back or invalidate the newly published snapshot.
 
 The normalized local copy is written to `data/ea-fc27/players.json` by the script but remains gitignored. Firestore stores only the compact player fields needed for matching and simulation; raw downloads and credentials are not committed.
 

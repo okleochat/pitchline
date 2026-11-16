@@ -3,18 +3,17 @@ import "server-only"
 import type { Team } from "@/data/football"
 import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
 import {
-  buildLineupPlayerStats,
-  deriveLineupFactors,
-  normaliseLineupPlayer,
+  buildPlayerSeasonStats,
+  deriveSquadFactors,
+  normaliseSquadPlayer,
 } from "@/lib/pro-player-model"
 import type {
-  LineupPlayer,
   PlayerDataStatus,
   PlayerScores,
   PlayerTeamContext,
   ProPlayerData,
-  ProTeamLineup,
-  TeamLineupFactors,
+  ProTeamSquad,
+  SquadPlayer,
 } from "@/lib/pro-player-data"
 
 type Dict = Record<string, unknown>
@@ -22,9 +21,8 @@ type ApiCacheValue = { expiresAt: number; value: unknown }
 
 const API_BASE = "https://v3.football.api-sports.io"
 const TEAM_CACHE_MS = 7 * 24 * 60 * 60 * 1000
+const SQUAD_CACHE_MS = 7 * 24 * 60 * 60 * 1000
 const PLAYER_CACHE_MS = 18 * 60 * 60 * 1000
-const TEAM_FIXTURE_CACHE_MS = 20 * 60 * 1000
-const LINEUP_CACHE_MS = 10 * 60 * 1000
 const apiCache = new Map<string, ApiCacheValue>()
 const inFlight = new Map<string, Promise<unknown>>()
 
@@ -90,7 +88,7 @@ function cacheGet<T>(key: string): { hit: boolean; value?: T } {
 
 function cacheSet(key: string, value: unknown, ttl: number): void {
   apiCache.set(key, { value, expiresAt: Date.now() + ttl })
-  if (apiCache.size > 1200) {
+  if (apiCache.size > 1600) {
     const first = apiCache.keys().next().value
     if (first) apiCache.delete(first)
   }
@@ -103,9 +101,6 @@ async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Prom
   if (pending) return pending as Promise<T>
 
   const task = (async () => {
-    // Firestore keeps the provider cache shared across App Hosting instances.
-    // The collection is covered by the default-deny client rules; this runs
-    // through Firebase Admin only.
     const documentId = key.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 900)
     try {
       const doc = await getFirebaseAdminFirestore()
@@ -121,7 +116,7 @@ async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Prom
         void doc.ref.delete().catch(() => {})
       }
     } catch {
-      // Local cache remains available if Firestore is temporarily unavailable.
+      // The local cache remains available if Firestore is temporarily unavailable.
     }
 
     const value = await load()
@@ -137,7 +132,7 @@ async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Prom
           cachedAt: Date.now(),
         })
     } catch {
-      // Do not fail an otherwise valid player lookup because cache persistence failed.
+      // Cache persistence must not fail an otherwise valid provider lookup.
     }
     return value
   })().finally(() => {
@@ -186,8 +181,15 @@ async function apiRequest(endpoint: string, params: Record<string, string>): Pro
 
 function seasonFor(date: Date, league: Team["league"]): number {
   const year = date.getUTCFullYear()
-  if (league === "mls" || league === "bra" || league === "ksa") return year
+  if (league === "mls" || league === "bra" || league === "ksa" || league === "mx") return year
   return date.getUTCMonth() + 1 >= 7 ? year : year - 1
+}
+
+function playerPerformanceSeason(date: Date, team: PlayerTeamContext): number {
+  // National-team squad members need their club-season records, not just their
+  // comparatively sparse appearances for the national side.
+  if (team.league === "int") return seasonFor(date, "eng")
+  return seasonFor(date, team.rateLeague ?? team.league)
 }
 
 async function findProviderTeam(team: PlayerTeamContext): Promise<string | null> {
@@ -224,141 +226,162 @@ async function findProviderTeam(team: PlayerTeamContext): Promise<string | null>
   return null
 }
 
-type ProviderFixture = {
-  id: string
-  timestamp: number
-  homeId: string
-  awayId: string
-}
-
-async function findProviderFixture(
-  homeTeamId: string,
-  awayTeamId: string,
-  kickoffAt: string,
-): Promise<ProviderFixture | null> {
-  const kickoff = new Date(kickoffAt).getTime()
-  if (!Number.isFinite(kickoff)) return null
-  return cached("team-fixtures:" + homeTeamId, TEAM_FIXTURE_CACHE_MS, async () => {
-    const response = await apiRequest("fixtures", { team: homeTeamId, next: "20", timezone: "UTC" })
-    return response.flatMap((entry) => {
-      const fixture = record(entry)
-      const fixtureData = record(fixture?.fixture)
-      const sides = record(fixture?.teams)
-      const home = record(sides?.home)
-      const away = record(sides?.away)
-      const id = numberValue(fixtureData?.id)
-      const timestamp = numberValue(fixtureData?.timestamp)
-      const homeId = numberValue(home?.id)
-      const awayId = numberValue(away?.id)
-      if (id === null || timestamp === null || homeId === null || awayId === null) return []
-      return [{
-        id: String(id),
-        timestamp,
-        homeId: String(homeId),
-        awayId: String(awayId),
-      }]
-    })
-  }).then((fixtures) => {
-    const matches = fixtures.filter((fixture) =>
-      fixture.homeId === homeTeamId && fixture.awayId === awayTeamId
-    )
-    const near = matches
-      .map((fixture) => ({ fixture, distance: Math.abs(fixture.timestamp * 1000 - kickoff) }))
-      .filter((entry) => entry.distance <= 36 * 60 * 60 * 1000)
-      .sort((left, right) => left.distance - right.distance)
-    return near[0]?.fixture ?? null
-  })
-}
-
-function seasonPlayerResponse(payload: unknown[]): unknown[] {
-  return payload
-}
-
-type ParsedLineup = {
-  teamId: string
-  starters: LineupPlayer[]
-  substitutes: LineupPlayer[]
-  factors: TeamLineupFactors
-}
-
-function parseLineupSide(
-  value: unknown,
-  stats: Map<string, PlayerScores>,
-): ParsedLineup | null {
-  const row = record(value)
-  const team = record(row?.team)
-  const teamId = numberValue(team?.id)
-  if (teamId === null) return null
-  const starts = Array.isArray(row?.startXI) ? row.startXI : []
-  const substitutes = Array.isArray(row?.substitutes) ? row.substitutes : []
-  const starterPlayers = starts
-    .map((player) => normaliseLineupPlayer(player, stats))
-    .filter((player): player is LineupPlayer => player !== null)
-  const benchPlayers = substitutes
-    .map((player) => normaliseLineupPlayer(player, stats))
-    .filter((player): player is LineupPlayer => player !== null)
-  return {
-    teamId: String(teamId),
-    starters: starterPlayers,
-    substitutes: benchPlayers,
-    factors: deriveLineupFactors(starterPlayers, benchPlayers),
-  }
-}
-
-function averageScore(players: LineupPlayer[], key: "attack" | "creativity" | "defence"): number {
-  const values = players
-    .map((player) => player.scores?.[key] ?? null)
-    .filter((value): value is number => value !== null)
-  if (!values.length) return 50
-  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10
-}
-
-function publicLineup(teamName: string, lineup: ParsedLineup, applyFactors: boolean): ProTeamLineup {
-  const ratedSubs = lineup.substitutes.filter((player) => player.scores !== null).length
-  const factors: TeamLineupFactors = applyFactors
-    ? lineup.factors
-    : {
-        ...lineup.factors,
-        attackMultiplier: 1,
-        creativityMultiplier: 1,
-        defenceMultiplier: 1,
-        benchStrength: 50,
-        applied: false,
-      }
-  return {
-    teamName,
-    startingCount: lineup.starters.length,
-    ratedStartingCount: lineup.factors.ratedStarters,
-    substituteCount: lineup.substitutes.length,
-    ratedSubstituteCount: ratedSubs,
-    attackIndex: averageScore(lineup.starters, "attack"),
-    creativityIndex: averageScore(lineup.starters, "creativity"),
-    defenceIndex: averageScore(lineup.starters, "defence"),
-    factors,
-  }
-}
-
-function ratedStarterCount(lineup: ParsedLineup | null): number {
-  return lineup?.factors.ratedStarters ?? 0
+async function squadResponse(teamId: string): Promise<unknown[]> {
+  return cached("squad:" + teamId, SQUAD_CACHE_MS, () =>
+    apiRequest("players/squads", { team: teamId })
+  )
 }
 
 async function playerStatsForTeam(teamId: string, season: number, page: number): Promise<unknown[]> {
-  const key = "players:" + teamId + ":" + season + ":" + page
-  return cached(key, PLAYER_CACHE_MS, async () => {
-    const response = await apiRequest("players", {
-      team: teamId,
-      season: String(season),
-      page: String(page),
-    })
-    return seasonPlayerResponse(response)
+  const key = "players-team:" + teamId + ":" + season + ":" + page
+  return cached(key, PLAYER_CACHE_MS, () => apiRequest("players", {
+    team: teamId,
+    season: String(season),
+    page: String(page),
+  }))
+}
+
+async function playerStatsForPlayer(playerId: string, season: number): Promise<unknown[]> {
+  const key = "player-profile:" + playerId + ":" + season
+  return cached(key, PLAYER_CACHE_MS, () => apiRequest("players", {
+    id: playerId,
+    season: String(season),
+  }))
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const workerCount = Math.min(Math.max(1, concurrency), items.length)
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = cursor
+      cursor += 1
+      if (index >= items.length) return
+      results[index] = await mapper(items[index])
+    }
+  }))
+  return results
+}
+
+function squadEntries(response: unknown[], teamId: string): unknown[] {
+  const matchingTeam = response
+    .map((entry) => record(entry))
+    .find((entry) => numberValue(record(entry?.team)?.id) === Number(teamId))
+  if (Array.isArray(matchingTeam?.players)) return matchingTeam.players
+  if (response.length === 1) {
+    const only = record(response[0])
+    if (Array.isArray(only?.players)) return only.players
+  }
+  return []
+}
+
+async function statsForSquad(
+  team: PlayerTeamContext,
+  teamId: string,
+  players: SquadPlayer[],
+  season: number,
+): Promise<unknown[]> {
+  if (team.league === "int") {
+    // A national team's own match sample is too small for many players. Pull
+    // each announced squad member's club-season statistics by player ID.
+    const profiles = await mapWithConcurrency(players, 4, (player) =>
+      playerStatsForPlayer(player.id, season)
+    )
+    return profiles.flat()
+  }
+
+  const firstPage = await playerStatsForTeam(teamId, season, 1)
+  const rows = [...firstPage]
+  // API-Football returns 20 player records per page. Only fetch a second page
+  // when the first page is full, which keeps quota use lower for small teams.
+  if (firstPage.length >= 20) {
+    const secondPage = await playerStatsForTeam(teamId, season, 2)
+    rows.push(...secondPage)
+  }
+
+  // If a club is still early in its season, use the previous season only for
+  // squad members missing from current-season records. Current-season records
+  // always take priority when both are available.
+  let stats = buildPlayerSeasonStats(rows)
+  const ratedCount = players.filter((player) => stats.has(player.id)).length
+  if (ratedCount < 8 && season > 2000) {
+    const previousFirstPage = await playerStatsForTeam(teamId, season - 1, 1)
+    const previousRows = [...previousFirstPage]
+    if (previousFirstPage.length >= 20) {
+      previousRows.push(...await playerStatsForTeam(teamId, season - 1, 2))
+    }
+    const previousStats = buildPlayerSeasonStats(previousRows)
+    for (const [playerId, score] of previousStats) {
+      if (!stats.has(playerId)) stats.set(playerId, score)
+    }
+  }
+  // Convert the merged records back to the response shape consumed by the
+  // common score builder so that every source follows the same join-by-ID path.
+  return players.flatMap((player) => {
+    const score = stats.get(player.id)
+    if (!score) return []
+    return [{
+      player: { id: Number(player.id), name: player.name },
+      statistics: [{
+        games: {
+          minutes: score.minutes,
+          appearences: score.appearances,
+          rating: score.seasonRating === null ? null : String(score.seasonRating / 10),
+        },
+        goals: { total: 0, assists: 0, saves: 0, conceded: 0 },
+        shots: { total: 0, on: 0 },
+        passes: { key: 0, accuracy: "0" },
+        tackles: { total: 0, interceptions: 0 },
+        duels: { total: 0, won: 0 },
+        dribbles: { attempts: 0, success: 0 },
+      }],
+    }]
   })
+}
+
+async function loadTeamSquad(
+  team: PlayerTeamContext,
+  teamId: string,
+  date: Date,
+): Promise<ProTeamSquad | null> {
+  const rawResponse = await squadResponse(teamId)
+  const rawPlayers = squadEntries(rawResponse, teamId)
+  const emptyStats = new Map<string, PlayerScores>()
+  const basePlayers = rawPlayers
+    .map((entry) => normaliseSquadPlayer(entry, emptyStats))
+    .filter((player): player is SquadPlayer => player !== null)
+  if (!basePlayers.length) return null
+
+  const season = playerPerformanceSeason(date, team)
+  const playerRows = await statsForSquad(team, teamId, basePlayers, season)
+  const playerStats = buildPlayerSeasonStats(playerRows)
+  const players = rawPlayers
+    .map((entry) => normaliseSquadPlayer(entry, playerStats))
+    .filter((player): player is SquadPlayer => player !== null)
+  if (!players.length) return null
+
+  const derived = deriveSquadFactors(players)
+  return {
+    teamName: team.name,
+    squadCount: players.length,
+    ratedPlayerCount: derived.factors.ratedPlayers,
+    attackIndex: derived.attackIndex,
+    creativityIndex: derived.creativityIndex,
+    defenceIndex: derived.defenceIndex,
+    factors: derived.factors,
+  }
 }
 
 function resultData(
   status: PlayerDataStatus,
   note: string,
-  home: ProTeamLineup | null = null,
-  away: ProTeamLineup | null = null,
+  home: ProTeamSquad | null = null,
+  away: ProTeamSquad | null = null,
 ): ProPlayerData {
   return {
     provider: "API-Football",
@@ -371,23 +394,19 @@ function resultData(
 }
 
 /**
- * Fetch a specific fixture's lineups and player season metrics. All external
- * requests stay server-side. Provider data is converted to compact derived
- * player scores; raw API payloads and the API key are never returned to clients.
+ * Fetch each team's current registered squad and join it to player-season
+ * performance data. This does not look up a fixture or require matchday
+ * lineups. All raw provider responses and credentials remain server-side.
  */
 export async function getProPlayerData(input: {
-  kickoffAt?: string
   home: PlayerTeamContext
   away: PlayerTeamContext
 }): Promise<ProPlayerData> {
   if (!process.env.API_FOOTBALL_KEY?.trim()) {
-    return resultData("not_configured", "Add API_FOOTBALL_KEY as a Firebase App Hosting secret to enable player and lineup intelligence.")
+    return resultData("not_configured", "Add API_FOOTBALL_KEY as a Firebase App Hosting secret to enable player and squad intelligence.")
   }
   if (process.env.API_FOOTBALL_DATA_USE_ALLOWED?.toLowerCase() !== "true") {
     return resultData("not_licensed", "The API connection is disabled until permission to use this data in Pitchline Pro and any necessary competition rights have been confirmed.")
-  }
-  if (!input.kickoffAt || !Number.isFinite(new Date(input.kickoffAt).getTime())) {
-    return resultData("fixture_not_selected", "Choose an upcoming Pitchline fixture with a live kick-off timestamp to look up the official team lineups.")
   }
 
   try {
@@ -396,66 +415,41 @@ export async function getProPlayerData(input: {
       findProviderTeam(input.away),
     ])
     if (!homeProviderId || !awayProviderId) {
-      return resultData("team_not_found", "API-Football could not uniquely match one or both teams. The Pro simulation will use team-level inputs for this match.")
+      return resultData("team_not_found", "API-Football could not uniquely match one or both teams. The Pro simulation will use team-level inputs.")
     }
 
-    const match = await findProviderFixture(homeProviderId, awayProviderId, input.kickoffAt)
-    if (!match) {
-      return resultData("match_not_found", "The selected fixture was not found in API-Football's upcoming schedule. The Pro simulation will use team-level inputs.")
-    }
-
-    const lineupKey = "lineups:" + match.id
-    const rawLineups = await cached<unknown[]>(lineupKey, LINEUP_CACHE_MS, () =>
-      apiRequest("fixtures/lineups", { fixture: match.id })
-    )
-    const lineups = rawLineups
-      .map((lineup) => record(lineup))
-      .filter((lineup): lineup is Dict => lineup !== null)
-    if (!lineups.length) {
-      return resultData("lineups_not_available", "The provider has not published lineups for this competition yet. Lineups commonly appear around 20–40 minutes before kick-off when supported.")
-    }
-
-    const date = new Date(input.kickoffAt)
-    const homeSeason = seasonFor(date, input.home.rateLeague ?? input.home.league)
-    const awaySeason = seasonFor(date, input.away.rateLeague ?? input.away.league)
-    const [homePageOne, awayPageOne] = await Promise.all([
-      playerStatsForTeam(homeProviderId, homeSeason, 1),
-      playerStatsForTeam(awayProviderId, awaySeason, 1),
+    const now = new Date()
+    const [home, away] = await Promise.all([
+      loadTeamSquad(input.home, homeProviderId, now),
+      loadTeamSquad(input.away, awayProviderId, now),
     ])
-
-    let homeStats = buildLineupPlayerStats(homePageOne)
-    let awayStats = buildLineupPlayerStats(awayPageOne)
-    let homeLineup = parseLineupSide(lineups.find((item) => numberValue(record(record(item)?.team)?.id) === Number(homeProviderId)), homeStats)
-    let awayLineup = parseLineupSide(lineups.find((item) => numberValue(record(record(item)?.team)?.id) === Number(awayProviderId)), awayStats)
-
-    if (ratedStarterCount(homeLineup) < 7) {
-      const nextPage = await playerStatsForTeam(homeProviderId, homeSeason, 2)
-      homeStats = buildLineupPlayerStats([...homePageOne, ...nextPage])
-      homeLineup = parseLineupSide(lineups.find((item) => numberValue(record(record(item)?.team)?.id) === Number(homeProviderId)), homeStats)
-    }
-    if (ratedStarterCount(awayLineup) < 7) {
-      const nextPage = await playerStatsForTeam(awayProviderId, awaySeason, 2)
-      awayStats = buildLineupPlayerStats([...awayPageOne, ...nextPage])
-      awayLineup = parseLineupSide(lineups.find((item) => numberValue(record(record(item)?.team)?.id) === Number(awayProviderId)), awayStats)
+    if (!home || !away) {
+      return resultData(
+        "squad_not_available",
+        "The provider could not return a registered squad for both teams. The Pro simulation will use team-level inputs.",
+        home,
+        away,
+      )
     }
 
-    if (!homeLineup || !awayLineup) {
-      return resultData("partial", "The fixture was found, but the provider did not return a lineup for both teams.", homeLineup ? publicLineup(input.home.name, homeLineup, false) : null, awayLineup ? publicLineup(input.away.name, awayLineup, false) : null)
-    }
-    const bothApplied = homeLineup.factors.applied && awayLineup.factors.applied
+    const bothApplied = home.factors.applied && away.factors.applied
+    const coverageNote = [
+      input.home.name + " " + home.ratedPlayerCount + "/" + home.squadCount,
+      input.away.name + " " + away.ratedPlayerCount + "/" + away.squadCount,
+    ].join("; ")
     return resultData(
       bothApplied ? "available" : "partial",
       bothApplied
-        ? "Both starting XIs have enough player-season coverage. Player-derived adjustments are applied to the Pro simulation."
-        : "Lineups were found, but there is not enough player-stat coverage across both starting XIs to adjust team strength. The match stays on team-level Pro inputs.",
-      publicLineup(input.home.name, homeLineup, bothApplied),
-      publicLineup(input.away.name, awayLineup, bothApplied),
+        ? "Player-season data from both registered squads is incorporated into the Pro simulation. No matchday starting XI or formation is required."
+        : "The registered squads were found, but player-season statistics do not cover enough of both squads to adjust team strength. The model keeps player multipliers neutral. Coverage: " + coverageNote + ".",
+      home,
+      away,
     )
   } catch (error) {
     const reason = error instanceof Error ? error.message : ""
     const note = reason === "rate_limited"
-      ? "API-Football's daily or per-minute request limit was reached. Cached data will be reused when available."
-      : "API-Football could not provide player data for this match. The Pro simulation will use team-level inputs."
+      ? "API-Football's daily or per-minute request limit was reached. Cached squad and player records will be reused when available."
+      : "API-Football could not provide registered squad and player-season data. The Pro simulation will use team-level inputs."
     return resultData("provider_error", note)
   }
 }

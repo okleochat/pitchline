@@ -63,7 +63,7 @@ function xgByLocation(fixture: SportmonksFixture): { home: number; away: number 
   const awayId = participants.find((participant) => participant.meta?.location === "away")?.id
   let home: number | null = null
   let away: number | null = null
-  for (const metric of fixture.xGFixture ?? fixture.xgfixture ?? []) {
+  for (const metric of fixture.expected ?? fixture.xGFixture ?? fixture.xgfixture ?? []) {
     const value = metricValue(metric)
     if (value === null) continue
     if (homeId !== undefined && metric.participant_id === homeId) home = value

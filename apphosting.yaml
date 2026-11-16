@@ -45,11 +45,11 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  - variable: SPORTMONKS_XG_ENABLED
+  - variable: SPORTS_APIPRO_XG_ENABLED
     value: "false"
     availability:
       - RUNTIME
-  - variable: SPORTMONKS_ODDS_ENABLED
+  - variable: SPORTS_APIPRO_ODDS_ENABLED
     value: "false"
     availability:
       - RUNTIME

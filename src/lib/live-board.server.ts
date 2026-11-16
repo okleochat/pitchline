@@ -551,6 +551,8 @@ export async function mergeInternationalFixtures(board: Board, international: In
   if (!upcoming.length) {
     return {
       ...board,
+      teams: board.teams.filter((team) => team.league !== "int"),
+      fixtures: board.fixtures.filter((fixture) => fixture.league !== "int"),
       weekends: { ...board.weekends, int: "No upcoming international window" },
       leagueStatus: {
         ...board.leagueStatus,
@@ -652,7 +654,7 @@ export async function mergeInternationalFixtures(board: Board, international: In
     }]
   })
 
-  const uniqueTeams = new Map(board.teams.map((team) => [team.id, team]))
+  const uniqueTeams = new Map(board.teams.filter((team) => team.league !== "int").map((team) => [team.id, team]))
   nationalTeams.forEach((team) => uniqueTeams.set(team.id, team))
   const weekendLabel = internationalFixtures.length + " upcoming national-team fixtures"
   const now = new Date().toISOString()

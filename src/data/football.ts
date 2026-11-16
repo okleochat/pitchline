@@ -275,29 +275,53 @@ export function rateLeagueOf(team: Team, teams: Team[]): LeagueId {
   return domesticNames(teams).get(foldName(team.name)) ?? team.league
 }
 
-export type RateSample = { played: number; attack: number; defense: number }
+export type RateSample = {
+  played: number
+  attack: number
+  defense: number
+  xgAttack?: number
+  xgDefense?: number
+  xgSource?: string
+}
 
 export function formRate(
-  games: { gf: number; ga: number }[] | undefined,
+  games: { gf: number; ga: number; xgf?: number; xga?: number; xgSource?: string }[] | undefined,
   take: number,
 ): RateSample | null {
   if (!games?.length || take <= 0) return null
   const slice = games.slice(0, take)
-  const played = slice.length
   const halfLife = Math.max(1, take / 2)
   let totalWeight = 0
   let gf = 0
   let ga = 0
+  let xgf = 0
+  let xga = 0
+  const xgSources = new Set(slice.map((game) => game.xgSource).filter((value): value is string => Boolean(value)))
+  const hasCompleteXg = slice.every((game) =>
+    typeof game.xgf === "number" && Number.isFinite(game.xgf) &&
+    typeof game.xga === "number" && Number.isFinite(game.xga) &&
+    typeof game.xgSource === "string" && game.xgSource.length > 0,
+  ) && xgSources.size === 1
+
   slice.forEach((game, index) => {
     const weight = Math.exp((-Math.LN2 * index) / halfLife)
     totalWeight += weight
     gf += game.gf * weight
     ga += game.ga * weight
+    if (hasCompleteXg) {
+      xgf += game.xgf! * weight
+      xga += game.xga! * weight
+    }
   })
   return {
-    played,
+    played: slice.length,
     attack: Math.round((gf / (totalWeight || 1)) * 100) / 100,
     defense: Math.round((ga / (totalWeight || 1)) * 100) / 100,
+    ...(hasCompleteXg ? {
+      xgAttack: Math.round((xgf / (totalWeight || 1)) * 100) / 100,
+      xgDefense: Math.round((xga / (totalWeight || 1)) * 100) / 100,
+      xgSource: [...xgSources][0],
+    } : {}),
   }
 }
 
@@ -310,16 +334,48 @@ export function shapePair(
   homeSample: RateSample | null,
   awaySample: RateSample | null,
 ): { home: Team; away: Team; homeLeague: LeagueId; awayLeague: LeagueId; homeWeight: number; awayWeight: number; leveled: boolean } {
-  let nextHome = homeSample ? { ...home, attack: homeSample.attack, defense: homeSample.defense } : home
-  let nextAway = awaySample ? { ...away, attack: awaySample.attack, defense: awaySample.defense } : away
+  const useXgForm = Boolean(
+    homeSample?.xgAttack !== undefined &&
+    awaySample?.xgAttack !== undefined &&
+    homeSample.xgSource &&
+    homeSample.xgSource === awaySample.xgSource,
+  )
+  let nextHome = homeSample ? {
+    ...home,
+    attack: useXgForm ? homeSample.xgAttack! : homeSample.attack,
+    defense: useXgForm ? homeSample.xgDefense! : homeSample.defense,
+    xgFor: useXgForm ? homeSample.xgAttack : undefined,
+    xgAgainst: useXgForm ? homeSample.xgDefense : undefined,
+    xgSource: useXgForm ? homeSample.xgSource : undefined,
+  } : home
+  let nextAway = awaySample ? {
+    ...away,
+    attack: useXgForm ? awaySample.xgAttack! : awaySample.attack,
+    defense: useXgForm ? awaySample.xgDefense! : awaySample.defense,
+    xgFor: useXgForm ? awaySample.xgAttack : undefined,
+    xgAgainst: useXgForm ? awaySample.xgDefense : undefined,
+    xgSource: useXgForm ? awaySample.xgSource : undefined,
+  } : away
   const homeLeague = rateLeagueOf(home, teams)
   const awayLeague = rateLeagueOf(away, teams)
   const homeWeight = leagueWeight(homeLeague)
   const awayWeight = leagueWeight(awayLeague)
   const leveled = level && homeWeight !== awayWeight
   if (leveled) {
-    nextHome = { ...nextHome, attack: nextHome.attack * homeWeight, defense: nextHome.defense / homeWeight }
-    nextAway = { ...nextAway, attack: nextAway.attack * awayWeight, defense: nextAway.defense / awayWeight }
+    nextHome = {
+      ...nextHome,
+      attack: nextHome.attack * homeWeight,
+      defense: nextHome.defense / homeWeight,
+      xgFor: typeof nextHome.xgFor === "number" ? nextHome.xgFor * homeWeight : undefined,
+      xgAgainst: typeof nextHome.xgAgainst === "number" ? nextHome.xgAgainst / homeWeight : undefined,
+    }
+    nextAway = {
+      ...nextAway,
+      attack: nextAway.attack * awayWeight,
+      defense: nextAway.defense / awayWeight,
+      xgFor: typeof nextAway.xgFor === "number" ? nextAway.xgFor * awayWeight : undefined,
+      xgAgainst: typeof nextAway.xgAgainst === "number" ? nextAway.xgAgainst / awayWeight : undefined,
+    }
   }
   return { home: nextHome, away: nextAway, homeLeague, awayLeague, homeWeight, awayWeight, leveled }
 }

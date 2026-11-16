@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import { onIdTokenChanged, type User } from "firebase/auth"
-import { firebaseConfigured, getFirebaseAuth } from "@/lib/firebase/client"
+import { firebaseConfigured, getFirebaseAnalytics, getFirebaseAuth } from "@/lib/firebase/client"
 
 export type ClientUser = {
   uid: string
@@ -53,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!firebaseConfigured) { setLoading(false); return }
+    void getFirebaseAnalytics()
     let active = true
     const unsubscribe = onIdTokenChanged(getFirebaseAuth(), async (firebaseUser) => {
       setLoading(true)

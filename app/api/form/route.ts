@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getRecentForm } from "@/lib/live-board.server"
+import { getCurrentUser } from "@/lib/firebase/server-session"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -18,9 +19,12 @@ export async function GET(request: NextRequest) {
     homeEspn: safeId(params.get("homeEspn")),
     awaySlug: safeText(params.get("awaySlug"), 40),
     awayEspn: safeId(params.get("awayEspn")),
+    homeName: safeText(params.get("homeName"), 100),
+    awayName: safeText(params.get("awayName"), 100),
   }
   try {
-    const result = await getRecentForm(input)
+    const user = await getCurrentUser()
+    const result = await getRecentForm(input, Boolean(user?.isPro))
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store, max-age=0" } })
   } catch {
     return NextResponse.json({ error: "form_unavailable" }, { status: 503 })

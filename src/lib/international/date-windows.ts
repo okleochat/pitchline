@@ -19,8 +19,8 @@ export function monthKeysInRange(startDate: string, endDate: string): string[] {
   }
   const months: string[] = []
   const cursor = new Date(startDate + "T12:00:00Z")
-  const end = new Date(endDate + "T12:00:00Z")
-  while (cursor.getTime() <= end.getTime()) {
+  const rangeEnd = new Date(endDate + "T12:00:00Z")
+  while (cursor.getTime() <= rangeEnd.getTime()) {
     const key = cursor.toISOString().slice(0, 7).replace("-", "")
     if (months[months.length - 1] !== key) months.push(key)
     cursor.setUTCDate(cursor.getUTCDate() + 1)

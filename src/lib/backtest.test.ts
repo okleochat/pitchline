@@ -32,7 +32,7 @@ function csvFor(matches = 40, addXg = false) {
 }
 
 test("CSV parser handles escaped commas and quoted fields", () => {
-  const parsed = parseCsv(csvFor(1).replace("Home 0", '"Home, Athletic"'))
+  const parsed = parseCsv(csvFor(1).replace("Home 0", "Home, Athletic"))
   assert.equal(parsed[0].home_team, "Home, Athletic")
 })
 

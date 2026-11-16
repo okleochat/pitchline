@@ -27,6 +27,8 @@ const EA_SHARD_CACHE_MS = 12 * 60 * 60 * 1000
 const EMPTY_CACHE_MS = 15 * 60 * 1000
 const memoryCache = new Map<string, CacheEntry>()
 const inFlight = new Map<string, Promise<unknown>>()
+const eaShardCache = new Map<string, CacheEntry>()
+const eaShardInFlight = new Map<string, Promise<EaShardDocument | null>>()
 
 const LEAGUE_SLUGS: Partial<Record<LeagueId, string>> = {
   eng: "eng.1",
@@ -265,23 +267,40 @@ type EaShardDocument = {
 }
 
 async function loadEaShard(shardId: string): Promise<EaShardDocument | null> {
-  const key = "ea-fc27-name-shard:v1:" + shardId
-  return cached(key, EA_SHARD_CACHE_MS, async () => {
+  const cachedShard = eaShardCache.get(shardId)
+  if (cachedShard && cachedShard.expiresAt > Date.now()) {
+    return cachedShard.value as EaShardDocument | null
+  }
+  if (cachedShard) eaShardCache.delete(shardId)
+
+  const pending = eaShardInFlight.get(shardId)
+  if (pending) return pending
+
+  const task = (async () => {
     const snapshot = await getFirebaseAdminFirestore()
       .collection("ea_fc27_player_shards")
       .doc(shardId)
       .get()
-    if (!snapshot.exists) return null
-    const document = record(snapshot.data())
-    if (!document || document.database !== "EA SPORTS FC 27" || !Array.isArray(document.players)) {
+    if (!snapshot.exists) {
+      eaShardCache.set(shardId, { value: null, expiresAt: Date.now() + EMPTY_CACHE_MS })
       return null
     }
-    return {
+    const document = record(snapshot.data())
+    if (!document || document.database !== "EA SPORTS FC 27" || !Array.isArray(document.players)) {
+      eaShardCache.set(shardId, { value: null, expiresAt: Date.now() + EMPTY_CACHE_MS })
+      return null
+    }
+    const value: EaShardDocument = {
       database: "EA SPORTS FC 27",
       syncedAt: stringValue(document.syncedAt) ?? undefined,
       players: document.players,
     }
-  })
+    eaShardCache.set(shardId, { value, expiresAt: Date.now() + EA_SHARD_CACHE_MS })
+    return value
+  })().finally(() => eaShardInFlight.delete(shardId))
+
+  eaShardInFlight.set(shardId, task)
+  return task
 }
 
 async function findEaMatches(
@@ -410,7 +429,7 @@ function result(
 /**
  * ESPN supplies each selected team's current roster. Pitchline matches those
  * identities to EA's base-player ratings, using strict normalized name keys.
- * No per-player ESPN statistics or SportAPI requests are made.
+ * No per-player ESPN season-stat requests are made.
  */
 export async function getProPlayerData(input: {
   home: PlayerTeamContext

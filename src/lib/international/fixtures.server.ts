@@ -30,7 +30,8 @@ export type InternationalFixtureResponse = {
 
 
 const ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer"
-const CACHE_TTL_MS = 45_000
+const LIVE_CACHE_TTL_MS = 2 * 60 * 1000
+const OTHER_DATE_CACHE_TTL_MS = 10 * 60 * 1000
 const responseCache = new Map<string, { expiresAt: number; value: InternationalFixtureResponse }>()
 
 function record(value: unknown): Dict | null {
@@ -166,7 +167,16 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
     partial: unavailable.length > 0,
   }
 
-  responseCache.set(date, { expiresAt: Date.now() + CACHE_TTL_MS, value: result })
+  const todayParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date())
+  const todayValues = Object.fromEntries(todayParts.map((part) => [part.type, part.value]))
+  const today = todayValues.year + "-" + todayValues.month + "-" + todayValues.day
+  const ttl = date === today ? LIVE_CACHE_TTL_MS : OTHER_DATE_CACHE_TTL_MS
+  responseCache.set(date, { expiresAt: Date.now() + ttl, value: result })
   if (responseCache.size > 90) {
     const firstKey = responseCache.keys().next().value
     if (firstKey) responseCache.delete(firstKey)

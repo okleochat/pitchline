@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next"
 import { AuthProvider } from "@/components/auth/firebase-auth-provider"
+import { FirebaseAnalytics } from "@/components/firebase-analytics"
 import "@/styles.css"
 
 export const metadata: Metadata = {
@@ -18,7 +19,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500..700;1,9..144,500..700&family=Outfit:wght@400;500;600&display=swap" />
       </head>
-      <body><AuthProvider>{children}</AuthProvider></body>
+      <body><AuthProvider><FirebaseAnalytics />{children}</AuthProvider></body>
     </html>
   )
 }

@@ -35,6 +35,8 @@ export type Team = {
   formMatches?: number
   /** Human-readable provenance for a rating derived from a non-league-table feed. */
   ratingSource?: string
+  /** Tournament whose historical results underpin a national-team rating. */
+  competitionName?: string
   /** ESPN team id when the live feed built this club. */
   espnId?: string
   /** ESPN league slug the recent-form feed should use. */
@@ -53,6 +55,9 @@ export type Fixture = {
   homeId: string
   awayId: string
   when: string
+  /** Optional source competition label for cup and national-team fixtures. */
+  competitionName?: string
+  competitionRegion?: string
 }
 
 export const SEASON = "2026/27"

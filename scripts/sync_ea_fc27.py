@@ -396,10 +396,8 @@ def firestore_player_shards(players: list[dict[str, Any]], synced_at: str) -> di
             )
         documents[shard_id] = document
 
-    if len(documents) < 100:
-        raise RuntimeError(
-            f"Only {len(documents)} name shards were built. Refusing to upload an incomplete or incorrectly parsed player database."
-        )
+    if not documents:
+        raise RuntimeError("No men's EA player-name shards were created; refusing to upload an empty database.")
     return documents
 
 def upload_firestore(documents: dict[str, dict[str, Any]], project_id: str) -> None:

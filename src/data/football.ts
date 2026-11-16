@@ -55,6 +55,8 @@ export type Fixture = {
   homeId: string
   awayId: string
   when: string
+  /** Optional ISO kickoff time used for source-matched lineups and match intelligence. */
+  kickoffAt?: string
   /** Optional source competition label for cup and national-team fixtures. */
   competitionName?: string
   competitionRegion?: string

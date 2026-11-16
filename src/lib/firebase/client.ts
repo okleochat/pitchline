@@ -11,7 +11,9 @@ const config = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 }
 
-export const firebaseConfigured = Object.values(config).every((value) => typeof value === "string" && value.length > 0)
+export const firebaseConfigured = [config.apiKey, config.authDomain, config.projectId, config.appId].every(
+  (value) => typeof value === "string" && value.length > 0,
+)
 let authInstance: Auth | null = null
 
 export function getFirebaseAuth(): Auth {

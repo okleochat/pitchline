@@ -1,6 +1,6 @@
 # Firebase setup for Pitchline
 
-The Firebase Web App configuration supplied for the Pitchline project is included in the App Hosting build/runtime configuration. These public Web SDK values identify the Firebase web app; they are not a substitute for server credentials or proof that Authentication and Firestore are enabled.
+The Firebase Web App configuration supplied for the Pitchline project is included in the App Hosting build/runtime configuration. The App Hosting environment also sets APP_BASE_URL to the public hosted.app origin so the server can validate same-origin session requests behind Firebase's reverse proxy. These public Web SDK values identify the Firebase web app; they are not a substitute for server credentials or proof that Authentication and Firestore are enabled.
 
 ## Authentication and authorized domains
 
@@ -23,20 +23,24 @@ Review the Firebase CLI project selection before running the command. The rules 
 
 Firebase Auth and Firestore are separate services. Pitchline now keeps a verified sign-in active even if Firestore profile storage or subscription reads are temporarily unavailable. In that case, the user remains signed in with Free access until the Firestore entitlement can be read.
 
-## SportsAPI Pro on Firebase App Hosting
+## International fixtures
 
-The SportsAPI Pro key is server-only. It must be installed on the Firebase App Hosting backend; a key stored in Vercel does not automatically transfer to Firebase.
+The International page uses the same ESPN soccer Site API transport as the club match desk. It reads dedicated national-team competition scoreboards for AFCON and its qualifiers, UEFA Nations League, FIFA World Cup, regional World Cup qualifiers, the European Championship, Copa América, Gold Cup, Asian Cup and selected major women's tournaments.
+
+International fixture discovery does **not** require a SportsAPI Pro key. The competition catalogue is maintained in `src/lib/international/competitions.ts`; fixture requests are date-scoped, server-side and cached briefly to limit traffic.
+
+## Optional SportsAPI Pro match data
+
+SportsAPI Pro is separate from the core fixtures feed and is used only for optional match-level xG and pre-match bookmaker odds endpoints.
 
 In Firebase Console → App Hosting → backend **pitchline** → **Settings** → **Environment variables and secrets**:
 
-1. Add SPORTS_APIPRO_API_KEY as a **Secret**, not a plain client-side variable. Make it available to the runtime only.
-2. Set SPORTS_APIPRO_XG_ENABLED to true.
-3. Set SPORTS_APIPRO_ODDS_ENABLED to true.
+1. Add `SPORTS_APIPRO_API_KEY` as a **Secret**, not a plain client-side variable. Make it available to the runtime only.
+2. Set `SPORTS_APIPRO_XG_ENABLED` to `true` when the xG package/coverage is active.
+3. Set `SPORTS_APIPRO_ODDS_ENABLED` to `true` when the odds package is active.
 4. Save the backend configuration and allow App Hosting to create a new rollout.
 
-The repository defaults for the xG and odds switches are now true. If the Console has environment overrides, update those too; the Console values take precedence. Never add the provider key to NEXT_PUBLIC_*, commit it, or place it in browser code.
-
-The International page checks whether the server-side key is present. When it is present, the feed calls the provider from the server and keeps the key out of browser bundles.
+The provider key must never be added to `NEXT_PUBLIC_*`, committed, or placed in browser code. A key stored in Vercel does not automatically transfer into Firebase App Hosting.
 
 ## Server credentials by hosting platform
 

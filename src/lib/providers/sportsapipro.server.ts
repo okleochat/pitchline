@@ -2,17 +2,6 @@ import "server-only"
 
 type Dict = Record<string, unknown>
 
-export type InternationalFixture = {
-  id: string
-  kickoff: string
-  competition: string
-  region: string
-  home: { name: string; rank: number | null; color: string | null }
-  away: { name: string; rank: number | null; color: string | null }
-  status: string
-  score: { home: number | null; away: number | null }
-}
-
 export class SportsApiProError extends Error {
   constructor(
     public readonly code: "not_configured" | "feature_disabled" | "rate_limited" | "upstream_error" | "invalid_response",
@@ -30,10 +19,6 @@ function record(value: unknown): Dict | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Dict : null
 }
 
-function text(value: unknown, fallback = ""): string {
-  return typeof value === "string" && value.trim() ? value.trim() : fallback
-}
-
 function number(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
 }
@@ -46,7 +31,6 @@ export function sportsApiProCapabilities() {
   const configured = Boolean(process.env.SPORTS_APIPRO_API_KEY?.trim())
   return {
     configured,
-    internationalFixtures: configured,
     xgEnabled: configured && enabled("SPORTS_APIPRO_XG_ENABLED"),
     oddsEnabled: configured && enabled("SPORTS_APIPRO_ODDS_ENABLED"),
   }
@@ -95,111 +79,6 @@ async function getJson(path: string, ttlMs: number): Promise<Dict> {
     if (firstKey) cache.delete(firstKey)
   }
   return body
-}
-
-function isSeniorNationalSide(value: unknown): boolean {
-  const team = record(value)
-  if (!team || team.national !== true) return false
-  const name = text(team.name, text(team.shortName))
-  return !/\bU[- ]?(?:15|16|17|18|19|20|21|23)\b/i.test(name)
-}
-
-function mapInternationalEvent(value: unknown): InternationalFixture | null {
-  const event = record(value)
-  if (!event) return null
-  const homeTeam = record(event.homeTeam)
-  const awayTeam = record(event.awayTeam)
-  if (!isSeniorNationalSide(homeTeam) || !isSeniorNationalSide(awayTeam)) return null
-
-  const startTimestamp = number(event.startTimestamp)
-  const fallbackDate = text(event.date)
-  const kickoffDate = startTimestamp !== null
-    ? new Date(startTimestamp * 1000)
-    : fallbackDate
-      ? new Date(fallbackDate)
-      : null
-  if (!kickoffDate || !Number.isFinite(kickoffDate.getTime())) return null
-
-  const tournament = record(event.tournament)
-  const category = record(tournament?.category)
-  const status = record(event.status)
-  const homeScore = record(event.homeScore)
-  const awayScore = record(event.awayScore)
-  const homeColors = record(homeTeam?.teamColors)
-  const awayColors = record(awayTeam?.teamColors)
-
-  return {
-    id: String(event.id ?? ""),
-    kickoff: kickoffDate.toISOString(),
-    competition: text(tournament?.name, "International"),
-    region: text(category?.name, "International"),
-    home: {
-      name: text(homeTeam?.name, "Home team"),
-      rank: number(homeTeam?.ranking),
-      color: text(homeColors?.primary) || null,
-    },
-    away: {
-      name: text(awayTeam?.name, "Away team"),
-      rank: number(awayTeam?.ranking),
-      color: text(awayColors?.primary) || null,
-    },
-    status: text(status?.description, text(status?.type, "Scheduled")),
-    score: {
-      home: number(homeScore?.display) ?? number(homeScore?.current),
-      away: number(awayScore?.display) ?? number(awayScore?.current),
-    },
-  }
-}
-
-export async function getInternationalFixtures(date: string): Promise<{
-  date: string
-  source: "SportsAPI Pro"
-  fixtures: InternationalFixture[]
-  pagesFetched: number
-  paginationPartial: boolean
-}> {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date + "T00:00:00Z"))) {
-    throw new SportsApiProError("invalid_response", "A valid YYYY-MM-DD date is required.")
-  }
-
-  // Schedule results are paginated by tournament priority. Read at most three
-  // pages (150 tournament slots) and cache each page for 15 minutes to protect
-  // the provider's free request quota during evaluation.
-  const firstPage = await getJson("/schedule/" + date, 15 * 60 * 1000)
-  const totalPages = Math.max(1, number(firstPage.totalPages) ?? 1)
-  const requestedPages = Math.min(3, totalPages)
-  const extraPages = await Promise.all(
-    Array.from({ length: requestedPages - 1 }, (_, index) =>
-      getJson("/schedule/" + date + "?page=" + (index + 2), 15 * 60 * 1000)
-        .catch(() => null),
-    ),
-  )
-  const pages = [firstPage, ...extraPages.filter((page): page is Dict => Boolean(page))]
-  const events = pages.flatMap((page) =>
-    Array.isArray(page.events)
-      ? page.events
-      : Array.isArray(record(page.data)?.events)
-        ? record(page.data)?.events as unknown[]
-        : [],
-  )
-  const uniqueEvents = new Map<string, unknown>()
-  for (const event of events) {
-    const value = record(event)
-    if (value?.id !== undefined) uniqueEvents.set(String(value.id), event)
-  }
-
-  const fixtures = [...uniqueEvents.values()]
-    .map(mapInternationalEvent)
-    .filter((fixture): fixture is InternationalFixture => Boolean(fixture?.id))
-    .sort((a, b) => a.kickoff.localeCompare(b.kickoff))
-
-  return {
-    date,
-    source: "SportsAPI Pro" as const,
-    fixtures,
-    pagesFetched: pages.length,
-    paginationPartial: pages.length < totalPages,
-  }
 }
 
 export async function getMatchXg(matchId: string) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getFirebaseAdminAuth, getFirebaseAdminFirestore } from "@/lib/firebase/admin"
 import { FieldValue } from "firebase-admin/firestore"
 import { SESSION_COOKIE_NAME } from "@/lib/firebase/server-session"
+import { isAllowedRequestOrigin } from "@/lib/firebase/request-origin"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -9,9 +10,14 @@ const SESSION_DURATION_MS = 5 * 24 * 60 * 60 * 1000
 const RECENT_SIGN_IN_SECONDS = 5 * 60
 
 function sameOrigin(request: NextRequest): boolean {
-  const origin = request.headers.get("origin")
-  if (!origin) return false
-  try { return new URL(origin).origin === request.nextUrl.origin } catch { return false }
+  return isAllowedRequestOrigin({
+    origin: request.headers.get("origin"),
+    appBaseUrl: process.env.APP_BASE_URL,
+    requestOrigin: request.nextUrl.origin,
+    forwardedHost: request.headers.get("x-forwarded-host"),
+    forwardedProto: request.headers.get("x-forwarded-proto"),
+    host: request.headers.get("host"),
+  })
 }
 
 export async function POST(request: NextRequest) {

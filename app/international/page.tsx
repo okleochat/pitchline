@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { SiteHeader } from "@/components/site-header"
-import { getInternationalFixtures, SportsApiProError } from "@/lib/providers/sportsapipro.server"
+import { getInternationalFixtures } from "@/lib/international/fixtures.server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -13,7 +13,7 @@ function lagosDate() {
     day: "2-digit",
   }).formatToParts(new Date())
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  return `${values.year}-${values.month}-${values.day}`
+  return values.year + "-" + values.month + "-" + values.day
 }
 
 function isValidDate(value: string) {
@@ -58,21 +58,12 @@ export default async function InternationalPage({
   const suppliedDate = Array.isArray(params.date) ? params.date[0] : params.date
   const date = suppliedDate && isValidDate(suppliedDate) ? suppliedDate : lagosDate()
 
-  let fixtures: Awaited<ReturnType<typeof getInternationalFixtures>>["fixtures"] = []
-  let paginationPartial = false
+  let result: Awaited<ReturnType<typeof getInternationalFixtures>> | null = null
   let error: string | null = null
-  let configured = true
   try {
-    const result = await getInternationalFixtures(date)
-    fixtures = result.fixtures
-    paginationPartial = result.paginationPartial
+    result = await getInternationalFixtures(date)
   } catch (cause) {
-    if (cause instanceof SportsApiProError && cause.code === "not_configured") {
-      configured = false
-      error = "International fixtures are ready to connect. Add the server-side SportsAPI Pro key to enable the feed."
-    } else {
-      error = cause instanceof Error ? cause.message : "The international fixture feed is temporarily unavailable."
-    }
+    error = cause instanceof Error ? cause.message : "The international fixture feed is temporarily unavailable."
   }
 
   return (
@@ -83,56 +74,50 @@ export default async function InternationalPage({
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">National teams</p>
           <h1 className="mt-2 font-display text-4xl tracking-tight">International fixtures</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted">
-            Senior national-team matches and tournaments, kept separate from club-league ratings until a national-team model is calibrated.
+            Major senior national-team competitions, World Cup and continental qualifiers, and international tournaments.
           </p>
         </div>
         <form action="/international" method="get" className="flex items-end gap-2">
           <label className="block text-sm">
             <span className="mb-1 block text-muted">Match date</span>
-            <input
-              type="date"
-              name="date"
-              defaultValue={date}
-              className="h-11 rounded-lg border border-border bg-card px-3 text-base"
-            />
+            <input type="date" name="date" defaultValue={date} className="h-11 rounded-lg border border-border bg-card px-3 text-base" />
           </label>
           <button type="submit" className="press h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground">Go</button>
         </form>
       </section>
 
       <div className="mb-4 flex items-center justify-between gap-3">
-        <Link href={`/international?date=${shiftDate(date, -1)}`} className="press inline-flex h-10 items-center rounded-lg border border-border bg-card px-3 text-sm">Previous day</Link>
+        <Link href={"/international?date=" + shiftDate(date, -1)} className="press inline-flex h-10 items-center rounded-lg border border-border bg-card px-3 text-sm">Previous day</Link>
         <p className="text-center text-sm font-medium">{displayDate(date)}</p>
-        <Link href={`/international?date=${shiftDate(date, 1)}`} className="press inline-flex h-10 items-center rounded-lg border border-border bg-card px-3 text-sm">Next day</Link>
+        <Link href={"/international?date=" + shiftDate(date, 1)} className="press inline-flex h-10 items-center rounded-lg border border-border bg-card px-3 text-sm">Next day</Link>
       </div>
 
-      {!configured ? (
+      {error ? (
         <section className="panel">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Provider not connected</p>
-          <h2 className="mt-2 font-display text-2xl">International coverage is prepared</h2>
-          <p className="mt-2 max-w-2xl text-sm text-muted">{error}</p>
-          <p className="mt-3 text-xs text-muted">The provider key is server-only. No credentials are included in the browser bundle.</p>
-        </section>
-      ) : error ? (
-        <section className="panel">
-          <h2 className="font-display text-2xl">Fixture feed unavailable</h2>
+          <h2 className="font-display text-2xl">International fixture feed unavailable</h2>
           <p className="mt-2 text-sm text-muted">{error}</p>
-          <p className="mt-2 text-xs text-muted">The existing club competition board remains separate and available.</p>
+          <p className="mt-2 text-xs text-muted">This feed uses the same ESPN soccer data source as the club match desk. No separate API key is required.</p>
         </section>
-      ) : fixtures.length === 0 ? (
+      ) : result && result.fixtures.length === 0 ? (
         <section className="panel">
-          <h2 className="font-display text-2xl">No senior international fixtures found</h2>
-          <p className="mt-2 text-sm text-muted">There are no matching senior national-team fixtures in the provider feed for this date.</p>
+          <h2 className="font-display text-2xl">No major international fixtures found</h2>
+          <p className="mt-2 text-sm text-muted">No matches are scheduled in the selected national-team competitions on this date.</p>
+          <p className="mt-2 text-xs text-muted">Coverage includes AFCON, AFCON qualifiers, UEFA Nations League, the World Cup and regional World Cup qualifiers, the Euros, Copa América, the Gold Cup and the Asian Cup.</p>
+          {result.partial ? <p className="mt-3 text-xs text-muted">Some competition feeds did not respond, so this date may be incomplete.</p> : null}
         </section>
-      ) : (
+      ) : result ? (
         <>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted">{fixtures.length} fixtures · SportsAPI Pro</p>
+            <p className="text-sm text-muted">{result.fixtures.length} fixtures · {result.source}</p>
             <p className="text-xs text-muted">Kick-off times shown in West Africa Time</p>
           </div>
-          {paginationPartial ? <p className="mb-3 text-xs text-muted">This is a paginated feed preview. Some lower-priority tournaments may fall beyond the current request cap.</p> : null}
+          {result.partial ? (
+            <p className="mb-3 text-xs text-muted">
+              Some competition feeds did not respond. Showing fixtures from {result.competitionsChecked} available competition feeds.
+            </p>
+          ) : null}
           <div className="space-y-2">
-            {fixtures.map((fixture) => (
+            {result.fixtures.map((fixture) => (
               <article key={fixture.id} className="panel flex flex-wrap items-center gap-4">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs text-muted">{fixture.competition} · {fixture.region}</p>
@@ -140,7 +125,7 @@ export default async function InternationalPage({
                     <p className="truncate text-sm font-medium">{fixture.home.name}</p>
                     <p className="font-display text-lg tabular-nums">
                       {fixture.score.home !== null && fixture.score.away !== null
-                        ? `${fixture.score.home}–${fixture.score.away}`
+                        ? fixture.score.home + "–" + fixture.score.away
                         : "vs"}
                     </p>
                     <p className="truncate text-right text-sm font-medium">{fixture.away.name}</p>
@@ -151,10 +136,10 @@ export default async function InternationalPage({
             ))}
           </div>
         </>
-      )}
+      ) : null}
 
       <footer className="mt-6 text-xs text-muted">
-        National-team strengths are not borrowed from club teams. A separate calibrated international rating model is required before Pitchline produces international match probabilities.
+        This page is a fixtures-and-results view. International team strength ratings and match probabilities will only be added once a separate national-team model has been calibrated.
       </footer>
     </main>
   )

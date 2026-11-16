@@ -1,5 +1,6 @@
 import "server-only"
 import { LEAGUES, TEAMS, isCup, snapshotBoard, type Board, type Fixture, type LeagueId, type Team } from "@/data/football"
+import { getEspnJson } from "@/lib/espn/transport.server"
 
 const TTL_MS = 15 * 60 * 1000
 
@@ -357,16 +358,7 @@ function weekendLabel(dates: Date[], tz: string): string {
 }
 
 async function getJson(url: string): Promise<Record<string, unknown> | null> {
-  try {
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(8000),
-      headers: { accept: "application/json", "user-agent": "Pitchline/1.0" },
-    })
-    if (!response.ok) return null
-    return (await response.json()) as Record<string, unknown>
-  } catch {
-    return null
-  }
+  return getEspnJson(url)
 }
 
 function asSide(team: Record<string, unknown> | undefined): LiveSide | null {

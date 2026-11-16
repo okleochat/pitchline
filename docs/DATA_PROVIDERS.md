@@ -12,6 +12,8 @@ The API key is read only from `SPORTS_APIPRO_API_KEY`. The browser never receive
 
 Important xG limitation: the shotmap returns xG only during live matches or after full-time, not before kick-off. The provider documents xG values on premium-tier competitions and says lower-tier competitions may return shots without xG. A match with incomplete shot xG is reported as unavailable, never converted to zero or inferred from goals. Therefore this integration is useful for post-match data collection and building features for *future* fixtures, not obtaining a pre-match xG for the fixture itself.
 
+The adapter uses the canonical `api.sportsapipro.com/v2/football` path-based host and `x-api-key` header. Schedule requests are capped at three pages (up to 150 tournaments) and cached per server instance for 15 minutes; multi-instance deployments may still make duplicate requests until a persistent cache is connected.
+
 The API key is not yet configured in the repository, Vercel or App Hosting. After obtaining a key, add it to both hosts as a server-only secret named `SPORTS_APIPRO_API_KEY`. Keep these flags disabled until a live smoke test confirms endpoint payloads and expected competitions:
 
 - `SPORTS_APIPRO_XG_ENABLED=false`

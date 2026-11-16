@@ -29,6 +29,9 @@ const memoryCache = new Map<string, CacheEntry>()
 const inFlight = new Map<string, Promise<unknown>>()
 const eaShardCache = new Map<string, CacheEntry>()
 const eaShardInFlight = new Map<string, Promise<EaShardDocument | null>>()
+const EA_COLLECTION_CACHE_MS = 5 * 60 * 1000
+const LEGACY_EA_SHARD_COLLECTION = "ea_fc27_player_shards"
+let eaCollectionNameCache: { name: string; expiresAt: number } | null = null
 
 const LEAGUE_SLUGS: Partial<Record<LeagueId, string>> = {
   eng: "eng.1",
@@ -300,28 +303,57 @@ type EaShardDocument = {
   players?: unknown[]
 }
 
+async function activeEaShardCollection(): Promise<string> {
+  if (eaCollectionNameCache && eaCollectionNameCache.expiresAt > Date.now()) {
+    return eaCollectionNameCache.name
+  }
+
+  let collectionName = LEGACY_EA_SHARD_COLLECTION
+  try {
+    const metadata = await getFirebaseAdminFirestore()
+      .collection("ea_fc27_meta")
+      .doc("current")
+      .get()
+    const candidate = stringValue(record(metadata.data())?.activeCollection)
+    if (candidate && /^ea_fc27_players_[a-zA-Z0-9_]+$/.test(candidate)) {
+      collectionName = candidate
+    }
+  } catch {
+    // A temporary metadata read failure falls back to the legacy collection.
+    // The last complete snapshot remains available during migration.
+  }
+
+  eaCollectionNameCache = {
+    name: collectionName,
+    expiresAt: Date.now() + EA_COLLECTION_CACHE_MS,
+  }
+  return collectionName
+}
+
 async function loadEaShard(shardId: string): Promise<EaShardDocument | null> {
-  const cachedShard = eaShardCache.get(shardId)
+  const collectionName = await activeEaShardCollection()
+  const cacheKey = collectionName + ":" + shardId
+  const cachedShard = eaShardCache.get(cacheKey)
   if (cachedShard && cachedShard.expiresAt > Date.now()) {
     return cachedShard.value as EaShardDocument | null
   }
-  if (cachedShard) eaShardCache.delete(shardId)
+  if (cachedShard) eaShardCache.delete(cacheKey)
 
-  const pending = eaShardInFlight.get(shardId)
+  const pending = eaShardInFlight.get(cacheKey)
   if (pending) return pending
 
   const task = (async () => {
     const snapshot = await getFirebaseAdminFirestore()
-      .collection("ea_fc27_player_shards")
+      .collection(collectionName)
       .doc(shardId)
       .get()
     if (!snapshot.exists) {
-      eaShardCache.set(shardId, { value: null, expiresAt: Date.now() + EMPTY_CACHE_MS })
+      eaShardCache.set(cacheKey, { value: null, expiresAt: Date.now() + EMPTY_CACHE_MS })
       return null
     }
     const document = record(snapshot.data())
     if (!document || document.database !== "EA SPORTS FC 27" || !Array.isArray(document.players)) {
-      eaShardCache.set(shardId, { value: null, expiresAt: Date.now() + EMPTY_CACHE_MS })
+      eaShardCache.set(cacheKey, { value: null, expiresAt: Date.now() + EMPTY_CACHE_MS })
       return null
     }
     const value: EaShardDocument = {
@@ -329,11 +361,11 @@ async function loadEaShard(shardId: string): Promise<EaShardDocument | null> {
       syncedAt: stringValue(document.syncedAt) ?? undefined,
       players: document.players,
     }
-    eaShardCache.set(shardId, { value, expiresAt: Date.now() + EA_SHARD_CACHE_MS })
+    eaShardCache.set(cacheKey, { value, expiresAt: Date.now() + EA_SHARD_CACHE_MS })
     return value
-  })().finally(() => eaShardInFlight.delete(shardId))
+  })().finally(() => eaShardInFlight.delete(cacheKey))
 
-  eaShardInFlight.set(shardId, task)
+  eaShardInFlight.set(cacheKey, task)
   return task
 }
 

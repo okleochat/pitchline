@@ -64,6 +64,8 @@ test("rolling builder validates completed-at timestamps and team identities", ()
 test("raw builder omits xG columns if any prepared fixture lacks a full single-source xG window", () => {
   const rows = parseCsv(rawCsv(), requiredRawColumns())
   rows[0].home_xg = ""
+  rows[0].away_xg = ""
+  rows[0].xg_source = ""
   const prepared = prepareBacktestRows(rows, 5)
   assert.ok(prepared.every((row) => !row.home_xg_for && !row.xg_source))
 })

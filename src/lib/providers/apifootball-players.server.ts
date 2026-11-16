@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { Team } from "@/data/football"
+import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
 import {
   buildLineupPlayerStats,
   deriveLineupFactors,
@@ -78,13 +79,13 @@ function normaliseName(value: string): string {
     .trim()
 }
 
-function cacheGet<T>(key: string): T | null {
-  const hit = apiCache.get(key)
-  if (!hit || hit.expiresAt <= Date.now()) {
+function cacheGet<T>(key: string): { hit: boolean; value?: T } {
+  const entry = apiCache.get(key)
+  if (!entry || entry.expiresAt <= Date.now()) {
     apiCache.delete(key)
-    return null
+    return { hit: false }
   }
-  return hit.value as T
+  return { hit: true, value: entry.value as T }
 }
 
 function cacheSet(key: string, value: unknown, ttl: number): void {
@@ -97,13 +98,49 @@ function cacheSet(key: string, value: unknown, ttl: number): void {
 
 async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
   const existing = cacheGet<T>(key)
-  if (existing !== null) return existing
+  if (existing.hit) return existing.value as T
   const pending = inFlight.get(key)
   if (pending) return pending as Promise<T>
-  const task = load().then((value) => {
+
+  const task = (async () => {
+    // Firestore keeps the provider cache shared across App Hosting instances.
+    // The collection is covered by the default-deny client rules; this runs
+    // through Firebase Admin only.
+    const documentId = key.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 900)
+    try {
+      const doc = await getFirebaseAdminFirestore()
+        .collection("provider_api_cache")
+        .doc(documentId)
+        .get()
+      const stored = doc.data()
+      if (stored && stored.cacheKey === key && typeof stored.expiresAt === "number") {
+        if (stored.expiresAt > Date.now()) {
+          cacheSet(key, stored.value, stored.expiresAt - Date.now())
+          return stored.value as T
+        }
+        void doc.ref.delete().catch(() => {})
+      }
+    } catch {
+      // Local cache remains available if Firestore is temporarily unavailable.
+    }
+
+    const value = await load()
     cacheSet(key, value, ttl)
+    try {
+      await getFirebaseAdminFirestore()
+        .collection("provider_api_cache")
+        .doc(documentId)
+        .set({
+          cacheKey: key,
+          value,
+          expiresAt: Date.now() + ttl,
+          cachedAt: Date.now(),
+        })
+    } catch {
+      // Do not fail an otherwise valid player lookup because cache persistence failed.
+    }
     return value
-  }).finally(() => {
+  })().finally(() => {
     inFlight.delete(key)
   })
   inFlight.set(key, task)

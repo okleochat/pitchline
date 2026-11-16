@@ -68,7 +68,7 @@ echo "GCP_WORKLOAD_IDENTITY_PROVIDER=projects/${PROJECT_NUMBER}/locations/global
 echo "GCP_SERVICE_ACCOUNT=${SA_EMAIL}"
 ```
 
-In GitHub, open **Settings → Secrets and variables → Actions → Variables** and create these two repository variables using the exact values printed above:
+Before merging the automation PR or starting its first run, open **GitHub → Settings → Secrets and variables → Actions → Variables** and create these two repository variables using the exact values printed above. The workflow is triggered by the merge to `main`, so configure them first:
 
 - `GCP_WORKLOAD_IDENTITY_PROVIDER`
 - `GCP_SERVICE_ACCOUNT`

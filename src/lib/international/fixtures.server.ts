@@ -1,14 +1,9 @@
 import "server-only"
 
 import { getEspnJson } from "@/lib/espn/transport.server"
+import { INTERNATIONAL_COMPETITIONS, type CompetitionSource } from "./competitions"
 
 type Dict = Record<string, unknown>
-
-type CompetitionSource = {
-  slug: string
-  name: string
-  confederation: string
-}
 
 export type InternationalFixture = {
   id: string
@@ -32,34 +27,7 @@ export type InternationalFixtureResponse = {
   partial: boolean
 }
 
-/**
- * These are national-team competitions, not club tournaments. The same ESPN
- * soccer scoreboard endpoint used by live-board.server.ts serves each slug.
- * Root World Cup qualifying is included last as a catch-all; duplicate event
- * IDs are collapsed in favour of the more specific confederation competition.
- */
-export const INTERNATIONAL_COMPETITIONS: readonly CompetitionSource[] = [
-  { slug: "caf.nations", name: "Africa Cup of Nations", confederation: "CAF" },
-  { slug: "caf.nations_qual", name: "Africa Cup of Nations Qualifiers", confederation: "CAF" },
-  { slug: "uefa.nations", name: "UEFA Nations League", confederation: "UEFA" },
-  { slug: "fifa.world", name: "FIFA World Cup", confederation: "FIFA" },
-  { slug: "fifa.worldq.uefa", name: "World Cup Qualifiers — UEFA", confederation: "UEFA" },
-  { slug: "fifa.worldq.caf", name: "World Cup Qualifiers — CAF", confederation: "CAF" },
-  { slug: "fifa.worldq.afc", name: "World Cup Qualifiers — AFC", confederation: "AFC" },
-  { slug: "fifa.worldq.concacaf", name: "World Cup Qualifiers — CONCACAF", confederation: "CONCACAF" },
-  { slug: "fifa.worldq.conmebol", name: "World Cup Qualifiers — CONMEBOL", confederation: "CONMEBOL" },
-  { slug: "fifa.worldq.ofc", name: "World Cup Qualifiers — OFC", confederation: "OFC" },
-  { slug: "fifa.worldq", name: "World Cup Qualifiers", confederation: "FIFA" },
-  { slug: "uefa.euro", name: "UEFA European Championship", confederation: "UEFA" },
-  { slug: "uefa.euroq", name: "UEFA European Championship Qualifiers", confederation: "UEFA" },
-  { slug: "conmebol.america", name: "Copa América", confederation: "CONMEBOL" },
-  { slug: "concacaf.gold", name: "CONCACAF Gold Cup", confederation: "CONCACAF" },
-  { slug: "concacaf.nations.league", name: "CONCACAF Nations League", confederation: "CONCACAF" },
-  { slug: "afc.asian.cup", name: "AFC Asian Cup", confederation: "AFC" },
-  { slug: "fifa.wwc", name: "FIFA Women's World Cup", confederation: "FIFA · Women" },
-  { slug: "uefa.weuro", name: "UEFA Women's European Championship", confederation: "UEFA · Women" },
-  { slug: "uefa.w.nations", name: "UEFA Women's Nations League", confederation: "UEFA · Women" },
-]
+
 
 const ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 const CACHE_TTL_MS = 45_000

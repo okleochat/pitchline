@@ -34,6 +34,7 @@ const ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 const LIVE_CACHE_TTL_MS = 2 * 60 * 1000
 const OTHER_DATE_CACHE_TTL_MS = 10 * 60 * 1000
 const responseCache = new Map<string, { expiresAt: number; value: InternationalFixtureResponse }>()
+const upcomingCache = new Map<string, { expiresAt: number; value: InternationalFixtureResponse }>()
 
 function record(value: unknown): Dict | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Dict : null
@@ -145,6 +146,35 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
   const cached = responseCache.get(date)
   if (cached && cached.expiresAt > Date.now()) return cached.value
 
+  // Reuse the 14-day batch already fetched by the shared club board whenever
+  // the requested day falls inside that window; this avoids a second set of
+  // scoreboard calls on the International page and Best Picks.
+  const today = dateInLagos()
+  const upcoming = upcomingCache.get(today + ":14")
+  const upcomingEnd = addDays(today, 14)
+  if (upcoming && upcoming.expiresAt > Date.now() && date >= today && date <= upcomingEnd) {
+    const fixtures = upcoming.value.fixtures.filter((fixture) => {
+      const kickoffParts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Africa/Lagos",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).formatToParts(new Date(fixture.kickoff))
+      const values = Object.fromEntries(kickoffParts.map((part) => [part.type, part.value]))
+      return values.year + "-" + values.month + "-" + values.day === date
+    })
+    const result: InternationalFixtureResponse = {
+      ...upcoming.value,
+      date,
+      fixtures,
+    }
+    responseCache.set(date, {
+      expiresAt: Date.now() + (date === today ? LIVE_CACHE_TTL_MS : OTHER_DATE_CACHE_TTL_MS),
+      value: result,
+    })
+    return result
+  }
+
   const boards = await Promise.all(
     INTERNATIONAL_COMPETITIONS.map(async (source) => ({
       source,
@@ -220,8 +250,6 @@ async function fetchCompetitionRange(startDate: string, endDate: string, source:
   const url = ESPN_SCOREBOARD + "/" + source.slug + "/scoreboard?dates=" + start + "-" + end
   return getEspnJson(url)
 }
-
-const upcomingCache = new Map<string, { expiresAt: number; value: InternationalFixtureResponse }>()
 
 /**
  * Fetch a bounded upcoming window with one scoreboard request per competition.

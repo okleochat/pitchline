@@ -113,7 +113,7 @@ function emptyProbabilities(): MarketProbabilities {
  *
  * Each match is sampled as a sequence of possessions. Possessions move through
  * build-up, progression, chance creation and finishing. Match state and a
- * lightweight fatigue/substitution curve alter those phase probabilities.
+ * lightweight fatigue and squad-depth curves alter those phase probabilities.
  *
  * Team-level attack/defence rates provide the stable baseline. When a permitted
  * player feed returns adequately covered registered squads, derived team-level

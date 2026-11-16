@@ -65,7 +65,8 @@ export function deriveEaPlayerScores(source: unknown): PlayerScores | null {
   const root = record(source)
   if (!root) return null
   const stats = record(root.stats) ?? {}
-  const overall = numeric(root.overall ?? root.overallRating)
+  const overallRaw = root.overall ?? root.overallRating
+  const overall = numeric(record(overallRaw)?.value ?? overallRaw)
   const pace = stat(root, stats, "pac", "pace")
   const shooting = stat(root, stats, "sho", "shooting")
   const passing = stat(root, stats, "pas", "passing")

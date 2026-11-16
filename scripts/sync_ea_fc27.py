@@ -435,6 +435,7 @@ def upload_firestore(
     metadata_ref = client.collection("ea_fc27_meta").document("current")
     previous_metadata = metadata_ref.get().to_dict() or {}
     previous_collection_name = previous_metadata.get("activeCollection")
+    retired_collection_name = previous_metadata.get("previousCollection")
 
     # Stage a complete new version. The app keeps reading the previous
     # snapshot until every shard is committed and verified.
@@ -477,6 +478,15 @@ def upload_firestore(
         "syncedAt": synced_at,
         "snapshotId": collection_name.removeprefix("ea_fc27_players_"),
         "activeCollection": collection_name,
+        # Retain the just-replaced active snapshot for instances with a cached
+        # collection pointer. It becomes eligible for cleanup on the next sync.
+        "previousCollection": (
+            previous_collection_name
+            if isinstance(previous_collection_name, str)
+            and previous_collection_name.startswith("ea_fc27_players_")
+            and previous_collection_name != collection_name
+            else None
+        ),
     }
 
     # One metadata write is the publish/commit point used by the app.
@@ -487,16 +497,17 @@ def upload_firestore(
         f"Active collection: {collection_name}."
     )
 
-    # Clean the immediately previous version only after publication. A cleanup
-    # failure cannot invalidate the now-active complete snapshot.
+    # Keep the just-replaced active version for one full refresh cycle. This
+    # protects app instances that briefly cache the old activeCollection value.
+    # Delete only the older retired snapshot, after the new pointer is published.
     if (
-        isinstance(previous_collection_name, str)
-        and previous_collection_name.startswith("ea_fc27_players_")
-        and previous_collection_name != collection_name
+        isinstance(retired_collection_name, str)
+        and retired_collection_name.startswith("ea_fc27_players_")
+        and retired_collection_name not in {collection_name, previous_collection_name}
     ):
         try:
-            delete_firestore_collection(client, client.collection(previous_collection_name), batch_size)
-            print(f"Removed previous EA player snapshot: {previous_collection_name}.")
+            delete_firestore_collection(client, client.collection(retired_collection_name), batch_size)
+            print(f"Removed retired EA player snapshot: {retired_collection_name}.")
         except Exception as error:
             print(
                 "Warning: the new EA snapshot is active, but the previous snapshot "

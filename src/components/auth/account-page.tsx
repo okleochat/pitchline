@@ -97,6 +97,7 @@ export function AccountPage() {
           <Link href="/" className="rounded-lg px-3 py-2 text-muted hover:bg-card hover:text-foreground">Match desk</Link>
           <Link href="/picks" className="rounded-lg px-3 py-2 text-muted hover:bg-card hover:text-foreground">Best picks</Link>
           <Link href="/fixtures/international" className="rounded-lg px-3 py-2 text-muted hover:bg-card hover:text-foreground">International</Link>
+          <Link href="/data" className="rounded-lg px-3 py-2 text-muted hover:bg-card hover:text-foreground">Data centre</Link>
           <Link href="/model/backtest" className="rounded-lg px-3 py-2 text-muted hover:bg-card hover:text-foreground">Model lab</Link>
         </nav>
       </header>

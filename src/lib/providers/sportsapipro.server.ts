@@ -245,7 +245,7 @@ export async function getMatchOdds(matchId: string) {
     throw new SportsApiProError("feature_disabled", "The bookmaker odds integration is disabled.")
   }
 
-  const payload = await getJson("/match/" + matchId + "/odds/all", 30 * 1000)
+  const payload = await getJson("/match/" + matchId + "/odds/pre-match", 30 * 1000)
   const data = record(payload.data)
   return {
     source: "SportsAPI Pro",

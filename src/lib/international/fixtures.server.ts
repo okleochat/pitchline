@@ -10,8 +10,8 @@ export type InternationalFixture = {
   kickoff: string
   competition: string
   region: string
-  home: { espnId: string; name: string; abbreviation: string | null; logo: string | null }
-  away: { espnId: string; name: string; abbreviation: string | null; logo: string | null }
+  home: { espnId: string; name: string; abbreviation: string | null; logo: string | null; color: string | null }
+  away: { espnId: string; name: string; abbreviation: string | null; logo: string | null; color: string | null }
   competitionSlug: string
   status: string
   statusState: string
@@ -82,6 +82,7 @@ function teamSide(value: unknown): InternationalFixture["home"] | null {
     name: stringValue(team.displayName) ?? stringValue(team.name) ?? "Unknown team",
     abbreviation: stringValue(team.abbreviation),
     logo,
+    color: stringValue(team.color),
   }
 }
 

@@ -140,6 +140,20 @@ test("SportAPI per-match rows are aggregated into the selected current season on
   assert.equal(scores.seasonRating, null)
 })
 
+test("SportAPI zero-only player rows are not counted as usable performance coverage", () => {
+  assert.equal(deriveSportApiPlayerScores({
+    matches: [{
+      date: "2026-10-10",
+      mins_played: 90,
+      goals: 0,
+      assists: 0,
+      shots_total: 0,
+      tackles: 0,
+      saves: 0,
+    }],
+  }, "2026-08-01", "2027-07-31"), null)
+})
+
 test("SportAPI returns no player rating when it provides no dated match rows for the season", () => {
   assert.equal(deriveSportApiPlayerScores({
     totals: { appearances: 40, goals: 10, mins_played: 2000 },

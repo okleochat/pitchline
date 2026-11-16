@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getLiveBoard } from "@/lib/live-board.server"
+import { sportsApiProCapabilities } from "@/lib/providers/sportsapipro.server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -24,6 +25,12 @@ export async function GET() {
     process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
   ].every((value) => typeof value === "string" && value.length > 0)
 
+  const adminCredentialMode = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+    ? "service-account-json"
+    : process.env.FIREBASE_CONFIG || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE
+      ? "application-default-candidate"
+      : "missing"
+  const providers = sportsApiProCapabilities()
   const health = board.source === "snapshot"
     ? "degraded"
     : snapshotFallbacks > 0
@@ -44,7 +51,12 @@ export async function GET() {
     },
     firebase: {
       webConfigured: webFirebaseConfigured,
-      adminConfigured: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON),
+      adminCredentialMode,
+      adminPermissionCheck: "not_performed",
+      subscriptionRecords: "server-managed",
+    },
+    footballProviders: {
+      sportsApiPro: providers,
     },
   }, {
     status: health === "degraded" ? 503 : 200,

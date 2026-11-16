@@ -42,7 +42,7 @@ Run a one-page probe before downloading the full database:
 python scripts/sync_ea_fc27.py --probe-only
 ```
 
-The collector calls the public paginated ratings feed requested by EA's own ratings page, with the page's observed feature/referrer headers. The full download checks the reported dataset size, deduplicates player IDs, validates player records and checks for a known FC 27 top-rated player before saving.
+The collector calls the public paginated ratings feed requested by EA's own ratings page, with the page's observed feature/referrer headers. The full download checks the reported dataset size, deduplicates player IDs, validates player records and verifies the official FC 27 base ratings for Kylian Mbappé (91), Erling Haaland (91) and Lamine Yamal (90) before saving. These reference values are taken from [EA's FC 27 ratings page](https://www.ea.com/games/ea-sports-fc/ratings) and its [official top 27 announcement](https://www.ea.com/games/ea-sports-fc/fc-27/news/fc27-ratings-top-27).
 
 EA's endpoint and headers are undocumented and can change. If EA returns HTTP 403/429, changes the response format, or the FC 27 validation fails, the script stops. It does not bypass authentication, CAPTCHAs, access controls or rate limits.
 

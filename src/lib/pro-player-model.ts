@@ -25,7 +25,7 @@ function valueAt(source: unknown, key: string): unknown {
 function numeric(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value
   if (typeof value === "string" && value.trim()) {
-    const cleaned = value.replace(/,/g, "").trim()
+    const cleaned = value.replace(/,/g, "").replace(/%$/, "").trim()
     if (cleaned && Number.isFinite(Number(cleaned))) return Number(cleaned)
   }
   return null
@@ -180,6 +180,7 @@ const ESPN_STAT_ALIASES: Record<string, string> = {
   saves: "saves",
   goalkeepersaves: "saves",
   goalsconceded: "conceded",
+  goalsagainst: "conceded",
   conceded: "conceded",
   rating: "rating",
   averagerating: "rating",
@@ -216,7 +217,7 @@ function readEspnStats(source: unknown): Map<string, number> {
     if (!item || visited.has(item)) return
     visited.add(item)
 
-    const label = item.name ?? item.displayName ?? item.display_name ?? item.shortDisplayName ?? item.abbreviation
+    const label = item.name ?? item.displayName ?? item.display_name ?? item.label ?? item.statName ?? item.shortDisplayName ?? item.abbreviation
     if (typeof label === "string") {
       assign(label, item.value ?? item.total ?? item.count ?? item.displayValue ?? item.display_value)
       const names = item.names

@@ -121,6 +121,12 @@ class SyncEaFc27Tests(unittest.TestCase):
         self.assertEqual({player["id"] for player in shard["players"]}, {"1", "2"})
         self.assertEqual(shard["syncedAt"], "2026-11-17T00:00:00Z")
 
+    def test_snapshot_collection_name_is_versioned_and_safe(self):
+        self.assertEqual(
+            sync.snapshot_collection_name("2026-11-17T05:23:00Z"),
+            "ea_fc27_players_20261117T052300Z",
+        )
+
     def test_shard_ids_use_first_two_normalized_name_characters(self):
         self.assertEqual(sync.player_shard_id("kylian mbappe"), "ky")
         self.assertEqual(sync.player_shard_id("é"), "e_")

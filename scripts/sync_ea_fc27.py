@@ -39,10 +39,10 @@ STAT_KEYS = (
     "pac", "sho", "pas", "dri", "def", "phy",
     "acceleration", "sprintSpeed", "finishing", "shotPower", "longShots",
     "volleys", "penalties", "positioning", "crossing", "curve",
-    "freeKickAccuracy", "longPassing", "shortPassing", "vision", "agility",
+    "freeKickAccuracy", "freeKick", "longPassing", "shortPassing", "vision", "agility",
     "balance", "reactions", "ballControl", "dribbling", "composure",
     "interceptions", "defensiveAwareness", "standingTackle", "slidingTackle",
-    "jumping", "stamina", "strength", "aggression", "headingAccuracy",
+    "jumping", "stamina", "strength", "aggression", "heading", "headingAccuracy",
     "gkDiving", "gkHandling", "gkKicking", "gkPositioning", "gkReflexes",
 )
 

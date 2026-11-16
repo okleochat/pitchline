@@ -1,6 +1,6 @@
 # EA SPORTS FC 27 player ratings for Pitchline Pro
 
-Pitchline uses **ESPN for the current team roster** and **EA SPORTS FC 27 for the player-quality attributes**. ESPN remains the source for fixtures, competitions and team identities. Pitchline does not call SportAPI.ai and does not request individual ESPN season-stat profiles for this feature.
+Pitchline uses **ESPN for the current team roster** and **EA SPORTS FC 27 for the player-quality attributes**. ESPN remains the source for fixtures, competitions and team identities. Pitchline does not request individual ESPN season-stat profiles for this feature.
 
 The complete EA ratings download is synchronized by a local Python utility into private Firebase Firestore storage. The raw player database is not committed to this public GitHub repository and is not returned to the browser.
 

@@ -115,7 +115,7 @@ function emptyProbabilities(): MarketProbabilities {
  * build-up, progression, chance creation and finishing. Match state, fatigue and squad depth alter those phase probabilities.
  *
  * Team-level attack/defence rates provide the stable baseline. When a permitted
- * player feed returns adequately covered registered squads, derived team-level
+ * player feed returns adequately covered current squads, derived team-level
  * squad factors adjust the expected goals and phase transitions. No matchday
  * starting XI or formation is required.
  */

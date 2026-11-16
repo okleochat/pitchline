@@ -7,7 +7,7 @@ The code for the API-Football connector is included, but the integration is deli
 1. Open [API-Football](https://www.api-football.com/).
 2. Create an account and activate the Free plan.
 3. Copy the API key from the dashboard.
-4. Keep the key private. Do not send it in a chat, commit it to GitHub, or put it in a `NEXT_PUBLIC_*` variable.
+4. Keep the key private. Do not send it in a chat, commit it to GitHub, or put it in a `NEXT_PUBLIC_*` variable. Rotate the key immediately if it has been pasted into a chat, issue, log, or source file.
 
 The published Free plan currently lists 100 requests per day and includes player and lineup endpoints. It is suitable for a small-scale integration smoke test, not unlimited production traffic.
 
@@ -27,7 +27,15 @@ In Firebase Console:
 4. Only after the permissions described above are confirmed, add the runtime variable `API_FOOTBALL_DATA_USE_ALLOWED` with value `true`.
 5. Trigger a new App Hosting rollout.
 
-Alternatively, use the Firebase CLI Secret Manager integration documented in the [App Hosting configuration guide](https://firebase.google.com/docs/app-hosting/configure), then attach the secret to the backend. The repository intentionally does not reference a secret that may not yet exist, so simply merging this code will not break deployments that have not configured the key.
+Alternatively, from an authenticated local checkout, run:
+
+```bash
+firebase apphosting:secrets:set API_FOOTBALL_KEY --project pitchline-app
+```
+
+Follow the prompts to enter the rotated key and grant the requested Secret Manager permissions. The CLI can add the secret reference to `apphosting.yaml` for the backend. Confirm that the runtime binding is named `API_FOOTBALL_KEY` and is attached to the `pitchline` App Hosting backend. See the [official App Hosting secret configuration guide](https://firebase.google.com/docs/app-hosting/configure) for the current console and CLI flow.
+
+The repository intentionally does not reference a secret that may not yet exist, so simply merging this code will not break deployments that have not configured the key.
 
 Do not configure the permission flag to true merely because an API key exists. Without both settings, Pitchline will continue to run the Pro team-level simulation and display why player data is unavailable.
 

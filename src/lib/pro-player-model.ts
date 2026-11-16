@@ -193,8 +193,10 @@ export function buildLineupPlayerStats(
   for (const item of playerResponse) {
     const row = record(item)
     const player = record(row?.player)
-    const id = player && numeric(player.id) !== null ? String(player.id) : ""
-    if (!id) continue
+    if (!player) continue
+    const playerId = numeric(player.id)
+    if (playerId === null) continue
+    const id = String(playerId)
     const stats = Array.isArray(row?.statistics) ? row.statistics : []
     const best = [...stats].sort((left, right) => {
       const leftGames = record(valueAt(left, "games"))

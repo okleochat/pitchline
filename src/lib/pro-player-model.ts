@@ -251,3 +251,68 @@ export function teamNameKey(value: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 120)
 }
+
+/** Normalize names consistently with scripts/sync_ea_fc27.py. */
+export function normalisePlayerName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+/** First two alphanumeric characters select the Firestore EA player shard. */
+export function playerNameShardId(value: string): string {
+  const compact = normalisePlayerName(value).replace(/[^a-z0-9]/g, "")
+  return compact.slice(0, 2).padEnd(2, "_") || "__"
+}
+
+/**
+ * Match an ESPN roster identity to EA's base-player record.
+ * Name equality is strict after accent/punctuation normalization. Position
+ * and nationality may disambiguate duplicate names; unresolved collisions
+ * intentionally return null rather than guessing.
+ */
+export function matchEaPlayerByName(input: {
+  nameCandidates: string[]
+  position?: unknown
+  nationality?: string | null
+}, candidates: unknown[]): Dict | null {
+  const keys = new Set(input.nameCandidates.map(normalisePlayerName).filter(Boolean))
+  if (!keys.size) return null
+
+  const matches = candidates.flatMap((candidate) => {
+    const item = record(candidate)
+    if (!item) return []
+    const nameKeys = Array.isArray(item.nameKeys)
+      ? item.nameKeys.filter((key): key is string => typeof key === "string")
+      : [typeof item.name === "string" ? item.name : ""]
+    return nameKeys.some((key) => keys.has(normalisePlayerName(key))) ? [item] : []
+  })
+  const unique = [...new Map(matches.map((item) => [String(item.id ?? ""), item])).values()]
+  if (unique.length <= 1) return unique[0] ?? null
+
+  const rosterPosition = positionFrom(input.position)
+  if (rosterPosition !== "UNK") {
+    const positionMatches = unique.filter((item) => positionFrom(item.position) === rosterPosition)
+    if (positionMatches.length === 1) return positionMatches[0]
+    if (positionMatches.length > 1) {
+      unique.splice(0, unique.length, ...positionMatches)
+    }
+  }
+
+  const nationality = input.nationality ? normalisePlayerName(input.nationality) : ""
+  if (nationality) {
+    const nationalityMatches = unique.filter((item) =>
+      typeof item.nationality === "string" &&
+      normalisePlayerName(item.nationality) === nationality,
+    )
+    if (nationalityMatches.length === 1) return nationalityMatches[0]
+  }
+
+  return unique.length === 1 ? unique[0] : null
+}
+

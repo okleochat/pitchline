@@ -8,7 +8,7 @@ The API-Football connector enriches Pro simulations using each team's current re
 2. Create an account and activate a plan that includes the required player endpoints.
 3. Keep the API key private. Do not send it in a chat, issue, log, or source file, and never put it in a `NEXT_PUBLIC_*` variable. Rotate it immediately if it has been exposed.
 
-The published Free plan currently lists 100 requests per day. This is enough for controlled testing, but national-team squad lookups can consume multiple requests on the first run because Pitchline looks up individual player-season records. Results are cached for 18 hours (player statistics) or seven days (team mappings and squad snapshots).
+The published Free plan currently lists 100 requests per day and 10 requests per minute. This is enough for controlled testing, but national-team squad lookups can consume multiple requests on the first run because Pitchline looks up individual player-season records. Team mappings are cached for seven days, squad snapshots for 24 hours, and player statistics for 18 hours. Pitchline uses a shared Firestore request budget of six calls per minute across App Hosting instances and automatically resumes deferred lookups.
 
 ## 2. Confirm rights before enabling data use
 

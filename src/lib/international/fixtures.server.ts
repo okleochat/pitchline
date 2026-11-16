@@ -2,6 +2,7 @@ import "server-only"
 
 import { getEspnJson } from "@/lib/espn/transport.server"
 import { INTERNATIONAL_COMPETITIONS, type CompetitionSource } from "./competitions"
+import { monthKeysInRange } from "./date-windows"
 
 type Dict = Record<string, unknown>
 
@@ -244,17 +245,28 @@ function addDays(date: string, days: number): string {
   return value.toISOString().slice(0, 10)
 }
 
-async function fetchCompetitionRange(startDate: string, endDate: string, source: CompetitionSource) {
-  const start = startDate.replaceAll("-", "")
-  const end = endDate.replaceAll("-", "")
-  const url = ESPN_SCOREBOARD + "/" + source.slug + "/scoreboard?dates=" + start + "-" + end
-  return getEspnJson(url)
+async function fetchCompetitionMonths(months: string[], source: CompetitionSource): Promise<{
+  board: Record<string, unknown> | null
+  partial: boolean
+}> {
+  const monthBoards = await Promise.all(months.map((month) =>
+    getEspnJson(ESPN_SCOREBOARD + "/" + source.slug + "/scoreboard?dates=" + month + "&limit=500")
+  ))
+  const available = monthBoards.filter((board): board is Record<string, unknown> => board !== null)
+  if (!available.length) return { board: null, partial: true }
+
+  return {
+    board: {
+      events: available.flatMap((board) => Array.isArray(board.events) ? board.events : []),
+    },
+    partial: available.length !== monthBoards.length,
+  }
 }
 
 /**
- * Fetch a bounded upcoming window with one scoreboard request per competition.
- * The range query avoids N competitions × N dates and feeds both Best Picks and
- * the national-team match desk.
+ * Fetch a bounded upcoming window with month-bucketed scoreboard requests.
+ * ESPN's site API no longer accepts the older hyphenated day-range form.
+ * Month queries plus local filtering feed both Best Picks and the match desk.
  */
 export async function getUpcomingInternationalFixtures(days = 14): Promise<InternationalFixtureResponse> {
   const safeDays = Math.max(1, Math.min(21, Math.floor(days)))
@@ -264,10 +276,11 @@ export async function getUpcomingInternationalFixtures(days = 14): Promise<Inter
   const cached = upcomingCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) return cached.value
 
+  const months = monthKeysInRange(startDate, endDate)
   const boards = await Promise.all(
     INTERNATIONAL_COMPETITIONS.map(async (source) => ({
       source,
-      board: await fetchCompetitionRange(startDate, endDate, source),
+      ...(await fetchCompetitionMonths(months, source)),
     })),
   )
   const successful = boards.filter((item) => item.board !== null)
@@ -275,7 +288,9 @@ export async function getUpcomingInternationalFixtures(days = 14): Promise<Inter
     throw new Error("ESPN's international competition feed is temporarily unavailable.")
   }
 
-  const unavailable = boards.filter((item) => item.board === null).map((item) => item.source.name)
+  const unavailable = boards
+    .filter((item) => item.partial)
+    .map((item) => item.source.name)
   const now = Date.now()
   const end = new Date(endDate + "T23:59:59Z").getTime()
   const byId = new Map<string, InternationalFixture>()

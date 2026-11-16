@@ -1329,7 +1329,7 @@ export function Pitchline({
               Possessions move through build-up, progression, chance creation and finishing. The model adjusts for the score, late-game urgency and fatigue.
             </p>
             <p className="mt-2 text-xs text-muted">
-              Version 1 uses Pitchline's team-level attack and defensive rates. Confirmed starting XIs and player-specific ratings are not connected yet, so no player attributes are invented.
+              Team-level rates remain the baseline. When an approved provider feed returns both starting XIs with sufficient player-season coverage, Pitchline derives positional indices and adjusts the matchup. Otherwise it clearly falls back to team-level inputs.
             </p>
           </div>
         ) : (
@@ -1865,7 +1865,7 @@ export function Pitchline({
       <footer className="px-1 text-sm text-muted">
         <p>
           {isPro && engineMode === "pro" ? (
-            "The Pro phase-of-play engine simulates build-up, progression, chance creation and finishing across 2,500 possession-sequence matches. It incorporates score-state urgency, fatigue and a generic substitution recovery. Version 1 uses team-level attacking and defensive rates; confirmed starting lineups and player-specific ratings are not connected yet. Treat it as experimental until historical out-of-sample testing confirms an improvement."
+            "The Pro phase-of-play engine simulates build-up, progression, chance creation and finishing across 2,500 possession-sequence matches. It incorporates score-state urgency and fatigue. Where approved player data covers both starting XIs, derived positional indices adjust the attacking, creativity and defensive phases; otherwise it falls back to team-level inputs. Treat it as experimental until historical out-of-sample testing confirms an improvement."
           ) : (
             <>
               Expected goals equal a side’s attack times the opponent’s defense, scaled to a league average of 1.35, then

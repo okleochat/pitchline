@@ -1,0 +1,2 @@
+# Only needed for the optional Firestore upload step.
+google-cloud-firestore>=2.19,<3

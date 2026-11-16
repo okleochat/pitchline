@@ -1,12 +1,14 @@
 import { getApp, getApps, initializeApp } from "firebase/app"
 import { FirebaseError } from "firebase/app"
 import { getAuth, type Auth } from "firebase/auth"
+import { getAnalytics, isSupported, type Analytics } from "firebase/analytics"
 
 const config = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 }
 
 export const firebaseConfigured = Object.values(config).every((value) => typeof value === "string" && value.length > 0)
@@ -34,4 +36,21 @@ export function firebaseErrorMessage(error: unknown): string {
     }
   }
   return error instanceof Error ? error.message : "Sign-in failed."
+}
+
+let analyticsPromise: Promise<Analytics | null> | null = null
+
+/** Initialize Analytics only in supported browsers; this never runs on the server. */
+export function getFirebaseAnalytics(): Promise<Analytics | null> {
+  if (!firebaseConfigured || typeof window === "undefined") return Promise.resolve(null)
+  if (!analyticsPromise) {
+    analyticsPromise = isSupported()
+      .then((supported) => {
+        if (!supported) return null
+        const app = getApps().length ? getApp() : initializeApp(config)
+        return getAnalytics(app)
+      })
+      .catch(() => null)
+  }
+  return analyticsPromise
 }

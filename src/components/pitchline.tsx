@@ -781,6 +781,7 @@ export function Pitchline({ initial }: { initial: Board }) {
   }, [league, sortKey, sortAsc, board.teams])
 
   const fixtures = board.fixtures.filter((fixture) => fixture.league === league)
+  const leagueStatus = board.leagueStatus[league]
 
   const picks = useMemo(() => {
     if (view !== "picks") return []
@@ -1525,9 +1526,10 @@ export function Pitchline({ initial }: { initial: Board }) {
               {isCup(league)
                 ? "European clubs take their domestic scoring into the tie. Sides from leagues we don't carry are rated on their European games, pulled toward average when the sample is short. Index ranks net goals inside this competition. "
                 : "Attack is goals scored per match this season, defense is goals conceded. Lower defense is tighter. Index ranks net goals inside this league. "}
-              {board.source === "live"
-                ? `Tables refresh on their own — last update ${board.updatedLabel}.`
-                : `Live tables were unreachable, so this is the saved board from ${board.updatedLabel}. It will try again.`}
+              {leagueStatus.standings === "live"
+                ? `Standings: live (${leagueStatus.teamCount} clubs), refreshed ${board.updatedLabel}.`
+                : `Standings: saved snapshot from ${board.updatedLabel}; live feed unavailable for this competition.`}
+              {leagueStatus.fixtures === "snapshot" ? " Fixtures are using saved fallback data." : " Fixtures are from the live feed."}
             </p>
           </div>
           <p className="text-sm text-muted">Tap a club for home. Away sets the other side.</p>
@@ -1622,9 +1624,9 @@ export function Pitchline({ initial }: { initial: Board }) {
           {level
             ? "The UEFA scale is on for clubs rated from different leagues. "
             : ""}
-          {board.source === "live"
-            ? `Ratings are this season’s scoring, refreshed from the league tables (${board.updatedLabel}), not a betting line.`
-            : `Live tables were unreachable, so ratings are the saved board from ${board.updatedLabel}. Not a betting line.`}
+          {leagueStatus.standings === "live"
+            ? `Ratings are this season’s scoring, refreshed from this competition’s table (${board.updatedLabel}), not a betting line.`
+            : `This competition is using saved ratings from ${board.updatedLabel}. Not a betting line.`}
         </p>
       </footer>
     </main>

@@ -268,10 +268,10 @@ export function normalisePlayerName(value: string): string {
     .trim()
 }
 
-/** First two alphanumeric characters select the Firestore EA player shard. */
+/** First three alphanumeric characters select the Firestore EA player shard. */
 export function playerNameShardId(value: string): string {
   const compact = normalisePlayerName(value).replace(/[^a-z0-9]/g, "")
-  return compact.slice(0, 2).padEnd(2, "_") || "__"
+  return compact.slice(0, 3).padEnd(3, "_") || "___"
 }
 
 /**

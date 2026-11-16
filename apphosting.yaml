@@ -46,10 +46,10 @@ env:
       - BUILD
       - RUNTIME
   - variable: SPORTS_APIPRO_XG_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: SPORTS_APIPRO_ODDS_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME

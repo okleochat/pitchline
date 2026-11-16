@@ -37,7 +37,7 @@ SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 POOL_ID="github-pitchline"
 PROVIDER_ID="github-pitchline"
 
-gcloud services enable iamcredentials.googleapis.com sts.googleapis.com --project "$PROJECT_ID"
+gcloud services enable iam.googleapis.com cloudresourcemanager.googleapis.com iamcredentials.googleapis.com sts.googleapis.com --project "$PROJECT_ID"
 
 gcloud iam service-accounts create "$SA_NAME" \
   --project "$PROJECT_ID" \

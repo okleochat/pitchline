@@ -19,7 +19,9 @@ function numeric(value: unknown): number | null {
 
 function stat(source: Dict, stats: Dict, ...keys: string[]): number | null {
   for (const key of keys) {
-    const value = numeric(stats[key] ?? source[key])
+    const raw = stats[key] ?? source[key]
+    const candidate = record(raw)?.value ?? raw
+    const value = numeric(candidate)
     if (value !== null) return value
   }
   return null

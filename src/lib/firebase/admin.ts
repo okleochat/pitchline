@@ -1,6 +1,6 @@
 import "server-only"
 
-import { cert, getApps, initializeApp } from "firebase-admin/app"
+import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app"
 import { getAuth } from "firebase-admin/auth"
 import { getFirestore } from "firebase-admin/firestore"
 
@@ -8,7 +8,13 @@ function getAdminApp() {
   const existing = getApps().find((app) => app.name === "pitchline-admin")
   if (existing) return existing
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-  if (!raw) throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not configured.")
+  if (!raw) {
+    const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    if (!projectId) throw new Error("FIREBASE_PROJECT_ID is not configured.")
+    // Firebase App Hosting / Cloud Run supplies Application Default Credentials.
+    // Vercel can continue to use an explicitly configured server-only service account.
+    return initializeApp({ credential: applicationDefault(), projectId }, "pitchline-admin")
+  }
 
   let account: { project_id?: string; client_email?: string; private_key?: string }
   try {

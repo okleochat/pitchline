@@ -108,8 +108,15 @@ function clamp(n: number, lo: number, hi: number): number {
 /** edge is a home scoring multiplier. 1 is a neutral pitch. */
 export function expectedGoals(home: Team, away: Team, edge: number): { homeXg: number; awayXg: number } {
   const safe = clamp(edge, 0.7, 1.6)
-  const homeXg = clamp(home.attack * (away.defense / LEAGUE_AVG) * safe, 0.12, 4.8)
-  const awayXg = clamp(away.attack * (home.defense / LEAGUE_AVG) / Math.sqrt(safe), 0.08, 4.4)
+  const useSourceXg = [home.xgFor, home.xgAgainst, away.xgFor, away.xgAgainst].every(
+    (value) => typeof value === "number" && Number.isFinite(value) && value >= 0,
+  ) && Boolean(home.xgSource && away.xgSource)
+  const homeAttack = useSourceXg ? home.xgFor! : home.attack
+  const homeDefence = useSourceXg ? home.xgAgainst! : home.defense
+  const awayAttack = useSourceXg ? away.xgFor! : away.attack
+  const awayDefence = useSourceXg ? away.xgAgainst! : away.defense
+  const homeXg = clamp(homeAttack * (awayDefence / LEAGUE_AVG) * safe, 0.12, 4.8)
+  const awayXg = clamp(awayAttack * (homeDefence / LEAGUE_AVG) / Math.sqrt(safe), 0.08, 4.4)
   return { homeXg, awayXg }
 }
 

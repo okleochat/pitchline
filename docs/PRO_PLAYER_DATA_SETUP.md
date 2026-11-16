@@ -9,25 +9,25 @@ Pitchline Pro uses SportAPI.ai as its player-data provider. It obtains current t
 3. Keep the key private. Do not commit it to GitHub, put it in a `NEXT_PUBLIC_*` variable, or paste it into browser code.
 4. In the Firebase project `pitchline-app`, attach it to the App Hosting backend `pitchline` as the secret named `SPORTAPI_API_KEY`.
 
-From the repository root, the Firebase CLI can create the secret:
+From the repository root, use the Firebase CLI to create the secret:
 
 ```bash
 firebase apphosting:secrets:set SPORTAPI_API_KEY --project pitchline-app
 ```
 
-Follow the prompt to enter the key and add the secret reference to `apphosting.yaml`. Make sure the environment variable is available at runtime. Then grant the backend access (if the CLI did not do so automatically):
-
-```bash
-firebase apphosting:secrets:grantaccess SPORTAPI_API_KEY --backend pitchline --location europe-west4 --project pitchline-app
-```
-
-The resulting `apphosting.yaml` entry should be equivalent to:
+Enter the key when prompted. The CLI can add the secret reference to `apphosting.yaml` and grant the required access. Confirm the resulting YAML contains a runtime-only entry equivalent to the following:
 
 ```yaml
 - variable: SPORTAPI_API_KEY
   secret: SPORTAPI_API_KEY
   availability:
     - RUNTIME
+```
+
+If the secret was created manually in Cloud Secret Manager instead, grant App Hosting access with:
+
+```bash
+firebase apphosting:secrets:grantaccess SPORTAPI_API_KEY --project pitchline-app
 ```
 
 No API key is needed during the GitHub Actions build. Without the runtime secret, Pitchline safely leaves player multipliers neutral and explains that the provider key is not configured.

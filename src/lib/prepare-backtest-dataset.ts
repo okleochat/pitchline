@@ -191,6 +191,13 @@ export function prepareBacktestRows(rawRows: BacktestInputRow[], windowSize = 5)
   if (!prepared.length) {
     throw new Error("No fixture had enough prior completed matches. Supply more history or reduce the rolling window.")
   }
+
+  const xgKeys = ["home_xg_for", "home_xg_against", "away_xg_for", "away_xg_against", "xg_source"]
+  const allRowsHaveXg = prepared.every((row) => xgKeys.every((key) => Boolean(row[key])))
+  const xgSources = new Set(prepared.map((row) => row.xg_source).filter(Boolean))
+  if (!allRowsHaveXg || xgSources.size !== 1) {
+    for (const row of prepared) for (const key of xgKeys) delete row[key]
+  }
   return prepared
 }
 

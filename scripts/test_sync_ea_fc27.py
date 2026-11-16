@@ -81,6 +81,26 @@ class SyncEaFc27Tests(unittest.TestCase):
         self.assertEqual(player["stats"]["standingTackle"], 79)
         self.assertEqual(player["stats"]["gkReflexes"], 90)
 
+    def test_string_fields_and_snake_case_attributes_are_supported(self):
+        raw = ea_player(6, "Test Club")
+        raw["team"] = "Test Club"
+        raw["gender"] = "Men's Football"
+        raw["nationality"] = "Testland"
+        raw["position"] = "CM"
+        raw["stats"] = {
+            "attacking_finishing": {"value": 89},
+            "movement_acceleration": {"value": 91},
+            "goalkeeping_reflexes": {"value": 70},
+        }
+        player = sync.normalise_player(raw)
+        self.assertEqual(player["club"], "Test Club")
+        self.assertEqual(player["gender"], "Men's Football")
+        self.assertEqual(player["nationality"], "Testland")
+        self.assertEqual(player["position"], "CM")
+        self.assertEqual(player["stats"]["finishing"], 89)
+        self.assertEqual(player["stats"]["acceleration"], 91)
+        self.assertEqual(player["stats"]["gkReflexes"], 70)
+
     def test_gender_filter_includes_mens_records_and_excludes_womens(self):
         men = sync.normalise_player(ea_player(1, "Club A", "Men's Football"))
         women = sync.normalise_player(ea_player(2, "Club B", "Women's Football"))

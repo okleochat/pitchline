@@ -54,3 +54,11 @@ test("fails closed if fewer than the requested prior matches exist", () => {
   }
   assert.equal(buildPrematchRows([row], 5).length, 0)
 })
+
+test("marks shot data incomplete rather than silently substituting missing xG", () => {
+  const result = aggregateMatchXg([
+    { type: { name: "Shot" }, team: { id: 10, name: "A" }, shot: { statsbomb_xg: 0.2 } },
+    { type: { name: "Shot" }, team: { id: 20, name: "B" }, shot: {} },
+  ])
+  assert.equal(result.complete, false)
+})

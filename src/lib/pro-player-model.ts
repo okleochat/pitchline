@@ -58,6 +58,126 @@ function positionFrom(value: unknown): PlayerPosition {
   return "UNK"
 }
 
+/**
+ * SportAPI returns per-match rows and career totals. For model inputs we
+ * deliberately aggregate only dated match rows inside the selected season;
+ * career totals must never be mistaken for current-season form.
+ */
+export function deriveSportApiPlayerScores(
+  source: unknown,
+  seasonStart: string,
+  seasonEnd: string,
+): PlayerScores | null {
+  const root = record(source)
+  if (!root) return null
+  const payload = record(root.data) ?? root
+  const matches = Array.isArray(payload.matches) ? payload.matches : []
+  const selected = matches.filter((value) => {
+    const match = record(value)
+    const dateValue = match?.date ?? match?.match_date ?? match?.datetime ?? match?.kickoff
+    if (typeof dateValue !== "string") return false
+    const date = dateValue.slice(0, 10)
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= seasonStart && date <= seasonEnd
+  })
+
+  if (!selected.length) return null
+
+  const fieldAliases: Record<string, string[]> = {
+    goals: ["goals", "goal", "goals_scored"],
+    assists: ["assists", "assist"],
+    minutes: ["mins_played", "minutes_played", "minutes"],
+    shots: ["shots_total", "total_shots", "shots"],
+    shotsOnTarget: ["shots_on_target", "shots_on", "shots_on_goal"],
+    keyPasses: ["key_passes", "chances_created"],
+    passAccuracy: ["pass_accuracy", "passes_accuracy"],
+    tackles: ["tackles", "total_tackles"],
+    interceptions: ["interceptions"],
+    duels: ["duels", "duels_total"],
+    duelsWon: ["duels_won"],
+    dribbleAttempts: ["dribbles_attempted", "dribble_attempts", "dribbles"],
+    dribbleSuccess: ["dribbles_successful", "dribble_success"],
+    saves: ["saves", "goalkeeper_saves"],
+    conceded: ["goals_conceded", "goals_against"],
+    rating: ["rating", "player_rating"],
+  }
+
+  const sum = (keys: string[]) => selected.reduce((total, value) => {
+    const match = record(value)
+    if (!match) return total
+    for (const key of keys) {
+      const parsed = numeric(match[key])
+      if (parsed !== null) return total + parsed
+    }
+    return total
+  }, 0)
+
+  const average = (keys: string[]) => {
+    const values = selected.flatMap((value) => {
+      const match = record(value)
+      if (!match) return []
+      for (const key of keys) {
+        const parsed = numeric(match[key])
+        if (parsed !== null) return [parsed]
+      }
+      return []
+    })
+    return values.length ? values.reduce((total, value) => total + value, 0) / values.length : null
+  }
+
+  const hasPerformance = Object.entries(fieldAliases)
+    .filter(([key]) => key !== "minutes")
+    .some(([, aliases]) => selected.some((value) => {
+      const match = record(value)
+      return Boolean(match && aliases.some((key) => (numeric(match[key]) ?? 0) > 0))
+    }))
+  const minutes = sum(fieldAliases.minutes)
+  const appearances = selected.filter((value) => {
+    const match = record(value)
+    if (!match) return false
+    const playedMinutes = fieldAliases.minutes
+      .map((key) => numeric(match[key]))
+      .find((value) => value !== null)
+    return (playedMinutes ?? 0) > 0 || match.is_starter === true || match.is_starter === 1
+  }).length
+
+  if (!hasPerformance || minutes <= 0 || appearances <= 0) return null
+
+  return derivePlayerScores({
+    games: {
+      appearances,
+      appearences: appearances,
+      minutes,
+      rating: average(fieldAliases.rating),
+    },
+    goals: {
+      total: sum(fieldAliases.goals),
+      assists: sum(fieldAliases.assists),
+      saves: sum(fieldAliases.saves),
+      conceded: sum(fieldAliases.conceded),
+    },
+    shots: {
+      total: sum(fieldAliases.shots),
+      on: sum(fieldAliases.shotsOnTarget),
+    },
+    passes: {
+      key: sum(fieldAliases.keyPasses),
+      accuracy: average(fieldAliases.passAccuracy),
+    },
+    tackles: {
+      total: sum(fieldAliases.tackles),
+      interceptions: sum(fieldAliases.interceptions),
+    },
+    duels: {
+      total: sum(fieldAliases.duels),
+      won: sum(fieldAliases.duelsWon),
+    },
+    dribbles: {
+      attempts: sum(fieldAliases.dribbleAttempts),
+      success: sum(fieldAliases.dribbleSuccess),
+    },
+  })
+}
+
 export function derivePlayerScores(statistics: unknown): PlayerScores | null {
   const root = record(statistics)
   if (!root) return null
@@ -330,13 +450,13 @@ export function normaliseSquadPlayer(
   const playerId = numeric(player.id ?? player.athleteId ?? player.athlete_id)
   if (playerId === null) return null
   const id = String(playerId)
-  const name = player.name ?? player.fullName ?? player.displayName ?? player.display_name
+  const name = player.name ?? player.fullName ?? player.full_name ?? player.displayName ?? player.display_name
   if (typeof name !== "string" || !name.trim()) return null
 
   return {
     id,
     name: name.trim(),
-    number: numeric(player.number ?? player.jersey ?? item.jersey),
+    number: numeric(player.number ?? player.jersey ?? player.jersey_number ?? item.jersey ?? item.jersey_number),
     position: positionFrom(player.position ?? player.pos ?? item.position),
     scores: playerStats.get(id) ?? null,
   }

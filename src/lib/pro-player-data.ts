@@ -51,7 +51,7 @@ export type PlayerDataStatus =
   | "provider_error"
 
 export type ProPlayerData = {
-  provider: "ESPN"
+  provider: "SportAPI.ai"
   status: PlayerDataStatus
   note: string
   home: ProTeamSquad | null

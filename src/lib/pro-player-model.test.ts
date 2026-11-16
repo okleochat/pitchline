@@ -4,6 +4,7 @@ import {
   buildPlayerSeasonStats,
   deriveEspnPlayerScores,
   derivePlayerScores,
+  deriveSportApiPlayerScores,
   deriveSquadFactors,
   normaliseSquadPlayer,
 } from "./pro-player-model.ts"
@@ -89,6 +90,90 @@ test("ESPN soccer category statistics are normalized into player-season scores",
   assert.ok((scores.attack ?? 0) > 50)
   assert.ok((scores.creativity ?? 0) > 50)
   assert.ok((scores.defence ?? 0) > 40)
+})
+
+test("SportAPI per-match rows are aggregated into the selected current season only", () => {
+  const scores = deriveSportApiPlayerScores({
+    success: true,
+    totals: {
+      appearances: 46,
+      goals: 12,
+      assists: 6,
+      mins_played: 2775,
+    },
+    matches: [
+      {
+        date: "2026-09-12",
+        mins_played: 90,
+        goals: 1,
+        assists: 0,
+        shots_total: 4,
+        tackles: 2,
+        saves: 0,
+      },
+      {
+        date: "2026-10-04",
+        mins_played: 75,
+        goals: 0,
+        assists: 1,
+        shots_total: 2,
+        tackles: 1,
+        saves: 0,
+      },
+      {
+        date: "2026-05-10",
+        mins_played: 90,
+        goals: 3,
+        assists: 0,
+        shots_total: 8,
+        tackles: 0,
+        saves: 0,
+      },
+    ],
+  }, "2026-08-01", "2027-07-31")
+
+  assert.ok(scores)
+  assert.equal(scores.appearances, 2)
+  assert.equal(scores.minutes, 165)
+  // The May row and the provider's career totals must not leak into season form.
+  assert.equal(scores.attack, 81.5)
+  assert.equal(scores.seasonRating, null)
+})
+
+test("SportAPI zero-only player rows are not counted as usable performance coverage", () => {
+  assert.equal(deriveSportApiPlayerScores({
+    matches: [{
+      date: "2026-10-10",
+      mins_played: 90,
+      goals: 0,
+      assists: 0,
+      shots_total: 0,
+      tackles: 0,
+      saves: 0,
+    }],
+  }, "2026-08-01", "2027-07-31"), null)
+})
+
+test("SportAPI returns no player rating when it provides no dated match rows for the season", () => {
+  assert.equal(deriveSportApiPlayerScores({
+    totals: { appearances: 40, goals: 10, mins_played: 2000 },
+    matches: [{ date: "2025-05-10", mins_played: 90, goals: 1 }],
+  }, "2026-08-01", "2027-07-31"), null)
+})
+
+test("SportAPI squad field names normalize to the shared player model", () => {
+  const stats = new Map([["4904", strongScores]])
+  const player = normaliseSquadPlayer({
+    id: 4904,
+    full_name: "David Raya",
+    position: "Goalkeeper",
+    jersey_number: 1,
+  }, stats)
+  assert.equal(player?.id, "4904")
+  assert.equal(player?.name, "David Raya")
+  assert.equal(player?.number, 1)
+  assert.equal(player?.position, "GK")
+  assert.equal(player?.scores?.appearances, 25)
 })
 
 test("ESPN roster athlete records join season scores by athlete ID", () => {

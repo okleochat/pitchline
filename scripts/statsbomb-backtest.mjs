@@ -26,17 +26,21 @@ function finite(value) {
 
 export function aggregateMatchXg(events) {
   const totals = new Map()
+  let complete = true
   for (const event of events) {
     if (event?.type?.name !== "Shot") continue
     const team = event?.team?.name
     const xg = finite(event?.shot?.statsbomb_xg)
-    if (typeof team !== "string" || !team.trim() || xg === null) continue
+    if (typeof team !== "string" || !team.trim() || xg === null) {
+      complete = false
+      continue
+    }
     const current = totals.get(team) ?? { xgFor: 0, shots: 0 }
     current.xgFor += xg
     current.shots += 1
     totals.set(team, current)
   }
-  return totals
+  return { totals, complete }
 }
 
 function safeMean(values) {
@@ -174,11 +178,16 @@ async function runBacktest(options) {
 
   process.stdout.write(`Fetching StatsBomb shot events for ${mapped.length} matches (4 concurrent requests)...\n`)
   const enriched = await mapLimit(mapped, 4, async (match, index) => {
-    const events = await getJson(`${ROOT}/events/${match.id}.json`)
-    const totals = aggregateMatchXg(events)
-    const home = totals.get(match.homeTeam)
-    const away = totals.get(match.awayTeam)
-    if (!home || !away || home.shots === 0 || away.shots === 0) return null
+    let events
+    try {
+      events = await getJson(`${ROOT}/events/${match.id}.json`)
+    } catch {
+      return null
+    }
+    const shotData = aggregateMatchXg(events)
+    if (!shotData.complete) return null
+    const home = shotData.totals.get(match.homeTeam) ?? { xgFor: 0, shots: 0 }
+    const away = shotData.totals.get(match.awayTeam) ?? { xgFor: 0, shots: 0 }
     if (!Number.isInteger(match.homeGoals) || !Number.isInteger(match.awayGoals)) return null
     if ((index + 1) % 20 === 0) process.stdout.write(`Processed ${index + 1}/${mapped.length}\n`)
     return { ...match, homeXg: home.xgFor, awayXg: away.xgFor }

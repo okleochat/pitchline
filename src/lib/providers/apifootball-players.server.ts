@@ -182,7 +182,7 @@ async function apiRequest(endpoint: string, params: Record<string, string>): Pro
 function seasonFor(date: Date, league: Team["league"]): number {
   const year = date.getUTCFullYear()
   if (league === "mls" || league === "bra" || league === "ksa" || league === "mx") return year
-  return date.getUTCMonth() + 1 >= 7 ? year : year - 1
+  return date.getUTCMonth() + 1 >= 8 ? year : year - 1
 }
 
 function playerPerformanceSeason(date: Date, team: PlayerTeamContext): number {

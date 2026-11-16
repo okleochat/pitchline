@@ -322,7 +322,7 @@ export function formRate(
       xgSource: [...xgSources][0],
     } : {}),
   }
-}mport { MORE_FIXTURES, MORE_TEAMS, MORE_WEEKENDS } from "@/data/more-leagues"
+}
 
 export type LeagueId =
   | "eng"

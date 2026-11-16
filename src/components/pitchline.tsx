@@ -17,6 +17,7 @@ import {
   type Team,
 } from "@/data/football"
 import { loadBoard, loadForm, type FormResult } from "@/lib/board"
+import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
 import {
   DIXON_RHO,
   SIMS,
@@ -151,6 +152,7 @@ function TeamSelect({
           return (
             team.name.toLowerCase().includes(q) ||
             team.short.toLowerCase().includes(q) ||
+            (team.competitionName ?? "").toLowerCase().includes(q) ||
             league.name.toLowerCase().includes(q) ||
             league.short.toLowerCase().includes(q)
           )
@@ -205,19 +207,20 @@ function TeamSelect({
           setQuery("")
         }}
       >
-        <span className="truncate">{selected?.name ?? "Choose a club"}</span>
+        <span className="min-w-0 truncate">{selected?.name ?? "Choose a team"}</span>
+      {selected?.competitionName ? <span className="max-w-28 shrink-0 truncate text-xs text-muted">{selected.competitionName}</span> : null}
         <ChevronDown className="size-4 shrink-0 text-muted" />
       </button>
       {open ? (
         <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-xl border border-border bg-card">
           <label className="sr-only" htmlFor={`${id}-search`}>
-            Search clubs
+            Search teams
           </label>
           <input
             id={`${id}-search`}
             autoFocus
             value={query}
-            placeholder="Search clubs"
+            placeholder="Search teams"
             className="h-11 w-full border-b border-border bg-card px-3 text-base outline-none"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
@@ -238,7 +241,7 @@ function TeamSelect({
           />
           <div role="listbox" aria-labelledby={`${id}-label`} className="max-h-64 overflow-y-auto">
             {options.length === 0 ? (
-              <p className="px-3 py-3 text-sm text-muted">No club matches.</p>
+              <p className="px-3 py-3 text-sm text-muted">No teams match.</p>
             ) : (
               options.map((team, index) => {
                 const blocked = team.id === blockedId
@@ -258,7 +261,7 @@ function TeamSelect({
                     onClick={() => choose(team.id)}
                   >
                     <span className="truncate">{team.name}</span>
-                    <span className="shrink-0 text-xs text-muted">{leagueShort(team.league)}</span>
+                    <span className="max-w-32 shrink-0 truncate text-xs text-muted">{team.competitionName ?? leagueShort(team.league)}</span>
                   </button>
                 )
               })
@@ -517,6 +520,7 @@ function ModelBar({
   model,
   formWindow,
   level,
+  international = false,
   onModel,
   onForm,
   onLevel,
@@ -524,6 +528,7 @@ function ModelBar({
   model: ModelKind
   formWindow: FormWindow
   level: boolean
+  international?: boolean
   onModel: (model: ModelKind) => void
   onForm: (form: FormWindow) => void
   onLevel: (level: boolean) => void
@@ -533,7 +538,7 @@ function ModelBar({
       label: "Rates",
       value: formWindow,
       options: [
-        { id: "season", label: "Season" },
+        { id: "season", label: international ? "Competition base" : "Season" },
         { id: "5", label: "Last 5" },
         { id: "10", label: "Last 10" },
       ],
@@ -558,9 +563,10 @@ function ModelBar({
       onPick: (id) => onLevel(id === "on"),
     },
   ]
+  const visibleGroups = international ? groups.filter((group) => group.label !== "Leagues") : groups
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
-      {groups.map((group) => (
+    <div className={international ? "grid gap-4 sm:grid-cols-2" : "grid gap-4 sm:grid-cols-3"}>
+      {visibleGroups.map((group) => (
         <div key={group.label} className="min-w-0">
           <p className="mb-2 text-sm font-medium">{group.label}</p>
           <div className="flex flex-wrap gap-2">
@@ -603,12 +609,24 @@ function marketsFor(home: Team, away: Team, edge: number, fixture: Fixture, mode
   return rows.map((row) => ({ key: `${fixture.id}:${row.label}`, fixture, label: row.label, kind: row.kind, share: row.share }))
 }
 
-export function Pitchline({ initial, initialView = "desk" }: { initial: Board; initialView?: "desk" | "picks" }) {
+export function Pitchline({
+  initial,
+  initialView = "desk",
+  initialLeague = "eng",
+  showHeader = true,
+}: {
+  initial: Board
+  initialView?: "desk" | "picks"
+  initialLeague?: LeagueId
+  showHeader?: boolean
+}) {
+  const firstInitialFixture = initial.fixtures.find((fixture) => fixture.league === initialLeague)
+  const firstInitialTeam = initial.teams.find((team) => team.league === initialLeague)
   const [board, setBoard] = useState(initial)
-  const [league, setLeague] = useState<LeagueId>("eng")
-  const [homeId, setHomeId] = useState("eng-ars")
-  const [awayId, setAwayId] = useState("eng-liv")
-  const [edgePct, setEdgePct] = useState(118)
+  const [league, setLeague] = useState<LeagueId>(initialLeague)
+  const [homeId, setHomeId] = useState(firstInitialFixture?.homeId ?? firstInitialTeam?.id ?? "eng-ars")
+  const [awayId, setAwayId] = useState(firstInitialFixture?.awayId ?? initial.teams.find((team) => team.league === initialLeague && team.id !== firstInitialTeam?.id)?.id ?? "eng-liv")
+  const [edgePct, setEdgePct] = useState(initialLeague === "int" ? 100 : 118)
   const [roll, setRoll] = useState(0)
   const [spread, setSpread] = useState(-0.5)
   const [totalLine, setTotalLine] = useState(2.5)
@@ -637,6 +655,9 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
   }, [initial])
 
   useEffect(() => {
+    // The international route is date-scoped by its server page. Do not replace
+    // that selected date with the generic upcoming board on a background refresh.
+    if (initialLeague === "int") return
     let stop = false
     const pull = () => {
       loadBoard()
@@ -656,12 +677,23 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
       window.clearInterval(timer)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [board.updatedAt])
+  }, [board.updatedAt, initialLeague])
 
   useEffect(() => {
     const saved = readDesk()
     const known = (id?: string) => Boolean(id && initial.teams.some((team) => team.id === id))
-    if (saved) {
+    if (initialLeague === "int") {
+      setLeague("int")
+      const fixture = initial.fixtures.find((item) => item.league === "int")
+      const firstTeam = initial.teams.find((team) => team.league === "int")
+      if (fixture) {
+        setHomeId(fixture.homeId)
+        setAwayId(fixture.awayId)
+      } else if (firstTeam) {
+        setHomeId(firstTeam.id)
+        setAwayId(initial.teams.find((team) => team.league === "int" && team.id !== firstTeam.id)?.id ?? firstTeam.id)
+      }
+    } else if (saved) {
       if (saved.league && LEAGUES.some((item) => item.id === saved.league)) setLeague(saved.league)
       if (known(saved.homeId)) setHomeId(saved.homeId!)
       if (known(saved.awayId)) setAwayId(saved.awayId!)
@@ -676,7 +708,7 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
     return () => {
       if (runTimer.current) window.clearTimeout(runTimer.current)
     }
-  }, [initial.teams])
+  }, [initial.teams, initial.fixtures, initialLeague])
 
   useEffect(() => {
     if (!ready) return
@@ -703,8 +735,8 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
   }, [ready, league, homeId, awayId, edgePct, spread, totalLine, model, formWindow, level])
 
   const teamBy = (id: string) => board.teams.find((team) => team.id === id)
-  const home = teamBy(homeId) ?? board.teams.find((team) => team.league === "eng") ?? board.teams[0]
-  const away = teamBy(awayId) ?? board.teams.find((team) => team.id !== home.id) ?? board.teams[0]
+  const home = teamBy(homeId) ?? board.teams.find((team) => team.league === league) ?? board.teams[0]
+  const away = teamBy(awayId) ?? board.teams.find((team) => team.league === league && team.id !== home.id) ?? board.teams.find((team) => team.id !== home.id) ?? board.teams[0]
   const edge = edgePct / 100
   const same = home.id === away.id
 
@@ -790,8 +822,13 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
       const homeTeam = byId.get(fixture.homeId)
       const awayTeam = byId.get(fixture.awayId)
       if (!homeTeam || !awayTeam || homeTeam.id === awayTeam.id) continue
+      // Do not surface probabilities based on the neutral placeholder ratings.
+      // International Best Picks require at least three prior games per team.
+      if (fixture.league === "int" &&
+        !hasInternationalPickHistory(homeTeam.formMatches, awayTeam.formMatches)) continue
       const shapedFixture = shapePair(homeTeam, awayTeam, board.teams, level, null, null)
-      ranked.push(...marketsFor(shapedFixture.home, shapedFixture.away, edge, fixture, model))
+      const fixtureEdge = fixture.league === "int" ? 1 : edge
+      ranked.push(...marketsFor(shapedFixture.home, shapedFixture.away, fixtureEdge, fixture, model))
     }
     ranked.sort((a, b) => b.share - a.share || a.label.localeCompare(b.label))
     return ranked
@@ -861,7 +898,7 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-4 pt-4 pb-16 sm:px-6">
-      <SiteHeader subtitle={`Football match simulator · ${board.season}`} />
+      {showHeader ? <SiteHeader subtitle={league === "int" ? "International match simulator" : `Football match simulator · ${board.season}`} /> : null}
 
       {view === "picks" ? (
         <section className="mb-6" aria-label="Best picks">
@@ -869,7 +906,7 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
             <div>
               <h2 className="font-display text-2xl tracking-tight">Best upcoming picks</h2>
               <p className="mt-1 max-w-xl text-sm text-muted">
-                Markets with model-assigned probability of at least 80%. Season rates, not last-5 form. Not a tip — a model estimate.
+                Markets with model-assigned probability of at least 80%. Club picks use season rates; national-team picks require at least three previous matches in that competition and use neutral home edge. International ratings are still exploratory, not independently calibrated.
               </p>
             </div>
             <p className="text-sm text-muted tabular-nums">
@@ -905,7 +942,7 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
                 onLevel={setLevel}
               />
               <p className="mt-3 text-xs text-muted">
-                Last 5 and last 10 use recency-weighted completed matches on the open match only. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) and the coarse UEFA association proxy apply when enabled. It is not a calibrated club-strength model.
+                Last 5 and last 10 use recency-weighted completed matches on the open match only. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) applies to both. The UEFA association proxy is for cross-league club comparisons, not national teams.
               </p>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -953,7 +990,9 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
 
           {shownPicks.length === 0 ? (
             <section className="panel">
-              <p className="text-sm">No fixtures in this filter yet.</p>
+              <p className="text-sm">
+                No picks currently qualify for this selection. International matches without at least three previous results per team are deliberately withheld from Best Picks.
+              </p>
             </section>
           ) : (
             <div className="space-y-2">
@@ -978,7 +1017,7 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{pick.label}</span>
                       <span className="mt-1 block truncate text-sm text-muted">
-                        {leagueShort(pick.fixture.league)} · {pick.fixture.when}
+                        {pick.fixture.competitionName ?? leagueShort(pick.fixture.league)} · {pick.fixture.when}
                       </span>
                       <span className="mt-1 block truncate text-sm">
                         {awayTeam.name} at {homeTeam.name}
@@ -1036,7 +1075,7 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
                 onClick={() => loadFixture(homeTeam.id, awayTeam.id, fixture.league)}
                 className="fixture w-60 shrink-0 snap-start rounded-3xl border border-border bg-card p-4 text-left"
               >
-                <p className="text-xs text-muted">{fixture.when}</p>
+                <p className="text-xs text-muted">{fixture.competitionName ? fixture.competitionName + " · " : ""}{fixture.when}</p>
                 <div className="mt-3 flex items-center gap-2">
                   <Crest team={homeTeam} />
                   <span className="truncate text-sm font-medium">{homeTeam.name}</span>
@@ -1131,13 +1170,16 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
             model={model}
             formWindow={formWindow}
             level={level}
+            international={league === "int"}
             onModel={setModel}
             onForm={setFormWindow}
             onLevel={setLevel}
           />
           <p className="mt-3 text-xs text-muted">
-            Independent Poisson is the default. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) lifts 0–0 and 1–1. The UEFA
-            scale is the 5 Nov 2026 coefficients divided by England. Same weight on both sides cancels.
+            Independent Poisson is the default. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) lifts 0–0 and 1–1.{" "}
+            {league === "int"
+              ? "National-team scoring and conceding rates come from each team's previous completed fixtures in the same international competition. Teams without returned history use a neutral fallback."
+              : "The UEFA scale is a coarse association-level proxy for cross-league club comparisons, not a calibrated national-team strength measure."}
           </p>
         </div>
 
@@ -1146,10 +1188,21 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
             {formNote === "loading"
               ? "Reading recent matches…"
               : formNote === "missing"
-                ? "Recent form needs the live tables. Season rates stay on."
+                ? league === "int"
+                  ? "No completed history returned for one or both teams. Competition-base rates stay on."
+                  : "Recent form needs the live tables. Season rates stay on."
                 : formNote === "error"
-                  ? "Recent matches did not load. Season rates stay on."
+                  ? league === "int"
+                    ? "International match history did not load. Competition-base rates stay on."
+                    : "Recent matches did not load. Season rates stay on."
                   : `Last ${take}: ${formSide(home.short, desk.homeSample, take)}. ${formSide(away.short, desk.awaySample, take)}.`}
+          </p>
+        ) : null}
+
+
+        {league === "int" && home.competitionName !== away.competitionName ? (
+          <p className="mt-3 text-sm text-muted">
+            These teams' ratings come from different competition schedules ({home.competitionName} and {away.competitionName}). The simulator uses raw goals-for/goals-against rates without cross-competition calibration, so treat this comparison as exploratory.
           </p>
         ) : null}
 
@@ -1187,7 +1240,7 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
 
       {same || !report ? (
         <section className="panel mb-4">
-          <p className="text-sm">Pick two different clubs.</p>
+          <p className="text-sm">Pick two different teams.</p>
         </section>
       ) : (
         <div className={running ? "opacity-60" : undefined} aria-busy={running}>
@@ -1545,7 +1598,16 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
                         onClick={() => setHomeId(row.team.id)}
                       >
                         <Crest team={row.team} />
-                        <span className="truncate">{row.team.name}</span>
+                        <span className="min-w-0 truncate">
+                          <span className="block truncate">{row.team.name}</span>
+                          {league === "int" ? (
+                            <span className="block truncate text-xs font-normal text-muted" title={row.team.ratingSource}>
+                              {row.team.competitionName} · {(row.team.formMatches ?? 0) > 0
+                                ? row.team.formMatches + " previous matches"
+                                : "No history · neutral rates"}
+                            </span>
+                          ) : null}
+                        </span>
                       </button>
                     </td>
                     <td className="py-1 pr-2 text-right tabular-nums">{row.team.attack.toFixed(2)}</td>
@@ -1586,13 +1648,19 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
           {model === "dixon"
             ? `Dixon–Coles (ρ = ${DIXON_RHO.toFixed(2)}) ties the low scorelines, then each of the ${SIMS.toLocaleString("en-GB")} matches is drawn from that table.`
             : `Each of the ${SIMS.toLocaleString("en-GB")} matches draws the two goal totals independently from those rates.`}{" "}
-          {formWindow !== "season" ? "Last 5 and last 10 replace the season rates on the open match only. " : ""}
+          {formWindow !== "season"
+            ? league === "int"
+              ? "Last 5 and last 10 reweight completed matches from the same international competition on the open match only. "
+              : "Last 5 and last 10 replace the season rates on the open match only. "
+            : ""}
           {level
             ? "The UEFA scale is on for clubs rated from different leagues. "
             : ""}
-          {leagueStatus.standings === "live"
-            ? `Ratings are this season’s scoring, refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}), not a betting line.`
-            : `This competition is using saved ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}
+          {league === "int"
+            ? `National-team ratings use previous completed matches from the same competition schedule. Team rows show the number of historical matches returned. Teams without history use a neutral 1.35 goals-for and 1.35 goals-against fallback; those fallback-only teams are excluded from international Best Picks. Refreshed ${feedTimestamp(leagueStatus.updatedAt)}.`
+            : leagueStatus.standings === "live"
+              ? `Ratings are this season’s scoring, refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}), not a betting line.`
+              : `This competition is using saved ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}
         </p>
       </footer>
     </main>

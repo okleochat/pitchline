@@ -2,6 +2,7 @@ import "server-only"
 
 import { getEspnJson } from "@/lib/espn/transport.server"
 import { INTERNATIONAL_COMPETITIONS, type CompetitionSource } from "./competitions"
+import { monthKeysInRange } from "./date-windows"
 
 type Dict = Record<string, unknown>
 
@@ -10,8 +11,9 @@ export type InternationalFixture = {
   kickoff: string
   competition: string
   region: string
-  home: { name: string; abbreviation: string | null; logo: string | null }
-  away: { name: string; abbreviation: string | null; logo: string | null }
+  home: { espnId: string; name: string; abbreviation: string | null; logo: string | null; color: string | null }
+  away: { espnId: string; name: string; abbreviation: string | null; logo: string | null; color: string | null }
+  competitionSlug: string
   status: string
   statusState: string
   completed: boolean
@@ -33,6 +35,7 @@ const ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 const LIVE_CACHE_TTL_MS = 2 * 60 * 1000
 const OTHER_DATE_CACHE_TTL_MS = 10 * 60 * 1000
 const responseCache = new Map<string, { expiresAt: number; value: InternationalFixtureResponse }>()
+const upcomingCache = new Map<string, { expiresAt: number; value: InternationalFixtureResponse }>()
 
 function record(value: unknown): Dict | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Dict : null
@@ -40,6 +43,12 @@ function record(value: unknown): Dict | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function idValue(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim()
+  if (typeof value === "number" && Number.isSafeInteger(value)) return String(value)
+  return null
 }
 
 function numberValue(value: unknown): number | null {
@@ -73,10 +82,15 @@ function teamSide(value: unknown): InternationalFixture["home"] | null {
   const firstLogo = record(logos[0])
   const logo = stringValue(firstLogo?.href) ?? stringValue(team.logo)
 
+  const espnId = idValue(team.id)
+  if (!espnId) return null
+
   return {
+    espnId,
     name: stringValue(team.displayName) ?? stringValue(team.name) ?? "Unknown team",
     abbreviation: stringValue(team.abbreviation),
     logo,
+    color: stringValue(team.color),
   }
 }
 
@@ -96,7 +110,7 @@ function mapEvent(value: unknown, source: CompetitionSource): InternationalFixtu
   const away = teamSide(awayCompetitor)
   if (!home || !away) return null
 
-  const eventId = stringValue(event.id)
+  const eventId = idValue(event.id)
   if (!eventId) return null
 
   const status = eventStatus(event, competition ?? {})
@@ -107,6 +121,7 @@ function mapEvent(value: unknown, source: CompetitionSource): InternationalFixtu
     region: source.confederation,
     home,
     away,
+    competitionSlug: source.slug,
     status: status.label,
     statusState: status.state,
     completed: status.completed,
@@ -131,6 +146,35 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
 
   const cached = responseCache.get(date)
   if (cached && cached.expiresAt > Date.now()) return cached.value
+
+  // Reuse the 14-day batch already fetched by the shared club board whenever
+  // the requested day falls inside that window; this avoids a second set of
+  // scoreboard calls on the International page and Best Picks.
+  const today = dateInLagos()
+  const upcoming = upcomingCache.get(today + ":14")
+  const upcomingEnd = addDays(today, 14)
+  if (upcoming && upcoming.expiresAt > Date.now() && date >= today && date <= upcomingEnd) {
+    const fixtures = upcoming.value.fixtures.filter((fixture) => {
+      const kickoffParts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Africa/Lagos",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).formatToParts(new Date(fixture.kickoff))
+      const values = Object.fromEntries(kickoffParts.map((part) => [part.type, part.value]))
+      return values.year + "-" + values.month + "-" + values.day === date
+    })
+    const result: InternationalFixtureResponse = {
+      ...upcoming.value,
+      date,
+      fixtures,
+    }
+    responseCache.set(date, {
+      expiresAt: Date.now() + (date === today ? LIVE_CACHE_TTL_MS : OTHER_DATE_CACHE_TTL_MS),
+      value: result,
+    })
+    return result
+  }
 
   const boards = await Promise.all(
     INTERNATIONAL_COMPETITIONS.map(async (source) => ({
@@ -180,6 +224,103 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
   if (responseCache.size > 90) {
     const firstKey = responseCache.keys().next().value
     if (firstKey) responseCache.delete(firstKey)
+  }
+  return result
+}
+
+function dateInLagos(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date())
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return values.year + "-" + values.month + "-" + values.day
+}
+
+function addDays(date: string, days: number): string {
+  const value = new Date(date + "T12:00:00Z")
+  value.setUTCDate(value.getUTCDate() + days)
+  return value.toISOString().slice(0, 10)
+}
+
+async function fetchCompetitionMonths(months: string[], source: CompetitionSource): Promise<{
+  board: Record<string, unknown> | null
+  partial: boolean
+}> {
+  const monthBoards = await Promise.all(months.map((month) =>
+    getEspnJson(ESPN_SCOREBOARD + "/" + source.slug + "/scoreboard?dates=" + month + "&limit=500")
+  ))
+  const available = monthBoards.filter((board): board is Record<string, unknown> => board !== null)
+  if (!available.length) return { board: null, partial: true }
+
+  return {
+    board: {
+      events: available.flatMap((board) => Array.isArray(board.events) ? board.events : []),
+    },
+    partial: available.length !== monthBoards.length,
+  }
+}
+
+/**
+ * Fetch a bounded upcoming window with month-bucketed scoreboard requests.
+ * ESPN's site API no longer accepts the older hyphenated day-range form.
+ * Month queries plus local filtering feed both Best Picks and the match desk.
+ */
+export async function getUpcomingInternationalFixtures(days = 14): Promise<InternationalFixtureResponse> {
+  const safeDays = Math.max(1, Math.min(21, Math.floor(days)))
+  const startDate = dateInLagos()
+  const endDate = addDays(startDate, safeDays)
+  const cacheKey = startDate + ":" + safeDays
+  const cached = upcomingCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+
+  const months = monthKeysInRange(startDate, endDate)
+  const boards = await Promise.all(
+    INTERNATIONAL_COMPETITIONS.map(async (source) => ({
+      source,
+      ...(await fetchCompetitionMonths(months, source)),
+    })),
+  )
+  const successful = boards.filter((item) => item.board !== null)
+  if (successful.length === 0) {
+    throw new Error("ESPN's international competition feed is temporarily unavailable.")
+  }
+
+  const unavailable = boards
+    .filter((item) => item.partial)
+    .map((item) => item.source.name)
+  // Keep every event on the current Lagos calendar day, including matches
+  // already played or in progress, so the date page can show results. The
+  // shared simulator board separately filters to future pre-kickoff fixtures.
+  const start = new Date(startDate + "T00:00:00+01:00").getTime()
+  const end = new Date(endDate + "T23:59:59.999+01:00").getTime()
+  const byId = new Map<string, InternationalFixture>()
+
+  for (const { source, board } of boards) {
+    const events = (board?.events as unknown[] | undefined) ?? []
+    for (const event of events) {
+      const fixture = mapEvent(event, source)
+      if (!fixture) continue
+      const kickoff = new Date(fixture.kickoff).getTime()
+      if (kickoff < start || kickoff > end) continue
+      if (!byId.has(fixture.id)) byId.set(fixture.id, fixture)
+    }
+  }
+
+  const result: InternationalFixtureResponse = {
+    date: startDate,
+    source: "ESPN",
+    fixtures: [...byId.values()].sort((left, right) => left.kickoff.localeCompare(right.kickoff)),
+    competitionsChecked: successful.length,
+    competitionsUnavailable: unavailable,
+    partial: unavailable.length > 0,
+  }
+  upcomingCache.set(cacheKey, { expiresAt: Date.now() + 2 * 60 * 1000, value: result })
+  if (upcomingCache.size > 20) {
+    const firstKey = upcomingCache.keys().next().value
+    if (firstKey) upcomingCache.delete(firstKey)
   }
   return result
 }

@@ -1,6 +1,8 @@
 import "server-only"
-import { LEAGUES, TEAMS, isCup, snapshotBoard, type Board, type Fixture, type LeagueId, type Team } from "@/data/football"
+import { LEAGUES, TEAMS, formRate, isCup, snapshotBoard, type Board, type Fixture, type LeagueId, type Team } from "@/data/football"
 import { getEspnJson } from "@/lib/espn/transport.server"
+import { getUpcomingInternationalFixtures, type InternationalFixture } from "@/lib/international/fixtures.server"
+import { INTERNATIONAL_COMPETITIONS } from "@/lib/international/competitions"
 
 const TTL_MS = 15 * 60 * 1000
 
@@ -21,6 +23,7 @@ const SOURCES: Record<LeagueId, { slug: string; tz: string }> = {
   ucl: { slug: "uefa.champions", tz: "Europe/Paris" },
   uel: { slug: "uefa.europa", tz: "Europe/Paris" },
   uecl: { slug: "uefa.europa.conf", tz: "Europe/Paris" },
+  int: { slug: "fifa.world", tz: "Africa/Lagos" },
 }
 
 const EXTRA: Record<string, string[]> = {
@@ -537,10 +540,148 @@ async function loadLeague(
   }
 }
 
+export async function mergeInternationalFixtures(board: Board, international: InternationalFixture[]): Promise<Board> {
+  const nowMs = Date.now()
+  // The shared simulator board and Best Picks contain future fixtures only.
+  // Results and in-progress games are rendered by the date-specific page.
+  const upcoming = international.filter((fixture) => {
+    const kickoff = new Date(fixture.kickoff).getTime()
+    return !fixture.completed && fixture.statusState === "pre" && kickoff > nowMs
+  })
+  if (!upcoming.length) {
+    return {
+      ...board,
+      teams: board.teams.filter((team) => team.league !== "int"),
+      fixtures: board.fixtures.filter((fixture) => fixture.league !== "int"),
+      weekends: { ...board.weekends, int: "No upcoming international window" },
+      leagueStatus: {
+        ...board.leagueStatus,
+        int: {
+          standings: "snapshot",
+          fixtures: "live",
+          teamCount: 0,
+          fixtureCount: 0,
+          updatedAt: new Date().toISOString(),
+          fixturesUpdatedAt: new Date().toISOString(),
+        },
+      },
+    }
+  }
+
+  const sides = new Map<string, {
+    id: string
+    name: string
+    short: string
+    espnId: string
+    feedSlug: string
+    color: string | null
+    competitionName: string
+    competitionRegion: string
+  }>()
+  for (const fixture of upcoming) {
+    for (const side of [fixture.home, fixture.away]) {
+      const key = fixture.competitionSlug + ":" + side.espnId
+      if (sides.has(key)) continue
+      sides.set(key, {
+        id: "int-" + fixture.competitionSlug.replace(/[^a-z0-9]+/gi, "-") + "-" + side.espnId,
+        name: side.name,
+        short: (side.abbreviation || side.name.slice(0, 3)).slice(0, 4).toUpperCase(),
+        espnId: side.espnId,
+        feedSlug: fixture.competitionSlug,
+        color: side.color,
+        competitionName: fixture.competition,
+        competitionRegion: fixture.region,
+      })
+    }
+  }
+
+  // Ratings are based on the same team's previous completed international
+  // competition fixtures only. No current/future match score enters the rate.
+  const nationalTeams = await Promise.all([...sides.values()].map(async (side): Promise<Team> => {
+    const games = await recentGames(side.feedSlug, side.espnId).catch(() => null)
+    const sample = formRate(games ?? undefined, 5)
+    const color = side.color && /^[0-9a-fA-F]{6}$/.test(side.color.replace("#", ""))
+      ? "#" + side.color.replace("#", "").toLowerCase()
+      : "#1e3348"
+    return {
+      id: side.id,
+      name: side.name,
+      short: side.short,
+      league: "int",
+      attack: sample?.attack ?? 1.35,
+      defense: sample?.defense ?? 1.35,
+      mark: color,
+      ink: "#f6f4ef",
+      scorers: ["Attacker", "Attacker", "Attacker"],
+      espnId: side.espnId,
+      feedSlug: side.feedSlug,
+      rateLeague: "int",
+      formMatches: sample?.played ?? 0,
+      competitionName: side.competitionName,
+      ratingSource: sample
+        ? side.competitionName + " · previous completed matches"
+        : side.competitionName + " · neutral fallback; no completed history returned",
+    }
+  }))
+
+  const teamBySlugAndId = new Map<string, Team>()
+  nationalTeams.forEach((team) => {
+    teamBySlugAndId.set((team.feedSlug ?? "") + ":" + (team.espnId ?? ""), team)
+  })
+
+  const dateLabel = (iso: string) => new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Lagos",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(iso))
+
+  const internationalFixtures: Fixture[] = upcoming.flatMap((fixture) => {
+    const home = teamBySlugAndId.get(fixture.competitionSlug + ":" + fixture.home.espnId)
+    const away = teamBySlugAndId.get(fixture.competitionSlug + ":" + fixture.away.espnId)
+    if (!home || !away) return []
+    return [{
+      id: "international-" + fixture.id,
+      league: "int",
+      homeId: home.id,
+      awayId: away.id,
+      when: dateLabel(fixture.kickoff),
+      competitionName: fixture.competition,
+      competitionRegion: fixture.region,
+    }]
+  })
+
+  const uniqueTeams = new Map(board.teams.filter((team) => team.league !== "int").map((team) => [team.id, team]))
+  nationalTeams.forEach((team) => uniqueTeams.set(team.id, team))
+  const weekendLabel = internationalFixtures.length + " upcoming national-team fixtures"
+  const now = new Date().toISOString()
+
+  return {
+    ...board,
+    teams: [...uniqueTeams.values()],
+    fixtures: [...board.fixtures.filter((fixture) => fixture.league !== "int"), ...internationalFixtures],
+    weekends: { ...board.weekends, int: weekendLabel },
+    leagueStatus: {
+      ...board.leagueStatus,
+      int: {
+        standings: "live",
+        fixtures: "live",
+        teamCount: nationalTeams.length,
+        fixtureCount: internationalFixtures.length,
+        updatedAt: now,
+        fixturesUpdatedAt: now,
+      },
+    },
+  }
+}
+
 async function buildBoard(): Promise<Board> {
   const saved = snapshotBoard()
-  const domesticLeagues = LEAGUES.filter((league) => !league.cup)
-  const cupLeagues = LEAGUES.filter((league) => league.cup)
+  const domesticLeagues = LEAGUES.filter((league) => !league.cup && league.id !== "int")
+  const cupLeagues = LEAGUES.filter((league) => league.cup && league.id !== "int")
   const domesticLoaded = await Promise.all(domesticLeagues.map((league) => loadLeague(league.id, saved, null)))
   const index = indexSaved(saved.teams.filter((team) => !isCup(team.league)))
   domesticLoaded.forEach((result) => {
@@ -552,7 +693,10 @@ async function buildBoard(): Promise<Board> {
   domesticLeagues.forEach((league, index) => loaded.set(league.id, domesticLoaded[index] ?? null))
   cupLeagues.forEach((league, index) => loaded.set(league.id, cupLoaded[index] ?? null))
   const liveCount = [...loaded.values()].filter(Boolean).length
-  if (liveCount === 0) return saved
+  if (liveCount === 0) {
+    const international = await getUpcomingInternationalFixtures(14).catch(() => null)
+    return international ? mergeInternationalFixtures(saved, international.fixtures) : saved
+  }
 
   const teams: Team[] = []
   const fixtures: Fixture[] = []
@@ -586,7 +730,7 @@ async function buildBoard(): Promise<Board> {
         }
       : saved.leagueStatus[league.id]
   }
-  return {
+  const baseBoard: Board = {
     season,
     source: "live",
     updatedAt,
@@ -604,6 +748,8 @@ async function buildBoard(): Promise<Board> {
     weekends,
     leagueStatus,
   }
+  const international = await getUpcomingInternationalFixtures(14).catch(() => null)
+  return international ? mergeInternationalFixtures(baseBoard, international.fixtures) : baseBoard
 }
 
 export function getLiveBoard(): Promise<Board> {
@@ -628,14 +774,19 @@ export type FormResult = {
   away: { games: FormGame[] } | null
 }
 
-const FEED_SLUGS = new Set(Object.values(SOURCES).map((source) => source.slug))
+const FEED_SLUGS = new Set([
+  ...Object.values(SOURCES).map((source) => source.slug),
+  ...INTERNATIONAL_COMPETITIONS.map((competition) => competition.slug),
+])
 const formCache = new Map<string, { at: number; games: FormGame[] | null }>()
 
 function scoreNum(score: unknown): number | null {
   if (typeof score === "number" && Number.isFinite(score)) return score
+  if (typeof score === "string" && score.trim() && Number.isFinite(Number(score))) return Number(score)
   if (score && typeof score === "object" && "value" in score) {
     const value = (score as { value?: unknown }).value
     if (typeof value === "number" && Number.isFinite(value)) return value
+    if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value)
   }
   return null
 }

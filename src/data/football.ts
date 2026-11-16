@@ -17,6 +17,7 @@ export type LeagueId =
   | "ucl"
   | "uel"
   | "uecl"
+  | "int"
 
 export type Team = {
   id: string
@@ -30,6 +31,12 @@ export type Team = {
   mark: string
   ink: string
   scorers: [string, string, string]
+  /** Count of completed games used to derive a national-team rating, when known. */
+  formMatches?: number
+  /** Human-readable provenance for a rating derived from a non-league-table feed. */
+  ratingSource?: string
+  /** Tournament whose historical results underpin a national-team rating. */
+  competitionName?: string
   /** ESPN team id when the live feed built this club. */
   espnId?: string
   /** ESPN league slug the recent-form feed should use. */
@@ -48,6 +55,9 @@ export type Fixture = {
   homeId: string
   awayId: string
   when: string
+  /** Optional source competition label for cup and national-team fixtures. */
+  competitionName?: string
+  competitionRegion?: string
 }
 
 export const SEASON = "2026/27"
@@ -69,6 +79,7 @@ export const LEAGUES: { id: LeagueId; name: string; short: string; place: string
   { id: "ucl", name: "Champions League", short: "Champions", place: "Europe", cup: true },
   { id: "uel", name: "Europa League", short: "Europa", place: "Europe", cup: true },
   { id: "uecl", name: "Conference League", short: "Conference", place: "Europe", cup: true },
+  { id: "int", name: "National Teams", short: "International", place: "International" },
 ]
 
 function t(
@@ -236,6 +247,7 @@ export const LEAGUE_WEIGHT: Record<LeagueId, number> = {
   ucl: 1,
   uel: 1,
   uecl: 1,
+  int: 1,
 }
 
 export function leagueWeight(id: LeagueId): number {
@@ -383,6 +395,7 @@ export function snapshotBoard(): Board {
       ucl: MORE_WEEKENDS.ucl,
       uel: MORE_WEEKENDS.uel,
       uecl: MORE_WEEKENDS.uecl,
+      int: "Major international competitions",
     },
   }
 }

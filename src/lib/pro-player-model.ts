@@ -219,8 +219,10 @@ function readEspnStats(source: unknown): Map<string, number> {
     const label = item.name ?? item.displayName ?? item.display_name ?? item.shortDisplayName ?? item.abbreviation
     if (typeof label === "string") {
       assign(label, item.value ?? item.total ?? item.count ?? item.displayValue ?? item.display_value)
-      if (Array.isArray(item.names) && Array.isArray(item.values)) {
-        item.names.forEach((name, index) => assign(name, item.values?.[index]))
+      const names = item.names
+      const values = item.values
+      if (Array.isArray(names) && Array.isArray(values)) {
+        names.forEach((name, index) => assign(name, values[index]))
       }
     }
 

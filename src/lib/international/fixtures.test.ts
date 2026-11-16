@@ -19,6 +19,11 @@ test("international coverage includes major tournaments and qualifiers", () => {
     "uefa.euroq",
     "conmebol.america",
     "afc.asian.cup",
+    "conmebol.america_qual",
+    "fifa.wwcq.ply",
+    "fifa.wworldq.uefa",
+    "concacaf.w.gold",
+    "conmebol.america.femenina",
   ]) {
     assert.equal(slugs.has(slug), true, slug + " should be included")
   }

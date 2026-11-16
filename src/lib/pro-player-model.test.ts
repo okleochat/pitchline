@@ -3,7 +3,10 @@ import test from "node:test"
 import {
   deriveEaPlayerScores,
   deriveSquadFactors,
+  matchEaPlayerByName,
   normaliseEaSquadPlayer,
+  normalisePlayerName,
+  playerNameShardId,
   positionFrom,
   teamNameKey,
 } from "./pro-player-model.ts"
@@ -93,6 +96,50 @@ test("EA face attributes and overall provide a safe fallback when detailed stats
   assert.ok((score.attack ?? 0) > 0)
   assert.ok((score.creativity ?? 0) > (score.attack ?? 0))
   assert.equal(score.seasonRating, 77)
+})
+
+test("ESPN roster names match EA identities through strict normalized name keys", () => {
+  const candidate = {
+    id: "ea-1001",
+    name: "Kylian Mbappe",
+    nameKeys: ["kylian mbappe", "mbappe"],
+    nationality: "France",
+    position: "ST",
+    overall: 91,
+    stats: {},
+  }
+  const match = matchEaPlayerByName({
+    nameCandidates: ["Kylian Mbappé", "K. Mbappé"],
+    position: "ST",
+    nationality: "France",
+  }, [candidate])
+  assert.equal(match?.id, "ea-1001")
+  assert.equal(normalisePlayerName("Kylian Mbappé"), "kylian mbappe")
+  assert.equal(playerNameShardId("Kylian Mbappé"), "ky")
+})
+
+test("ambiguous same-name EA records are not guessed", () => {
+  const candidates = [
+    { id: "1", nameKeys: ["alex smith"], position: "ST", nationality: "England" },
+    { id: "2", nameKeys: ["alex smith"], position: "ST", nationality: "Scotland" },
+  ]
+  assert.equal(matchEaPlayerByName({
+    nameCandidates: ["Alex Smith"],
+    position: "ST",
+  }, candidates), null)
+})
+
+test("position and nationality safely disambiguate duplicate player names", () => {
+  const candidates = [
+    { id: "1", nameKeys: ["alex smith"], position: "ST", nationality: "England" },
+    { id: "2", nameKeys: ["alex smith"], position: "CB", nationality: "England" },
+  ]
+  const match = matchEaPlayerByName({
+    nameCandidates: ["Alex Smith"],
+    position: "CB",
+    nationality: "England",
+  }, candidates)
+  assert.equal(match?.id, "2")
 })
 
 test("EA player records normalize to the shared squad shape", () => {

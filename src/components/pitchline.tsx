@@ -827,7 +827,8 @@ export function Pitchline({
       if (fixture.league === "int" &&
         !hasInternationalPickHistory(homeTeam.formMatches, awayTeam.formMatches)) continue
       const shapedFixture = shapePair(homeTeam, awayTeam, board.teams, level, null, null)
-      ranked.push(...marketsFor(shapedFixture.home, shapedFixture.away, edge, fixture, model))
+      const fixtureEdge = fixture.league === "int" ? 1 : edge
+      ranked.push(...marketsFor(shapedFixture.home, shapedFixture.away, fixtureEdge, fixture, model))
     }
     ranked.sort((a, b) => b.share - a.share || a.label.localeCompare(b.label))
     return ranked
@@ -905,7 +906,7 @@ export function Pitchline({
             <div>
               <h2 className="font-display text-2xl tracking-tight">Best upcoming picks</h2>
               <p className="mt-1 max-w-xl text-sm text-muted">
-                Markets with model-assigned probability of at least 80%. Club picks use season rates; national-team picks require at least three previous matches in that competition. International ratings are still exploratory, not independently calibrated.
+                Markets with model-assigned probability of at least 80%. Club picks use season rates; national-team picks require at least three previous matches in that competition and use neutral home edge. International ratings are still exploratory, not independently calibrated.
               </p>
             </div>
             <p className="text-sm text-muted tabular-nums">
@@ -1195,6 +1196,13 @@ export function Pitchline({
                     ? "International match history did not load. Competition-base rates stay on."
                     : "Recent matches did not load. Season rates stay on."
                   : `Last ${take}: ${formSide(home.short, desk.homeSample, take)}. ${formSide(away.short, desk.awaySample, take)}.`}
+          </p>
+        ) : null}
+
+
+        {league === "int" && home.competitionName !== away.competitionName ? (
+          <p className="mt-3 text-sm text-muted">
+            These teams' ratings come from different competition schedules ({home.competitionName} and {away.competitionName}). The simulator uses raw goals-for/goals-against rates without cross-competition calibration, so treat this comparison as exploratory.
           </p>
         ) : null}
 

@@ -8,10 +8,35 @@ export const dynamic = "force-dynamic"
 const SESSION_DURATION_MS = 5 * 24 * 60 * 60 * 1000
 const RECENT_SIGN_IN_SECONDS = 5 * 60
 
+function normalizedOrigin(value: string | null | undefined): string | null {
+  if (!value) return null
+  try { return new URL(value).origin } catch { return null }
+}
+
+/**
+ * Firebase App Hosting terminates TLS in front of the Next.js container.
+ * request.nextUrl.origin can reflect an internal origin, while the browser
+ * sends the public *.hosted.app origin. Check the explicit public origin and
+ * the reverse-proxy host/protocol before rejecting the session exchange.
+ */
 function sameOrigin(request: NextRequest): boolean {
-  const origin = request.headers.get("origin")
+  const origin = normalizedOrigin(request.headers.get("origin"))
   if (!origin) return false
-  try { return new URL(origin).origin === request.nextUrl.origin } catch { return false }
+
+  const configuredOrigin = normalizedOrigin(process.env.APP_BASE_URL)
+  if (configuredOrigin && origin === configuredOrigin) return true
+
+  const requestOrigin = normalizedOrigin(request.nextUrl.origin)
+  if (requestOrigin && origin === requestOrigin) return true
+
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()
+  const host = forwardedHost || request.headers.get("host")?.split(",")[0]?.trim()
+  const protocol = forwardedProto
+    ? forwardedProto.replace(/:$/, "") + ":"
+    : request.nextUrl.protocol
+
+  return Boolean(host && normalizedOrigin(protocol + "//" + host) === origin)
 }
 
 export async function POST(request: NextRequest) {

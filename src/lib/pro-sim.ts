@@ -1,5 +1,6 @@
 import type { Team } from "@/data/football"
 import { PRO_SIM_RUNS } from "./pro-sim-config.ts"
+import type { TeamLineupFactors, ProPlayerData } from "./pro-player-data"
 import {
   expectedGoals,
   hashSeed,
@@ -9,7 +10,7 @@ import {
   type Score,
 } from "./sim.ts"
 
-export type ProTeam = Pick<Team, "id" | "name" | "attack" | "defense">
+export type ProTeam = Pick<Team, "id" | "name" | "attack" | "defense" | "league" | "rateLeague">
 
 const POSSESSIONS_PER_MATCH = 180
 const POSSESSIONS_PER_SIDE = POSSESSIONS_PER_MATCH / 2
@@ -35,11 +36,17 @@ export type ProSimulationDetails = {
   chanceCreationAwayPct: number
   simulatedXgHome: number
   simulatedXgAway: number
+  playerAdjustmentsApplied: boolean
+  homeAttackMultiplier: number
+  awayAttackMultiplier: number
+  homeDefenceMultiplier: number
+  awayDefenceMultiplier: number
 }
 
 export type ProReport = Report & {
   engine: "phase-of-play-v1"
   details: ProSimulationDetails
+  playerData?: ProPlayerData
 }
 
 type PhaseProfile = {
@@ -58,11 +65,18 @@ function phaseProfile(
   minute: number,
   trailing: boolean,
   leading: boolean,
+  attackMultiplier: number,
+  defenceMultiplier: number,
+  creativityMultiplier: number,
+  benchStrength: number,
 ): PhaseProfile {
   // This is a team-level matchup proxy until a licensed player-stat feed is connected.
-  const mismatch = Math.tanh(Math.log((attack + 0.35) / (oppositionDefense + 0.35)))
+  const adjustedAttack = attack * attackMultiplier * Math.sqrt(creativityMultiplier)
+  const adjustedDefense = oppositionDefense * defenceMultiplier
+  const mismatch = Math.tanh(Math.log((adjustedAttack + 0.35) / (adjustedDefense + 0.35)))
   const fatigue = minute <= 55 ? 1 : 1 - 0.06 * ((minute - 55) / 35)
-  const substitutionRecovery = minute >= 70 ? 1.02 : 1
+  const benchRecovery = clamp(1 + (benchStrength - 50) / 2000, 0.97, 1.03)
+  const substitutionRecovery = minute >= 70 ? benchRecovery : 1
   const urgency = minute >= 55 && trailing ? 1.16 : minute >= 55 && leading ? 0.94 : 1
 
   return {
@@ -109,17 +123,33 @@ export function simulatePro(
   away: ProTeam,
   edge: number,
   roll: number,
+  homeLineup?: TeamLineupFactors,
+  awayLineup?: TeamLineupFactors,
 ): ProReport {
   const safeEdge = clamp(edge, 0.7, 1.6)
-  const base = expectedGoals(home, away, safeEdge)
+  const neutralFactors: TeamLineupFactors = {
+    attackMultiplier: 1, creativityMultiplier: 1, defenceMultiplier: 1,
+    benchStrength: 50, ratedStarters: 0, starterCount: 0, coverage: 0, applied: false,
+  }
+  const homeFactors = homeLineup?.applied ? homeLineup : neutralFactors
+  const awayFactors = awayLineup?.applied ? awayLineup : neutralFactors
+  const adjustedHome = {
+    attack: home.attack * homeFactors.attackMultiplier * Math.sqrt(homeFactors.creativityMultiplier),
+    defense: home.defense * homeFactors.defenceMultiplier,
+  }
+  const adjustedAway = {
+    attack: away.attack * awayFactors.attackMultiplier * Math.sqrt(awayFactors.creativityMultiplier),
+    defense: away.defense * awayFactors.defenceMultiplier,
+  }
+  const base = expectedGoals(adjustedHome, adjustedAway, safeEdge)
   const seed = hashSeed(
     `${home.id}|${away.id}|${safeEdge.toFixed(3)}|${roll}|phase-of-play-v1`,
   )
   const rng = mulberry32(seed)
 
   const relativeStrength = Math.tanh(
-    Math.log((home.attack + 0.35) / (away.defense + 0.35)) -
-      Math.log((away.attack + 0.35) / (home.defense + 0.35)),
+    Math.log((adjustedHome.attack + 0.35) / (adjustedAway.defense + 0.35)) -
+      Math.log((adjustedAway.attack + 0.35) / (adjustedHome.defense + 0.35)),
   )
   const baseHomePossession = clamp(0.5 + relativeStrength * 0.035 + (safeEdge - 1) * 0.06, 0.39, 0.61)
 
@@ -176,7 +206,19 @@ export function simulatePro(
       const opposition = isHome ? away : home
       const trailing = isHome ? homeGoals < awayGoals : awayGoals < homeGoals
       const leading = isHome ? homeGoals > awayGoals : awayGoals > homeGoals
-      const phase = phaseProfile(attack.attack, opposition.defense, minute, trailing, leading)
+      const attackingFactors = isHome ? homeFactors : awayFactors
+      const defendingFactors = isHome ? awayFactors : homeFactors
+      const phase = phaseProfile(
+        attack.attack,
+        opposition.defense,
+        minute,
+        trailing,
+        leading,
+        attackingFactors.attackMultiplier,
+        defendingFactors.defenceMultiplier,
+        attackingFactors.creativityMultiplier,
+        attackingFactors.benchStrength,
+      )
 
       if (isHome) possessionsHome += 1
       else possessionsAway += 1
@@ -279,6 +321,11 @@ export function simulatePro(
     chanceCreationAwayPct: progressionsAway > 0 ? (chancesAway / progressionsAway) * 100 : 0,
     simulatedXgHome: average(sumHomeXg),
     simulatedXgAway: average(sumAwayXg),
+    playerAdjustmentsApplied: homeFactors.applied && awayFactors.applied,
+    homeAttackMultiplier: homeFactors.attackMultiplier,
+    awayAttackMultiplier: awayFactors.attackMultiplier,
+    homeDefenceMultiplier: homeFactors.defenceMultiplier,
+    awayDefenceMultiplier: awayFactors.defenceMultiplier,
   }
 
   return {

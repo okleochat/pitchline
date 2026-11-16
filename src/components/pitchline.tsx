@@ -95,16 +95,6 @@ function Crest({ team, large = false }: { team: Team; large?: boolean }) {
   )
 }
 
-function Mark() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-8 text-foreground" aria-hidden>
-      <rect x="1.5" y="3.5" width="21" height="17" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M12 3.5v17" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )
-}
-
 function barWidth(share: number): string {
   return `${(share * 100).toFixed(1)}%`
 }
@@ -639,7 +629,6 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
   const [priceMarket, setPriceMarket] = useState<PriceMarket>("home")
   const [priceText, setPriceText] = useState("")
   const tapeRef = useRef<HTMLElement>(null)
-  const deskRef = useRef<HTMLElement>(null)
   const runTimer = useRef<number | null>(null)
 
   useEffect(() => {
@@ -708,9 +697,9 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
 
   useEffect(() => {
     if (!ready) return
-    const payload: DeskState = { league, homeId, awayId, edgePct, spread, totalLine, view, model, form: formWindow, level }
+    const payload: DeskState = { league, homeId, awayId, edgePct, spread, totalLine, model, form: formWindow, level }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
-  }, [ready, league, homeId, awayId, edgePct, spread, totalLine, view, model, formWindow, level])
+  }, [ready, league, homeId, awayId, edgePct, spread, totalLine, model, formWindow, level])
 
   const teamBy = (id: string) => board.teams.find((team) => team.id === id)
   const home = teamBy(homeId) ?? board.teams.find((team) => team.league === "eng") ?? board.teams[0]

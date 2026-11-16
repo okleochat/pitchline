@@ -70,7 +70,7 @@ function phaseProfile(
   creativityMultiplier: number,
   benchStrength: number,
 ): PhaseProfile {
-  // This is a team-level matchup proxy until a licensed player-stat feed is connected.
+  // Player-derived attack, creativity and defensive multipliers modify this phase profile when both lineups pass coverage.
   const adjustedAttack = attack * attackMultiplier * Math.sqrt(creativityMultiplier)
   const adjustedDefense = oppositionDefense * defenceMultiplier
   const mismatch = Math.tanh(Math.log((adjustedAttack + 0.35) / (adjustedDefense + 0.35)))
@@ -115,8 +115,9 @@ function emptyProbabilities(): MarketProbabilities {
  * build-up, progression, chance creation and finishing. Match state and a
  * lightweight fatigue/substitution curve alter those phase probabilities.
  *
- * The current inputs are team-level attack/defence rates. It deliberately does
- * not invent player ratings, confirmed lineups, or player-specific effects.
+ * Team-level attack/defence rates provide the stable baseline. When a permitted
+ * player feed returns adequately covered starting XIs, derived team-level
+ * lineup factors adjust the expected goals and phase transitions.
  */
 export function simulatePro(
   home: ProTeam,

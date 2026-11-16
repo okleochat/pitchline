@@ -443,10 +443,9 @@ export async function getProPlayerData(input: {
     )
   } catch (error) {
     const reason = error instanceof Error ? error.message : ""
-    const status: PlayerDataStatus = reason === "rate_limited" ? "provider_error" : "provider_error"
     const note = reason === "rate_limited"
       ? "API-Football's daily or per-minute request limit was reached. Cached data will be reused when available."
       : "API-Football could not provide player data for this match. The Pro simulation will use team-level inputs."
-    return resultData(status, note)
+    return resultData("provider_error", note)
   }
 }

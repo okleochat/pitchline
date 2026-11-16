@@ -42,40 +42,40 @@ STAT_ALIASES = {
     "dri": ("dri",),
     "def": ("def", "defending"),
     "phy": ("phy", "physicality"),
-    "crossing": ("crossing", "attackingCrossing"),
-    "finishing": ("finishing", "attackingFinishing"),
-    "headingAccuracy": ("headingAccuracy", "attackingHeadingAccuracy", "heading"),
-    "shortPassing": ("shortPassing", "attackingShortPassing"),
-    "volleys": ("volleys", "attackingVolleys"),
-    "dribbling": ("dribbling", "skillDribbling"),
-    "curve": ("curve", "skillCurve"),
-    "freeKickAccuracy": ("freeKickAccuracy", "skillFkAccuracy", "fkAccuracy", "freeKick"),
-    "longPassing": ("longPassing", "skillLongPassing"),
-    "ballControl": ("ballControl", "skillBallControl"),
-    "acceleration": ("acceleration", "movementAcceleration"),
-    "sprintSpeed": ("sprintSpeed", "movementSprintSpeed"),
-    "agility": ("agility", "movementAgility"),
-    "reactions": ("reactions", "movementReactions"),
-    "balance": ("balance", "movementBalance"),
-    "shotPower": ("shotPower", "powerShotPower"),
-    "jumping": ("jumping", "powerJumping"),
-    "stamina": ("stamina", "powerStamina"),
-    "strength": ("strength", "powerStrength"),
-    "longShots": ("longShots", "powerLongShots"),
-    "aggression": ("aggression", "mentalityAggression"),
-    "interceptions": ("interceptions", "mentalityInterceptions"),
-    "positioning": ("positioning", "mentalityPositioning"),
-    "vision": ("vision", "mentalityVision"),
-    "penalties": ("penalties", "mentalityPenalties"),
-    "composure": ("composure", "mentalityComposure"),
-    "defensiveAwareness": ("defensiveAwareness", "defendingAwareness", "marking"),
-    "standingTackle": ("standingTackle", "defendingStandingTackle"),
-    "slidingTackle": ("slidingTackle", "defendingSlidingTackle"),
-    "gkDiving": ("gkDiving", "goalkeepingDiving"),
-    "gkHandling": ("gkHandling", "goalkeepingHandling"),
-    "gkKicking": ("gkKicking", "goalkeepingKicking"),
-    "gkPositioning": ("gkPositioning", "goalkeepingPositioning"),
-    "gkReflexes": ("gkReflexes", "goalkeepingReflexes"),
+    "crossing": ("crossing", "attackingCrossing", "attacking_crossing"),
+    "finishing": ("finishing", "attackingFinishing", "attacking_finishing"),
+    "headingAccuracy": ("headingAccuracy", "attackingHeadingAccuracy", "attacking_heading_accuracy", "heading"),
+    "shortPassing": ("shortPassing", "attackingShortPassing", "attacking_short_passing"),
+    "volleys": ("volleys", "attackingVolleys", "attacking_volleys"),
+    "dribbling": ("dribbling", "skillDribbling", "skill_dribbling"),
+    "curve": ("curve", "skillCurve", "skill_curve"),
+    "freeKickAccuracy": ("freeKickAccuracy", "skillFkAccuracy", "skill_fk_accuracy", "fkAccuracy", "freeKick"),
+    "longPassing": ("longPassing", "skillLongPassing", "skill_long_passing"),
+    "ballControl": ("ballControl", "skillBallControl", "skill_ball_control"),
+    "acceleration": ("acceleration", "movementAcceleration", "movement_acceleration"),
+    "sprintSpeed": ("sprintSpeed", "movementSprintSpeed", "movement_sprint_speed"),
+    "agility": ("agility", "movementAgility", "movement_agility"),
+    "reactions": ("reactions", "movementReactions", "movement_reactions"),
+    "balance": ("balance", "movementBalance", "movement_balance"),
+    "shotPower": ("shotPower", "powerShotPower", "power_shot_power"),
+    "jumping": ("jumping", "powerJumping", "power_jumping"),
+    "stamina": ("stamina", "powerStamina", "power_stamina"),
+    "strength": ("strength", "powerStrength", "power_strength"),
+    "longShots": ("longShots", "powerLongShots", "power_long_shots"),
+    "aggression": ("aggression", "mentalityAggression", "mentality_aggression"),
+    "interceptions": ("interceptions", "mentalityInterceptions", "mentality_interceptions"),
+    "positioning": ("positioning", "mentalityPositioning", "mentality_positioning"),
+    "vision": ("vision", "mentalityVision", "mentality_vision"),
+    "penalties": ("penalties", "mentalityPenalties", "mentality_penalties"),
+    "composure": ("composure", "mentalityComposure", "mentality_composure"),
+    "defensiveAwareness": ("defensiveAwareness", "defendingAwareness", "defending_awareness", "marking"),
+    "standingTackle": ("standingTackle", "defendingStandingTackle", "defending_standing_tackle"),
+    "slidingTackle": ("slidingTackle", "defendingSlidingTackle", "defending_sliding_tackle"),
+    "gkDiving": ("gkDiving", "goalkeepingDiving", "goalkeeping_diving"),
+    "gkHandling": ("gkHandling", "goalkeepingHandling", "goalkeeping_handling"),
+    "gkKicking": ("gkKicking", "goalkeepingKicking", "goalkeeping_kicking"),
+    "gkPositioning": ("gkPositioning", "goalkeepingPositioning", "goalkeeping_positioning"),
+    "gkReflexes": ("gkReflexes", "goalkeepingReflexes", "goalkeeping_reflexes"),
 }
 
 
@@ -98,17 +98,27 @@ def stat_number(stats: dict[str, Any], key: str) -> int | float | None:
     return int(item) if int(item) == item else float(item)
 
 
+def label_value(value: Any, *keys: str) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in keys:
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+    return ""
+
+
 def normalise_player(raw: dict[str, Any]) -> dict[str, Any] | None:
     player_id = raw.get("id")
     team = as_dict(raw.get("team"))
-    position = as_dict(raw.get("position"))
-    gender = as_dict(raw.get("gender"))
-    nationality = as_dict(raw.get("nationality"))
+    position = raw.get("position")
+    gender = raw.get("gender")
+    nationality = raw.get("nationality")
 
     if player_id is None or not str(player_id).strip():
         return None
-    club = team.get("label")
-    club_label = club.strip() if isinstance(club, str) else ""
+    club_label = label_value(raw.get("team"), "label", "name", "displayName")
 
     common_name = raw.get("commonName")
     first_name = raw.get("firstName")
@@ -165,13 +175,13 @@ def normalise_player(raw: dict[str, Any]) -> dict[str, Any] | None:
         "firstName": first_name if isinstance(first_name, str) else "",
         "lastName": last_name if isinstance(last_name, str) else "",
         "overall": int(overall) if overall is not None else None,
-        "position": position.get("shortLabel") if isinstance(position.get("shortLabel"), str) else "UNK",
+        "position": label_value(position, "shortLabel", "abbreviation", "name") or "UNK",
         "alternatePositions": alternate_positions,
         "club": club_label,
         "clubId": str(team.get("id") or ""),
         "league": raw.get("leagueName") if isinstance(raw.get("leagueName"), str) else "",
-        "nationality": nationality.get("label") if isinstance(nationality.get("label"), str) else "",
-        "gender": gender.get("label") if isinstance(gender.get("label"), str) else "",
+        "nationality": label_value(nationality, "label", "name", "displayName"),
+        "gender": label_value(gender, "label", "name", "displayName"),
         "preferredFoot": raw.get("preferredFoot"),
         "skillMoves": raw.get("skillMoves"),
         "weakFoot": raw.get("weakFootAbility"),
@@ -449,7 +459,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Local normalized JSON output path.")
     parser.add_argument("--page-delay", type=float, default=0.35, help="Delay between EA pages in seconds (default: 0.35).")
     parser.add_argument("--probe-only", action="store_true", help="Fetch and validate only the first EA page.")
-    parser.add_argument("--upload-firestore", action="store_true", help="Upload men's club squads to Firestore after download.")
+    parser.add_argument("--upload-firestore", action="store_true", help="Upload men's player-name shards to Firestore after download.")
     parser.add_argument("--project-id", default="pitchline-app", help="Google Cloud/Firebase project ID.")
     args = parser.parse_args()
 

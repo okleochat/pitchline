@@ -33,7 +33,12 @@ export function firebaseErrorMessage(error: unknown): string {
       case "auth/email-already-in-use": return "An account already exists for that email."
       case "auth/weak-password": return "Choose a stronger password (at least 6 characters)."
       case "auth/popup-closed-by-user": return "The sign-in window was closed before completing."
-      case "auth/popup-blocked": return "Your browser blocked the sign-in window."
+      case "auth/popup-blocked": return "Your browser blocked the sign-in window. Try again or allow pop-ups."
+      case "auth/unauthorized-domain": return "This website domain is not authorized for Firebase sign-in."
+      case "auth/operation-not-allowed": return "This sign-in method is not enabled in Firebase Authentication."
+      case "auth/network-request-failed": return "The network interrupted sign-in. Check your connection and try again."
+      case "auth/too-many-requests": return "Firebase temporarily paused sign-in attempts. Please try again later."
+      case "auth/cancelled-popup-request": return "Another sign-in window is already being opened."
       default: return "Firebase sign-in failed. Check your project configuration and try again."
     }
   }

@@ -46,6 +46,7 @@ export type ProTeamSquad = {
 export type PlayerDataStatus =
   | "available"
   | "partial"
+  | "syncing"
   | "not_configured"
   | "not_licensed"
   | "team_not_found"

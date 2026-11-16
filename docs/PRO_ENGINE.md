@@ -2,71 +2,74 @@
 
 ## Engine selector
 
-Pro subscribers receive the **Pro Engine** by default. They can switch to the existing Classic Monte Carlo simulator at any time. The selected mode is saved locally per browser. Free accounts only use the Classic simulator.
+Pro subscribers receive the **Pro Engine** by default. They can switch to the existing Classic Monte Carlo simulator. The selected mode is saved locally per browser. Free accounts use the Classic simulator.
 
 The Pro calculation is executed by `POST /api/pro/simulate`. The route calls `requireProUser()` before accepting simulation inputs, so hiding the engine selector is not the access-control boundary.
 
 ## Version 1: Phase of Play
 
-The Pro engine simulates a match as a sequence of possessions. Each possession moves through build-up, progression, chance creation and finishing. The phase probabilities respond to team attacking and defending rates, match state, late-game urgency and a fatigue curve.
+The Pro engine simulates a match as a sequence of possessions. Each possession moves through build-up, progression, chance creation and finishing. Phase probabilities respond to team attacking and defending rates, match state, late-game urgency and fatigue.
 
-The model returns the same core markets and score samples as the Classic simulator, together with possession, shot, on-target, build-up and progression summaries.
+The model returns the core markets and score samples as the Classic simulator, together with possession, shot, on-target, build-up and progression summaries.
 
-This is a different simulation structure, not a claim of proven predictive superiority. Until historical out-of-sample testing demonstrates an improvement, it should be described as an experimental Pro model.
+This is an experimental model, not a claim of proven predictive superiority. Historical out-of-sample testing is required before making accuracy or profitability claims.
 
 ## Player and current-squad intelligence
 
-The Pro endpoint enriches a team-vs-team simulation with player performance from each team's **current squad**. It does not require a selected fixture, a kickoff timestamp, an announced starting XI or a predicted formation.
+The Pro engine combines two distinct inputs:
 
-The data flow is:
+- **ESPN provides current roster membership and team identity.** Pitchline reuses the team's ESPN ID and competition slug from the live board.
+- **EA SPORTS FC 27 provides player-quality attributes.** Pitchline uses EA's overall rating, detailed attributes and position data to estimate player contributions.
 
-1. Match each Pitchline team to its API-Football team ID.
-2. Retrieve its current current squad from `/players/squads?team={teamId}`.
-3. Join the squad's player IDs to season-performance records.
-4. Derive position-aware attack, creativity, defence and squad-depth indices.
-5. Apply the player-derived factors only when both teams have adequate player-data coverage.
+Pitchline does not use individual ESPN season-stat requests for this player-intelligence feature. This is not the same as an EA match-engine simulation.
 
-### Club teams
+### Data flow
 
-For club teams, Pitchline retrieves the current squad and the club's season player statistics using `/players?team={teamId}&season={season}&page={page}`. The API returns 20 player records per page. Pitchline checks a second page when the first page is full. If current-season coverage is too thin early in a season, it uses previous-season records only for players missing from the current-season results; current-season records take priority.
+1. Read the selected club or national team's current ESPN roster.
+2. Normalize each roster player's name, position and nationality.
+3. Load the required two-character name-prefix shards from the private `ea_fc27_player_shards` Firestore collection.
+4. Match by exact normalized name keys. Position and nationality can disambiguate duplicate names; an unresolved collision remains unmatched.
+5. Calculate per-player attack, creativity, defence and goalkeeper scores from EA's detailed attributes.
+6. Aggregate matched players by their current ESPN roster positions and estimate squad depth from the lower-rated half.
+7. Apply squad adjustments only when both teams meet the coverage threshold.
 
-### National teams
+No fuzzy player join is used. EA club affiliation is not used to decide current team membership, because EA's base ratings page may not reflect a later real-world transfer. ESPN supplies the roster; EA supplies the player-quality attributes.
 
-For national teams, Pitchline retrieves the current squad and then requests each squad member's player-season record by player ID. This uses the player's club-season performance rather than relying on the small number of appearances they may have made for their national side.
+### How the player scores are built
 
-These individual lookups are cached for 18 hours and run with limited concurrency. API requests are capped at six per App Hosting instance per minute and deferred player lookups resume automatically on a later refresh. Registered-squad snapshots are cached for 24 hours. They can consume a meaningful part of API-Football's 100-request free daily quota when a new international pairing is first analysed. Repeated simulations reuse the shared Firestore cache.
+- **Attack:** finishing, positioning, shot power, long shots, volleys, shooting, pace, dribbling and acceleration/sprint speed.
+- **Creativity:** vision, short/long passing, passing, ball control, dribbling and crossing/curve.
+- **Defence:** defensive awareness, standing/sliding tackle, interceptions, defending, strength, aggression, heading/jumping and physicality.
+- **Goalkeeping:** diving, handling, positioning, reflexes, kicking and reactions.
 
-### How squad strength is estimated
+Position weights determine the effect of players on attack, creativity and defence. Goalkeepers have their own score. EA does not publish real-world minutes or appearances in this dataset, so Pitchline does not invent playing-time weights. Each matched player contributes by role; the lower-rated half is used as a squad-depth estimate.
 
-- Player scores are derived from available season statistics: goals, assists, shooting, key passes, passing, tackling, interceptions, duels, dribbling, goalkeeper saves and provider season rating.
-- Positions give the metrics different weights. Minutes played influence a player's contribution with diminishing returns, so a single high-minute player does not dominate the squad index.
-- The lower-usage portion of the current squad contributes to the squad-depth index used in the late-match recovery curve. It is not a claim about who will be substituted or start.
-- At least 12 rated players and 60% current-squad coverage are required for a team's factors to be eligible. Factors are shrunk towards neutral in proportion to coverage.
-- Both teams must pass the coverage threshold. If either side fails, neither team's player factors are applied; the Pro engine still runs using the existing team-level inputs.
+### Coverage and fallback
 
-The browser receives only aggregate Pitchline indices, coverage counts and bounded multipliers. Raw provider payloads, individual player records and the API key remain server-side.
+- Each team needs at least **12 EA-matched roster members** and **60% coverage**.
+- Both teams must meet the threshold. If either side fails, neither side receives player-derived multipliers.
+- A missing ESPN roster, unavailable EA shard, ambiguous name or incomplete player record does not stop the match simulation. The engine continues with the existing team-level inputs.
+- Raw EA player data remains server-side. The browser receives aggregate squad indices, coverage, three top-rated matched players and the database sync date.
 
-### Squad-data limitation
+For international fixtures, the same logic applies only when ESPN returns a usable current national-team roster. Pitchline never substitutes all players of a nationality for an actual national-team squad.
 
-API-Football documents `/players/squads` as returning a team's **current squad**, updated several times a week. It is not a historical archive of every squad officially registered for a past or future competition. For a future tournament, the model uses the national team's current API-Football squad snapshot at analysis time. If that snapshot has not yet been updated to the officially announced tournament squad, Pitchline cannot claim it is using that exact tournament roster. A future competition-specific squad override or a licensed historical registration feed would be needed for that.
+### What EA ratings do not tell us
 
-The model uses available player-season data; it does not reproduce EA SPORTS FC player ratings and should not be described as an EA-equivalent simulation.
+EA's public FC ratings are base game attributes, not current real-world form. They do not tell Pitchline who is injured, suspended, selected, expected to start or likely to play a particular match. The public page also does not promise up-to-the-minute club affiliation. Therefore the Pro feature must be described as an **EA-based player-quality prior combined with ESPN current-roster context**, not a live-form model, official EA prediction or replica of EA's proprietary simulation engine.
 
-### Legal and configuration gate
+The EA Drop endpoint is undocumented and may change. The scraper fails closed if the expected FC 27 feed cannot be validated. Raw ratings are stored privately and must not be republished or redistributed. Review EA's current user terms and rights requirements before any commercial expansion.
 
-The connector is disabled unless both environment settings exist:
+## Setup and refresh
 
-- `API_FOOTBALL_KEY`: store as a Firebase App Hosting Secret Manager secret. Never place it in client-side configuration, source code or chat.
-- `API_FOOTBALL_DATA_USE_ALLOWED=true`: set only after receiving confirmation that the intended Pitchline Pro use is permitted and any necessary competition/rights-holder authorisations are in place.
+Follow [EA_FC_RATINGS_SETUP.md](./EA_FC_RATINGS_SETUP.md) to:
 
-API-Football's published terms allow developers to build applications with its feed but say it does not grant a licence to publish the data in an application. The terms also warn that third-party rights may apply and that betting-related use may require additional permissions. The flag is therefore an explicit release gate, not a way to override those terms. See [API-Football terms](https://www.api-football.com/terms), [pricing](https://www.api-football.com/pricing) and [documentation](https://www.api-football.com/documentation-v3).
+1. Probe EA's public ratings endpoint.
+2. Download and normalize the full FC 27 player database using the Python collector.
+3. Upload the men's player-name shards to private Firebase Firestore.
+4. Refresh the snapshot periodically and verify the sync date and coverage in the Pro UI.
 
-For Firebase setup and test steps, see [PRO_PLAYER_DATA_SETUP.md](./PRO_PLAYER_DATA_SETUP.md).
-
-## EA SPORTS FC ratings
-
-EA FC player ratings are not integrated. EA's public ratings page is not a commercial data licence, and its terms restrict extracting or redistributing EA content without authorisation. Pitchline derives its own indices from permitted football performance data instead.
+No API key is required for the EA download or ESPN roster lookup. Firestore upload uses the user's Google Cloud Application Default Credentials.
 
 ## Validation before marketing claims
 
-Backtest the squad-aware Pro engine against the team-level Pro engine and the Classic simulator on the same historical fixture set. Split chronologically into development and held-out periods. Compare 1X2, BTTS and totals using Brier score, log loss and calibration. Do not claim EA-equivalent performance or betting profitability from simulation volume alone.
+Backtest the Pro simulator with and without EA player inputs on the same historical fixtures. Split chronologically into development and held-out periods. Compare 1X2, BTTS and totals using Brier score, log loss and calibration. Do not claim EA-equivalent performance or betting profitability from simulation volume alone.

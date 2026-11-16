@@ -3,3 +3,6 @@ node_modules/
 .github_repo
 .env
 .env.*
+
+# Locally downloaded EA FC 27 player ratings (never commit raw dataset)
+/data/ea-fc27/

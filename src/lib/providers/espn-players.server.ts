@@ -240,8 +240,12 @@ function playerCompetitionSlug(raw: unknown, fallback: string): string {
       source.leagueSlug,
       source.competitionSlug,
       source.slug,
+      source.$ref,
+      source.href,
       league?.slug,
+      league?.$ref,
       competition?.slug,
+      competition?.$ref,
     ]
     for (const candidate of candidates) {
       const slug = validSlug(candidate)

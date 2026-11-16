@@ -192,7 +192,7 @@ async function recentXgForTeam(name: string, start: string, end: string): Promis
       const values = participant.meta.location === "home"
         ? { xgf: xg.home, xga: xg.away }
         : { xgf: xg.away, xga: xg.home }
-      if (fixture.starting_at) games.push({ ...values, date: fixture.starting_at })
+      if (fixture.starting_at) games.push({ ...values, date: fixture.starting_at, source: "Sportmonks xG" })
     }
     hasMore = Boolean(body.pagination?.has_more ?? body.meta?.pagination?.has_more)
   }

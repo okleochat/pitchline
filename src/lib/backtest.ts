@@ -54,7 +54,7 @@ export type BacktestReport = MetricBundle & {
   inputs: { featureBasis: "goals" | "xg"; xgSource: string | null }
 }
 
-export function parseCsv(input: string): BacktestInputRow[] {
+export function parseCsv(input: string, requiredColumns: readonly string[] = REQUIRED): BacktestInputRow[] {
   const records: string[][] = []
   let row: string[] = []
   let field = ""
@@ -84,7 +84,7 @@ export function parseCsv(input: string): BacktestInputRow[] {
   const headers = records[0].map((value) => value.trim())
   if (headers.some((header) => !header)) throw new Error("CSV header contains an empty column name.")
   if (new Set(headers).size !== headers.length) throw new Error("CSV contains duplicate column names.")
-  const missing = REQUIRED.filter((key) => !headers.includes(key))
+  const missing = requiredColumns.filter((key) => !headers.includes(key))
   if (missing.length) throw new Error("Missing CSV columns: " + missing.join(", "))
 
   return records.slice(1).map((values, index) => ({

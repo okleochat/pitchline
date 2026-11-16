@@ -1,10 +1,10 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import {
-  buildLineupPlayerStats,
-  deriveLineupFactors,
+  buildPlayerSeasonStats,
   derivePlayerScores,
-  normaliseLineupPlayer,
+  deriveSquadFactors,
+  normaliseSquadPlayer,
 } from "./pro-player-model.ts"
 
 const attackerStats = {
@@ -15,6 +15,16 @@ const attackerStats = {
   tackles: { total: 12, interceptions: 4 },
   duels: { total: 90, won: 47 },
   dribbles: { attempts: 35, success: 19 },
+}
+
+const strongScores = {
+  attack: 85,
+  creativity: 82,
+  defence: 80,
+  goalkeeper: 80,
+  seasonRating: 82,
+  appearances: 25,
+  minutes: 2000,
 }
 
 test("player scores are derived from provider performance statistics", () => {
@@ -28,51 +38,65 @@ test("player scores are derived from provider performance statistics", () => {
   assert.equal(score.seasonRating, 74.2)
 })
 
-test("lineup player preserves position and joins to season statistics by provider id", () => {
-  const stats = buildLineupPlayerStats([{
+test("registered squad players join season statistics by provider player ID", () => {
+  const stats = buildPlayerSeasonStats([{
     player: { id: 9, name: "Example Striker" },
     statistics: [attackerStats],
   }])
-  const player = normaliseLineupPlayer({
-    player: { id: 9, name: "Example Striker", number: 9, pos: "F", grid: "1:1" },
+  const player = normaliseSquadPlayer({
+    id: 9,
+    name: "Example Striker",
+    number: 9,
+    position: "Attacker",
   }, stats)
   assert.equal(player?.position, "FW")
   assert.equal(player?.scores?.appearances, 24)
 })
 
-test("lineup strength stays neutral when too few starters have player data", () => {
-  const starters = Array.from({ length: 11 }, (_, index) => ({
+test("the whole registered squad remains neutral when performance coverage is too low", () => {
+  const players = Array.from({ length: 24 }, (_, index) => ({
     id: String(index + 1),
-    name: "Starter " + index,
+    name: "Squad player " + index,
     number: index + 1,
-    position: index === 0 ? "GK" as const : "DF" as const,
-    grid: null,
-    scores: index < 4 ? {
-      attack: 95, creativity: 90, defence: 95, goalkeeper: 90,
-      seasonRating: 95, appearances: 25, minutes: 2000,
-    } : null,
+    position: index === 0 ? "GK" as const : index < 9 ? "DF" as const : index < 17 ? "MF" as const : "FW" as const,
+    scores: index < 6 ? strongScores : null,
   }))
-  const factors = deriveLineupFactors(starters, [])
-  assert.equal(factors.applied, false)
-  assert.equal(factors.attackMultiplier, 1)
-  assert.equal(factors.defenceMultiplier, 1)
+  const result = deriveSquadFactors(players)
+  assert.equal(result.factors.applied, false)
+  assert.equal(result.factors.squadCount, 24)
+  assert.equal(result.factors.ratedPlayers, 6)
+  assert.equal(result.factors.attackMultiplier, 1)
+  assert.equal(result.factors.creativityMultiplier, 1)
+  assert.equal(result.factors.defenceMultiplier, 1)
 })
 
-test("a well-covered strong starting XI produces bounded non-neutral factors", () => {
-  const stats = {
-    attack: 85, creativity: 82, defence: 80, goalkeeper: 80,
-    seasonRating: 82, appearances: 25, minutes: 2000,
-  }
-  const starters = Array.from({ length: 11 }, (_, index) => ({
+test("well-covered squad statistics produce bounded non-neutral team factors", () => {
+  const players = Array.from({ length: 24 }, (_, index) => ({
     id: String(index + 1),
-    name: "Starter " + index,
+    name: "Squad player " + index,
     number: index + 1,
-    position: index === 0 ? "GK" as const : index < 5 ? "DF" as const : index < 9 ? "MF" as const : "FW" as const,
-    grid: null,
-    scores: stats,
+    position: index === 0 ? "GK" as const : index < 8 ? "DF" as const : index < 17 ? "MF" as const : "FW" as const,
+    scores: index < 18 ? {
+      ...strongScores,
+      minutes: 2200 - index * 65,
+      seasonRating: 82 - index * 0.2,
+    } : null,
   }))
-  const factors = deriveLineupFactors(starters, [])
-  assert.equal(factors.applied, true)
-  assert.ok(factors.attackMultiplier > 1 && factors.attackMultiplier <= 1.07)
-  assert.ok(factors.defenceMultiplier < 1 && factors.defenceMultiplier >= 0.93)
+  const result = deriveSquadFactors(players)
+  assert.equal(result.factors.applied, true)
+  assert.equal(result.factors.ratedPlayers, 18)
+  assert.equal(result.factors.squadCount, 24)
+  assert.ok(result.attackIndex > 50)
+  assert.ok(result.creativityIndex > 50)
+  assert.ok(result.defenceIndex > 50)
+  assert.ok(result.factors.attackMultiplier > 1 && result.factors.attackMultiplier <= 1.07)
+  assert.ok(result.factors.creativityMultiplier > 1 && result.factors.creativityMultiplier <= 1.08)
+  assert.ok(result.factors.defenceMultiplier < 1 && result.factors.defenceMultiplier >= 0.93)
+  assert.ok(result.factors.squadDepth > 0 && result.factors.squadDepth <= 100)
+})
+
+test("missing or invalid squad player records are ignored safely", () => {
+  assert.equal(normaliseSquadPlayer(null, new Map()), null)
+  assert.equal(normaliseSquadPlayer({ name: "No ID" }, new Map()), null)
+  assert.equal(normaliseSquadPlayer({ id: 1, name: "  " }, new Map()), null)
 })

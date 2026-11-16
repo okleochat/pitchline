@@ -773,9 +773,11 @@ const formCache = new Map<string, { at: number; games: FormGame[] | null }>()
 
 function scoreNum(score: unknown): number | null {
   if (typeof score === "number" && Number.isFinite(score)) return score
+  if (typeof score === "string" && score.trim() && Number.isFinite(Number(score))) return Number(score)
   if (score && typeof score === "object" && "value" in score) {
     const value = (score as { value?: unknown }).value
     if (typeof value === "number" && Number.isFinite(value)) return value
+    if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value)
   }
   return null
 }

@@ -111,8 +111,22 @@ function ProSquadSummary({ squad }: { squad: ProTeamSquad }) {
     <div className="rounded-lg border border-border bg-background p-3">
       <p className="text-sm font-semibold">{squad.teamName}</p>
       <p className="mt-1 text-xs text-muted">
-        Player-season coverage · {squad.ratedPlayerCount}/{squad.squadCount} players in current squad · {(squad.factors.coverage * 100).toFixed(0)}%
+        EA player database · {squad.ratedPlayerCount}/{squad.squadCount} rated players · {(squad.factors.coverage * 100).toFixed(0)}%
       </p>
+      {squad.topPlayers.length ? (
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+          {squad.topPlayers.map((player) => (
+            <span key={player.id} className="text-xs text-muted">
+              {player.name} · {player.position} · {player.overall.toFixed(0)} OVR
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {squad.dataUpdatedAt ? (
+        <p className="mt-2 text-xs text-muted">
+          EA ratings snapshot · {new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(new Date(squad.dataUpdatedAt))}
+        </p>
+      ) : null}
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
           <p className="text-xs text-muted">Attack index</p>
@@ -141,11 +155,10 @@ function ProSquadSummary({ squad }: { squad: ProTeamSquad }) {
 
 function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
   const statusLabel: Record<ProPlayerData["status"], string> = {
-    available: "Squad adjustments applied",
-    partial: "Player data coverage is partial",
-    team_not_found: "SportAPI team mapping unavailable",
-    squad_not_available: "Current SportAPI squad unavailable",
-    provider_error: "SportAPI player data temporarily unavailable",
+    available: "EA rating adjustments applied",
+    partial: "EA player coverage is insufficient",
+    team_not_found: "EA ratings unavailable for one or both teams",
+    provider_error: "EA ratings database temporarily unavailable",
   }
   return (
     <section className="mt-5 border-t border-border pt-4" aria-label="Player and squad intelligence">
@@ -156,7 +169,7 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
         </span>
       </div>
       <p className="mt-2 text-sm text-muted">{data.note}</p>
-      <p className="mt-1 text-xs text-muted">Source: {data.provider} · Pitchline derives squad indices from current roster members and this-season match-level player statistics. No matchday starting XI or formation is required.</p>
+      <p className="mt-1 text-xs text-muted">Source: {data.provider} · Position-aware indices are derived from EA overall ratings and individual attributes. These are base player-quality estimates, not live form, confirmed lineups, injuries or real-world match statistics.</p>
       {data.home || data.away ? (
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {data.home ? <ProSquadSummary squad={data.home} /> : null}
@@ -165,7 +178,7 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
       ) : null}
       {data.adjustmentsApplied ? (
         <p className="mt-3 text-xs text-muted">
-          Both current squads' player-derived indices are incorporated into the Pro match simulation. Indices are Pitchline calculations, not EA ratings or raw provider statistics.
+          Both clubs' EA player-quality indices are incorporated into the Pro match simulation. Pitchline calculates the indices from EA attributes; the adjustment is not an EA prediction or match-engine output.
         </p>
       ) : null}
     </section>
@@ -1336,7 +1349,7 @@ export function Pitchline({
               Possessions move through build-up, progression, chance creation and finishing. The model adjusts for the score, late-game urgency and fatigue.
             </p>
             <p className="mt-2 text-xs text-muted">
-              Team-level rates remain the baseline. When an approved provider feed returns both current squads with sufficient player-season coverage, Pitchline derives squad-wide attack, creativity, defence and depth indices. No matchday starting XI or formation is required.
+              Team-level rates remain the baseline. When the EA FC 27 database contains at least 12 rated players and 60% coverage for both clubs, Pitchline derives position-aware attack, creativity, defence and depth indices from EA player attributes. EA ratings do not establish current form or matchday availability.
             </p>
           </div>
         ) : (

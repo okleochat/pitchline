@@ -45,6 +45,9 @@ export function parseCsv(input) {
 }
 
 function numeric(row, key) {
+  if (row[key] == null || String(row[key]).trim() === "") {
+    throw new Error("Row " + row._row + ": " + key + " is required.")
+  }
   const value = Number(row[key])
   if (!Number.isFinite(value) || value < 0) throw new Error("Row " + row._row + ": " + key + " must be a non-negative number.")
   return value
@@ -119,6 +122,10 @@ export function backtestRows(rows) {
     const home = { id: row.home_team, attack: numeric(row, "home_attack"), defense: numeric(row, "home_defense"), scorers: ["A", "B", "C"] }
     const away = { id: row.away_team, attack: numeric(row, "away_attack"), defense: numeric(row, "away_defense"), scorers: ["A", "B", "C"] }
     const edge = row.home_edge?.trim() ? numeric(row, "home_edge") : 1
+    if (edge < 0.7 || edge > 1.6) throw new Error("Row " + rowNumber + ": home_edge must be between 0.7 and 1.6.")
+    if (row.model && row.model !== "plain" && row.model !== "dixon") {
+      throw new Error("Row " + rowNumber + ": model must be plain or dixon.")
+    }
     const model = row.model === "dixon" ? "dixon" : "plain"
     const probabilities = analyticalMarkets(home, away, edge, model)
     return {

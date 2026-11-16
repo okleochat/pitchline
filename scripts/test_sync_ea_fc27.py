@@ -50,6 +50,23 @@ class SyncEaFc27Tests(unittest.TestCase):
         self.assertEqual(player["playstyles"], ["Intercept"])
         self.assertEqual(player["playstylesPlus"], ["Anticipate"])
 
+    def test_fc27_edition_validation_checks_official_top_ratings(self):
+        players = [
+            {**ea_player(11, "Club A"), "firstName": "Kylian", "lastName": "Mbappe", "overallRating": 91},
+            {**ea_player(12, "Club B"), "firstName": "Erling", "lastName": "Haaland", "overallRating": 91},
+            {**ea_player(13, "Club C"), "firstName": "Lamine", "lastName": "Yamal", "overallRating": 90},
+        ]
+        sync.validate_fc27_edition(players)
+
+    def test_fc27_edition_validation_rejects_stale_ratings(self):
+        players = [
+            {**ea_player(11, "Club A"), "firstName": "Kylian", "lastName": "Mbappe", "overallRating": 90},
+            {**ea_player(12, "Club B"), "firstName": "Erling", "lastName": "Haaland", "overallRating": 91},
+            {**ea_player(13, "Club C"), "firstName": "Lamine", "lastName": "Yamal", "overallRating": 89},
+        ]
+        with self.assertRaises(RuntimeError):
+            sync.validate_fc27_edition(players)
+
     def test_gender_filter_includes_mens_records_and_excludes_womens(self):
         men = sync.normalise_player(ea_player(1, "Club A", "Men's Football"))
         women = sync.normalise_player(ea_player(2, "Club B", "Women's Football"))

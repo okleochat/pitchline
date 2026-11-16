@@ -62,3 +62,21 @@ test("marks shot data incomplete rather than silently substituting missing xG", 
   ])
   assert.equal(result.complete, false)
 })
+
+test("accepts a no-shot side as zero xG only when the event belongs to the known two teams", () => {
+  const result = aggregateMatchXg(
+    [{ type: { name: "Shot" }, team: { id: 10, name: "A" }, shot: { statsbomb_xg: 0.3 } }],
+    [{ id: 10, name: "A" }, { id: 20, name: "B" }],
+  )
+  assert.equal(result.complete, true)
+  assert.equal(result.totals.get("10").xgFor, 0.3)
+  assert.equal(result.totals.get("20").xgFor, 0)
+})
+ 
+test("rejects shot events whose team cannot be joined to the fixture metadata", () => {
+  const result = aggregateMatchXg(
+    [{ type: { name: "Shot" }, team: { id: 99, name: "Unknown" }, shot: { statsbomb_xg: 0.3 } }],
+    [{ id: 10, name: "A" }, { id: 20, name: "B" }],
+  )
+  assert.equal(result.complete, false)
+})

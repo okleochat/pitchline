@@ -493,7 +493,7 @@ function resultData(
 }
 
 /**
- * Fetch each team's current registered squad and join it to player-season
+ * Fetch each team's current squad list and join it to player-season
  * performance data. This does not look up a fixture or require matchday
  * lineups. All raw provider responses and credentials remain server-side.
  */
@@ -530,7 +530,7 @@ export async function getProPlayerData(input: {
         syncing ? "syncing" : "squad_not_available",
         syncing
           ? "Player data is being fetched in safe batches to respect API-Football's per-minute limit. This simulation will refresh automatically."
-          : "The provider could not return a registered squad for both teams. The Pro simulation will use team-level inputs.",
+          : "The provider could not return a current squad for both teams. The Pro simulation will use team-level inputs.",
         home,
         away,
       )
@@ -545,10 +545,10 @@ export async function getProPlayerData(input: {
     return resultData(
       bothApplied ? "available" : syncing ? "syncing" : "partial",
       bothApplied
-        ? "Player-season data from both registered squads is incorporated into the Pro simulation. No matchday starting XI or formation is required."
+        ? "Player-season data from both current squads is incorporated into the Pro simulation. No matchday starting XI or formation is required."
         : syncing
           ? "Player-season data is loading in safe batches. The next batch will be requested automatically. Current coverage: " + coverageNote + "."
-          : "The registered squads were found, but player-season statistics do not cover enough of both squads to adjust team strength. The model keeps player multipliers neutral. Coverage: " + coverageNote + ".",
+          : "The current squads were found, but player-season statistics do not cover enough of both squads to adjust team strength. The model keeps player multipliers neutral. Coverage: " + coverageNote + ".",
       home,
       away,
     )
@@ -556,7 +556,7 @@ export async function getProPlayerData(input: {
     const reason = error instanceof Error ? error.message : ""
     const note = reason === "request_deferred" || reason === "rate_limited"
       ? "API-Football's per-minute request budget is temporarily full. Player data will resume on the next automatic refresh."
-      : "API-Football could not provide registered squad and player-season data. The Pro simulation will use team-level inputs."
+      : "API-Football could not provide current squad and player-season data. The Pro simulation will use team-level inputs."
     return resultData(reason === "request_deferred" || reason === "rate_limited" ? "syncing" : "provider_error", note)
   }
 }

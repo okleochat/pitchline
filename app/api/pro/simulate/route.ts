@@ -19,8 +19,8 @@ function teamInput(value: unknown): ProTeam | null {
   const attack = typeof item.attack === "number" ? item.attack : Number.NaN
   const defense = typeof item.defense === "number" ? item.defense : Number.NaN
   if (!id || id.length > 100 || !name || name.length > 100) return null
-  if (!Number.isFinite(attack) || attack < 0.05 || attack > 6) return null
-  if (!Number.isFinite(defense) || defense < 0.05 || defense > 6) return null
+  if (!Number.isFinite(attack) || attack < 0 || attack > 6) return null
+  if (!Number.isFinite(defense) || defense < 0 || defense > 6) return null
   return { id, name, attack, defense }
 }
 

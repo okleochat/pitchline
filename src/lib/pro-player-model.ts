@@ -68,9 +68,6 @@ export function derivePlayerScores(statistics: unknown): PlayerScores | null {
   const dribbleSuccess = nested(root, "dribbles", "success")
   const saves = nested(root, "goals", "saves")
   const conceded = nested(root, "goals", "conceded")
-  const cleanSheets = nested(root, "goals", "saves") === 0
-    ? 0
-    : metric(valueAt(root, "clean_sheet")) || metric(valueAt(root, "clean_sheets"))
   const ratingValue = numeric(valueAt(games, "rating"))
   const seasonRating = ratingValue === null ? null : clamp(ratingValue * 10)
 

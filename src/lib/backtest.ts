@@ -1,4 +1,4 @@
-import { analyticalMarkets, type ModelKind } from "@/lib/sim"
+import { analyticalMarkets, type ModelKind } from "./sim.ts"
 
 const REQUIRED = [
   "fixture_id", "date", "features_as_of", "home_team", "away_team",

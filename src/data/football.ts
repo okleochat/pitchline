@@ -17,6 +17,7 @@ export type LeagueId =
   | "ucl"
   | "uel"
   | "uecl"
+  | "int"
 
 export type Team = {
   id: string
@@ -69,6 +70,7 @@ export const LEAGUES: { id: LeagueId; name: string; short: string; place: string
   { id: "ucl", name: "Champions League", short: "Champions", place: "Europe", cup: true },
   { id: "uel", name: "Europa League", short: "Europa", place: "Europe", cup: true },
   { id: "uecl", name: "Conference League", short: "Conference", place: "Europe", cup: true },
+  { id: "int", name: "National Teams", short: "International", place: "International" },
 ]
 
 function t(
@@ -236,6 +238,7 @@ export const LEAGUE_WEIGHT: Record<LeagueId, number> = {
   ucl: 1,
   uel: 1,
   uecl: 1,
+  int: 1,
 }
 
 export function leagueWeight(id: LeagueId): number {
@@ -383,6 +386,7 @@ export function snapshotBoard(): Board {
       ucl: MORE_WEEKENDS.ucl,
       uel: MORE_WEEKENDS.uel,
       uecl: MORE_WEEKENDS.uecl,
+      int: "Major international competitions",
     },
   }
 }

@@ -155,6 +155,7 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
         </span>
       </div>
       <p className="mt-2 text-sm text-muted">{data.note}</p>
+      <p className="mt-1 text-xs text-muted">Source: {data.provider} · Team indices are calculated by Pitchline from available season statistics.</p>
       {data.home || data.away ? (
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {data.home ? <ProLineupSummary lineup={data.home} /> : null}

@@ -297,6 +297,29 @@ function squadEntries(response: unknown[], teamId: string): unknown[] {
   return []
 }
 
+function balancedProfileOrder(players: SquadPlayer[]): SquadPlayer[] {
+  const positions: SquadPlayer["position"][] = ["GK", "DF", "MF", "FW", "UNK"]
+  const groups = new Map(positions.map((position) => [
+    position,
+    players.filter((player) => player.position === position),
+  ]))
+  const ordered: SquadPlayer[] = []
+  let remaining = players.length
+  while (remaining > 0) {
+    let added = false
+    for (const position of positions) {
+      const group = groups.get(position)
+      const player = group?.shift()
+      if (!player) continue
+      ordered.push(player)
+      remaining -= 1
+      added = true
+    }
+    if (!added) break
+  }
+  return ordered
+}
+
 type SquadStatsLookup = {
   stats: Map<string, PlayerScores>
   deferred: boolean
@@ -313,7 +336,7 @@ async function statsForSquad(
     // each announced squad member's club-season statistics by player ID.
     // Requests that exceed the per-minute budget are skipped for this pass;
     // their squad members are retried from the shared cache on the next poll.
-    const profiles = await mapWithConcurrency(players, 4, async (player) => {
+    const profiles = await mapWithConcurrency(balancedProfileOrder(players), 4, async (player) => {
       try {
         return await playerStatsForPlayer(player.id, season)
       } catch (error) {

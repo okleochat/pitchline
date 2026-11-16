@@ -123,9 +123,12 @@ def normalise_player(raw: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(overall, bool) or not isinstance(overall, (int, float)):
         overall = None
 
+    full_name = " ".join(part.strip() for part in (first_name, last_name) if isinstance(part, str) and part.strip())
+    name_keys = sorted({key for candidate in (name, full_name) if (key := fold_name(candidate))})
     return {
         "id": str(player_id),
         "name": name,
+        "nameKeys": name_keys,
         "firstName": first_name if isinstance(first_name, str) else "",
         "lastName": last_name if isinstance(last_name, str) else "",
         "overall": int(overall) if overall is not None else None,
@@ -272,55 +275,64 @@ def is_mens_player(player: dict[str, Any]) -> bool:
     return gender in {"men", "men s football", "mens football", "male", "mens"}
 
 
-def firestore_team_documents(players: list[dict[str, Any]], synced_at: str) -> dict[str, dict[str, Any]]:
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    labels: dict[str, Counter[str]] = defaultdict(Counter)
-    leagues: dict[str, Counter[str]] = defaultdict(Counter)
+def player_shard_id(name_key: str) -> str:
+    compact = re.sub(r"[^a-z0-9]", "", name_key.lower())
+    return compact[:2].ljust(2, "_") if compact else "__"
+
+
+def firestore_player_shards(players: list[dict[str, Any]], synced_at: str) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
 
     for player in players:
         if not is_mens_player(player):
             continue
-        club = str(player.get("club") or "").strip()
-        key = team_document_id(club)
-        if not key:
-            continue
-        labels[key][club] += 1
-        league = str(player.get("league") or "").strip()
-        if league:
-            leagues[key][league] += 1
-        grouped[key].append({
+        name_keys = player.get("nameKeys") or [fold_name(str(player.get("name") or ""))]
+        compact_player = {
             "id": player["id"],
             "name": player["name"],
+            "nameKeys": name_keys,
             "overall": player.get("overall"),
             "position": player.get("position") or "UNK",
             "alternatePositions": player.get("alternatePositions") or [],
             "stats": player.get("stats") or {},
             "playstyles": player.get("playstyles") or [],
             "playstylesPlus": player.get("playstylesPlus") or [],
-        })
+            "club": player.get("club") or "",
+            "league": player.get("league") or "",
+            "nationality": player.get("nationality") or "",
+        }
+        for name_key in name_keys:
+            if not name_key:
+                continue
+            shard_id = player_shard_id(name_key)
+            grouped[shard_id][player["id"]] = compact_player
 
     documents: dict[str, dict[str, Any]] = {}
-    for key, squad in grouped.items():
-        squad.sort(key=lambda item: item.get("overall") or 0, reverse=True)
-        club = labels[key].most_common(1)[0][0]
-        league = leagues[key].most_common(1)[0][0] if leagues[key] else ""
+    for shard_id, shard_players in grouped.items():
+        records = sorted(
+            shard_players.values(),
+            key=lambda item: item.get("overall") or 0,
+            reverse=True,
+        )
         document = {
-            "club": club,
-            "clubKey": key,
-            "league": league,
-            "playerCount": len(squad),
-            "players": squad,
+            "shardId": shard_id,
+            "playerCount": len(records),
+            "players": records,
             "database": "EA SPORTS FC 27",
             "syncedAt": synced_at,
         }
         encoded_size = len(json.dumps(document, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
         if encoded_size >= 900_000:
             raise RuntimeError(
-                f"Team '{club}' would exceed Firestore's safe document-size budget ({encoded_size:,} bytes)."
+                f"EA player-name shard '{shard_id}' would exceed Firestore's safe document-size budget ({encoded_size:,} bytes)."
             )
-        documents[key] = document
-    return documents
+        documents[shard_id] = document
 
+    if len(documents) < 100:
+        raise RuntimeError(
+            f"Only {len(documents)} name shards were built. Refusing to upload an incomplete or incorrectly parsed player database."
+        )
+    return documents
 
 def upload_firestore(documents: dict[str, dict[str, Any]], project_id: str) -> None:
     try:
@@ -332,7 +344,7 @@ def upload_firestore(documents: dict[str, dict[str, Any]], project_id: str) -> N
         ) from error
 
     client = firestore.Client(project=project_id)
-    collection = client.collection("ea_fc27_teams")
+    collection = client.collection("ea_fc27_player_shards")
     existing = {snapshot.id for snapshot in collection.stream()}
     desired = set(documents)
     stale = existing - desired
@@ -358,13 +370,13 @@ def upload_firestore(documents: dict[str, dict[str, Any]], project_id: str) -> N
         "database": "EA SPORTS FC 27",
         "source": "EA public player ratings page",
         "playerCount": sum(document["playerCount"] for document in documents.values()),
-        "teamCount": len(documents),
+        "shardCount": len(documents),
         "syncedAt": now_iso(),
     }
     client.collection("ea_fc27_meta").document("current").set(metadata)
     print(
         f"Uploaded {metadata['playerCount']:,} men's players across "
-        f"{metadata['teamCount']:,} team documents to project {project_id}."
+        f"{metadata['shardCount']:,} player-name shards to project {project_id}."
     )
 
 
@@ -406,14 +418,14 @@ def main() -> int:
         print(f"Saved {len(players):,} normalized players to {args.output}.")
 
         if args.upload_firestore:
-            documents = firestore_team_documents(players, synced_at)
+            documents = firestore_player_shards(players, synced_at)
             upload_firestore(documents, args.project_id)
         else:
             men = sum(1 for player in players if is_mens_player(player))
-            teams = len(firestore_team_documents(players, synced_at))
+            shards = len(firestore_player_shards(players, synced_at))
             print(
                 f"Firestore upload not requested. Found {men:,} men's players across "
-                f"{teams:,} club groups. Re-run with --upload-firestore after configuring Google credentials."
+                f"{shards:,} name shards. Re-run with --upload-firestore after configuring Google credentials."
             )
         return 0
     except Exception as error:

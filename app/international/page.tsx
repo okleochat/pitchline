@@ -61,10 +61,11 @@ export default async function InternationalPage({
   const suppliedDate = Array.isArray(params.date) ? params.date[0] : params.date
   const date = suppliedDate && isValidDate(suppliedDate) ? suppliedDate : lagosDate()
 
-  const [baseBoard, fixtureResult] = await Promise.all([
-    getLiveBoard(),
-    getInternationalFixtures(date).catch(() => null),
-  ])
+  // Load the shared board first. It refreshes the 14-day national-team
+  // window, which getInternationalFixtures can then filter without refetching
+  // every competition scoreboard for today's/upcoming dates.
+  const baseBoard = await getLiveBoard()
+  const fixtureResult = await getInternationalFixtures(date).catch(() => null)
 
   const now = Date.now()
   const allDateFixtures = fixtureResult?.fixtures ?? []

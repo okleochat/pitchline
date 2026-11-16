@@ -278,7 +278,7 @@ export function rateLeagueOf(team: Team, teams: Team[]): LeagueId {
 export type RateSample = { played: number; attack: number; defense: number }
 
 export function formRate(
-  games: { gf: number; ga: number }[] | undefined,
+  games: { gf: number; ga: number; xgf?: number; xga?: number }[] | undefined,
   take: number,
 ): RateSample | null {
   if (!games?.length || take <= 0) return null
@@ -291,8 +291,8 @@ export function formRate(
   slice.forEach((game, index) => {
     const weight = Math.exp((-Math.LN2 * index) / halfLife)
     totalWeight += weight
-    gf += game.gf * weight
-    ga += game.ga * weight
+    gf += (typeof game.xgf === "number" && Number.isFinite(game.xgf) ? game.xgf : game.gf) * weight
+    ga += (typeof game.xga === "number" && Number.isFinite(game.xga) ? game.xga : game.ga) * weight
   })
   return {
     played,
@@ -310,8 +310,8 @@ export function shapePair(
   homeSample: RateSample | null,
   awaySample: RateSample | null,
 ): { home: Team; away: Team; homeLeague: LeagueId; awayLeague: LeagueId; homeWeight: number; awayWeight: number; leveled: boolean } {
-  let nextHome = homeSample ? { ...home, attack: homeSample.attack, defense: homeSample.defense } : home
-  let nextAway = awaySample ? { ...away, attack: awaySample.attack, defense: awaySample.defense } : away
+  let nextHome = homeSample ? { ...home, attack: homeSample.attack, defense: homeSample.defense, xgFor: undefined, xgAgainst: undefined, xgSource: undefined } : home
+  let nextAway = awaySample ? { ...away, attack: awaySample.attack, defense: awaySample.defense, xgFor: undefined, xgAgainst: undefined, xgSource: undefined } : away
   const homeLeague = rateLeagueOf(home, teams)
   const awayLeague = rateLeagueOf(away, teams)
   const homeWeight = leagueWeight(homeLeague)

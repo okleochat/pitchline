@@ -93,8 +93,14 @@ function ReliabilityTable({ title, bins }: { title: string; bins: ReliabilityBin
   )
 }
 
+type PreparedBacktestResponse = { sourceFixtures: number; preparedFixtures: number; rollingWindow: number; report: BacktestReport; prematchCsv: string }
+
 export function BacktestPage() {
   const [file, setFile] = useState<File | null>(null)
+  const [rawFile, setRawFile] = useState<File | null>(null)
+  const [rollingWindow, setRollingWindow] = useState<"5" | "10">("5")
+  const [preparedCsv, setPreparedCsv] = useState<string | null>(null)
+  const [preparedSummary, setPreparedSummary] = useState<{ sourceFixtures: number; preparedFixtures: number; rollingWindow: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [report, setReport] = useState<BacktestReport | null>(null)
@@ -103,6 +109,48 @@ export function BacktestPage() {
     setFile(event.target.files?.[0] ?? null)
     setMessage(null)
     setReport(null)
+    setPreparedCsv(null)
+    setPreparedSummary(null)
+  }
+
+  async function prepareRaw(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!rawFile) { setMessage("Choose a raw historical fixture archive first."); return }
+    setBusy(true)
+    setMessage(null)
+    setReport(null)
+    setPreparedCsv(null)
+    setPreparedSummary(null)
+    try {
+      const form = new FormData()
+      form.set("file", rawFile)
+      form.set("window", rollingWindow)
+      const response = await fetch("/api/backtest/prepare", { method: "POST", body: form, cache: "no-store" })
+      const body = await response.json() as PreparedBacktestResponse & { error?: string; detail?: string }
+      if (!response.ok) {
+        if (response.status === 401) throw new Error("Sign in to a Pitchline account before preparing a backtest.")
+        if (response.status === 403) throw new Error("Historical model validation is a Pro testing feature. Activate your test account in the subscriptions collection.")
+        throw new Error(body.detail ?? body.error ?? "Could not prepare this raw archive.")
+      }
+      setReport(body.report)
+      setPreparedCsv(body.prematchCsv)
+      setPreparedSummary({ sourceFixtures: body.sourceFixtures, preparedFixtures: body.preparedFixtures, rollingWindow: body.rollingWindow })
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Could not prepare the historical archive.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function downloadPreparedCsv() {
+    if (!preparedCsv) return
+    const blob = new Blob([preparedCsv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = "pitchline-prematch-rates.csv"
+    anchor.click()
+    URL.revokeObjectURL(url)
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -191,6 +239,45 @@ export function BacktestPage() {
           </p>
         </section>
       </div>
+
+      <section className="panel mt-4 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Recommended workflow</p>
+            <h2 className="mt-1 font-display text-2xl">Build prematch features from raw results</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted">
+              Upload completed fixtures with stable team IDs and actual completion timestamps. Pitchline calculates each target's rolling history using only matches that had finished before that kickoff, then runs the backtest automatically.
+            </p>
+          </div>
+          <a href="/templates/pitchline-historical-fixtures-template.csv" download className="text-sm font-medium text-muted underline underline-offset-4">Raw archive template</a>
+        </div>
+        <form onSubmit={prepareRaw} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto] md:items-end">
+          <label className="block text-sm font-medium">
+            Completed fixture archive CSV
+            <input type="file" accept=".csv,text/csv" onChange={(event) => { setRawFile(event.target.files?.[0] ?? null); setPreparedCsv(null); setPreparedSummary(null) }} className="mt-2 block w-full rounded-lg border border-border bg-card p-3 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-foreground" />
+          </label>
+          <label className="block text-sm font-medium">
+            Rolling history
+            <select value={rollingWindow} onChange={(event) => setRollingWindow(event.target.value as "5" | "10")} className="mt-2 h-11 w-full rounded-lg border border-border bg-card px-3 text-base">
+              <option value="5">Previous 5 matches</option>
+              <option value="10">Previous 10 matches</option>
+            </select>
+          </label>
+          <button type="submit" disabled={!rawFile || busy} className="press h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">
+            {busy ? "Preparing…" : "Prepare + backtest"}
+          </button>
+        </form>
+        {rawFile ? <p className="text-xs text-muted">{rawFile.name} · {(rawFile.size / 1024).toFixed(1)} KB</p> : null}
+        {preparedSummary ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+            <p className="text-sm text-muted">Prepared {preparedSummary.preparedFixtures.toLocaleString("en-GB")} prematch rows from {preparedSummary.sourceFixtures.toLocaleString("en-GB")} raw matches using the previous {preparedSummary.rollingWindow} completed fixtures.</p>
+            <button type="button" onClick={downloadPreparedCsv} className="press h-10 rounded-lg border border-border bg-card px-3 text-sm font-medium">Download prepared CSV</button>
+          </div>
+        ) : null}
+        <p className="text-xs leading-relaxed text-muted">
+          The builder requires kickoff, completed_at, stable home/away team IDs, scores and team names. xG is included only when both teams have complete previous-window values from the same source; otherwise the full export uses goals-based features.
+        </p>
+      </section>
 
       {report ? (
         <div className="mt-5 space-y-4">

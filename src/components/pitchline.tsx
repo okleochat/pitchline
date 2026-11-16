@@ -143,12 +143,9 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
   const statusLabel: Record<ProPlayerData["status"], string> = {
     available: "Squad adjustments applied",
     partial: "Player data coverage is partial",
-    syncing: "Loading player season data",
-    not_configured: "Player feed not configured",
-    not_licensed: "Player feed awaiting permission",
-    team_not_found: "Team mapping unavailable",
-    squad_not_available: "Registered squad unavailable",
-    provider_error: "Player data temporarily unavailable",
+    team_not_found: "ESPN team mapping unavailable",
+    squad_not_available: "Current ESPN roster unavailable",
+    provider_error: "ESPN player data temporarily unavailable",
   }
   return (
     <section className="mt-5 border-t border-border pt-4" aria-label="Player and squad intelligence">
@@ -159,7 +156,7 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
         </span>
       </div>
       <p className="mt-2 text-sm text-muted">{data.note}</p>
-      <p className="mt-1 text-xs text-muted">Source: {data.provider} · Pitchline derives team indices from players in current squad' season performance. No matchday XI is needed.</p>
+      <p className="mt-1 text-xs text-muted">Source: {data.provider} · Pitchline derives squad indices from current roster members and available player-season statistics. No matchday starting XI or formation is required.</p>
       {data.home || data.away ? (
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {data.home ? <ProSquadSummary squad={data.home} /> : null}
@@ -898,7 +895,12 @@ export function Pitchline({
     setProLoading(true)
     setProError(null)
     loadProSimulation({
-      data: { home: desk.home, away: desk.away, edge, roll },
+      data: {
+        home: { ...desk.home, espnId: home.espnId, feedSlug: home.feedSlug },
+        away: { ...desk.away, espnId: away.espnId, feedSlug: away.feedSlug },
+        edge,
+        roll,
+      },
       signal: controller.signal,
     })
       .then((result) => {
@@ -915,21 +917,6 @@ export function Pitchline({
 
     return () => controller.abort()
   }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll, proPlayerRefresh])
-
-  useEffect(() => {
-    if (
-      !isPro ||
-      engineMode !== "pro" ||
-      view !== "desk" ||
-      same ||
-      proReport?.playerData?.status !== "syncing"
-    ) return
-
-    const timer = window.setTimeout(() => {
-      setProPlayerRefresh((value) => value + 1)
-    }, 65_000)
-    return () => window.clearTimeout(timer)
-  }, [isPro, engineMode, view, same, proReport?.playerData?.status])
 
   const report = isPro && engineMode === "pro" && view === "desk" ? proReport : classicReport
 

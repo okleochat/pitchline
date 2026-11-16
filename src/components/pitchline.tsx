@@ -1,4 +1,7 @@
+"use client"
+
 import { useEffect, useMemo, useRef, useState } from "react"
+import { AuthMenu } from "@/components/auth/auth-menu"
 import { ArrowLeftRight, ChevronDown, Minus, Pause, Play, Plus, RotateCcw } from "lucide-react"
 import {
   LEAGUES,
@@ -103,6 +106,10 @@ function Mark() {
 }
 
 function barWidth(share: number): string {
+  return `${(share * 100).toFixed(1)}%`
+}
+
+function exactPct(share: number): string {
   return `${(share * 100).toFixed(1)}%`
 }
 
@@ -501,7 +508,9 @@ function priceGap(share: number, text: string): string | null {
   const gap = (share - implied) * 100
   const relation = gap > 0.05 ? "above" : gap < -0.05 ? "below" : "level with"
   const points = Math.abs(gap) < 0.05 ? "0.0" : Math.abs(gap).toFixed(1)
-  return `Fair ${fairDecimal(share)} from ${(share * 100).toFixed(1)}%. Your ${price.toFixed(2)} implies ${(implied * 100).toFixed(1)}%. The count is ${points} points ${relation} that price.`
+  const ev = (share * price - 1) * 100
+  const evText = (ev > 0 ? "+" : "") + ev.toFixed(1) + "%"
+  return `Fair ${fairDecimal(share)} from ${exactPct(share)}. Your ${price.toFixed(2)} implies ${(implied * 100).toFixed(1)}%. Model probability is ${points} points ${relation} the market price. Expected return: ${evText} per unit staked, before model error and bookmaker limits.`
 }
 
 function ModelBar({
@@ -579,27 +588,19 @@ function ModelBar({
 }
 
 function marketsFor(home: Team, away: Team, edge: number, fixture: Fixture, model: ModelKind): MarketPick[] {
-  const report = simulate(home, away, edge, 0, model)
-  const over35 = report.scores.reduce((sum, score) => sum + (score.h + score.a >= 4 ? 1 : 0), 0)
-  const under15 = report.scores.reduce((sum, score) => sum + (score.h + score.a <= 1 ? 1 : 0), 0)
-  const rows: { kind: PickKind; label: string; count: number }[] = [
-    { kind: "result", label: `${home.name} to win`, count: report.homeWins },
-    { kind: "result", label: "Draw", count: report.draws },
-    { kind: "result", label: `${away.name} to win`, count: report.awayWins },
-    { kind: "goals", label: "Over 2.5 goals", count: report.over25 },
-    { kind: "goals", label: "Under 2.5 goals", count: report.n - report.over25 },
-    { kind: "goals", label: "Over 3.5 goals", count: over35 },
-    { kind: "goals", label: "Under 1.5 goals", count: under15 },
-    { kind: "btts", label: "Both teams to score", count: report.btts },
-    { kind: "btts", label: "Not both to score", count: report.n - report.btts },
+  const probabilities = simulate(home, away, edge, 0, model).probabilities
+  const rows: { kind: PickKind; label: string; share: number }[] = [
+    { kind: "result", label: `${home.name} to win`, share: probabilities.home },
+    { kind: "result", label: "Draw", share: probabilities.draw },
+    { kind: "result", label: `${away.name} to win`, share: probabilities.away },
+    { kind: "goals", label: "Over 2.5 goals", share: probabilities.over25 },
+    { kind: "goals", label: "Under 2.5 goals", share: probabilities.under25 },
+    { kind: "goals", label: "Over 3.5 goals", share: probabilities.over35 },
+    { kind: "goals", label: "Under 1.5 goals", share: probabilities.under15 },
+    { kind: "btts", label: "Both teams to score", share: probabilities.btts },
+    { kind: "btts", label: "Not both to score", share: 1 - probabilities.btts },
   ]
-  return rows.map((row) => ({
-    key: `${fixture.id}:${row.label}`,
-    fixture,
-    label: row.label,
-    kind: row.kind,
-    share: row.count / report.n,
-  }))
+  return rows.map((row) => ({ key: `${fixture.id}:${row.label}`, fixture, label: row.label, kind: row.kind, share: row.share }))
 }
 
 export function Pitchline({ initial }: { initial: Board }) {
@@ -863,9 +864,12 @@ export function Pitchline({ initial }: { initial: Board }) {
               <p className="mt-1 text-sm text-muted">Football match simulator · {board.season}</p>
             </div>
           </div>
-          <p className="max-w-xs text-sm text-muted">
-            A thousand matches from attack and defense. Not a tip — a counting model you can rerun.
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="max-w-xs text-sm text-muted">
+              A thousand matches from attack and defense. Not a tip — a counting model you can rerun.
+            </p>
+            <AuthMenu />
+          </div>
         </div>
       </header>
 
@@ -900,7 +904,7 @@ export function Pitchline({ initial }: { initial: Board }) {
             <div>
               <h2 className="font-display text-2xl tracking-tight">Best upcoming picks</h2>
               <p className="mt-1 max-w-xl text-sm text-muted">
-                Markets that hit in at least 80% of 1,000 simulated matches. Season rates, not last-5 form. Not a tip — a count.
+                Markets with model-assigned probability of at least 80%. Season rates, not last-5 form. Not a tip — a model estimate.
               </p>
             </div>
             <p className="text-sm text-muted tabular-nums">
@@ -936,9 +940,7 @@ export function Pitchline({ initial }: { initial: Board }) {
                 onLevel={setLevel}
               />
               <p className="mt-3 text-xs text-muted">
-                Last 5 and last 10 change the open match only. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) and the UEFA scale
-                apply to this list when they are on. Championship is a 0.60 estimate. Saudi, MLS, Brazil, Liga MX and
-                unmatched European clubs stay at 1.00.
+                Last 5 and last 10 use recency-weighted completed matches on the open match only. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) and the coarse UEFA association proxy apply when enabled. It is not a calibrated club-strength model.
               </p>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -1250,25 +1252,25 @@ export function Pitchline({ initial }: { initial: Board }) {
               </div>
               <div>
                 <div className="flex h-2 overflow-hidden rounded-full bg-sunken" aria-hidden>
-                  <span className="bg-primary" style={{ width: barWidth(report.homeWins / report.n) }} />
-                  <span className="bg-draw" style={{ width: barWidth(report.draws / report.n) }} />
-                  <span className="bg-foreground" style={{ width: barWidth(report.awayWins / report.n) }} />
+                  <span className="bg-primary" style={{ width: barWidth(report.probabilities.home) }} />
+                  <span className="bg-draw" style={{ width: barWidth(report.probabilities.draw) }} />
+                  <span className="bg-foreground" style={{ width: barWidth(report.probabilities.away) }} />
                 </div>
                 <dl className="mt-4 grid grid-cols-3 gap-2">
                   <div>
                     <dt className="text-xs text-muted">Home</dt>
-                    <dd className="font-display text-2xl tabular-nums">{pctLabel(report.homeWins, report.n)}</dd>
-                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.homeWins / report.n)}</dd>
+                    <dd className="font-display text-2xl tabular-nums">{exactPct(report.probabilities.home)}</dd>
+                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.home)}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-muted">Draw</dt>
-                    <dd className="font-display text-2xl tabular-nums">{pctLabel(report.draws, report.n)}</dd>
-                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.draws / report.n)}</dd>
+                    <dd className="font-display text-2xl tabular-nums">{exactPct(report.probabilities.draw)}</dd>
+                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.draw)}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-muted">Away</dt>
-                    <dd className="font-display text-2xl tabular-nums">{pctLabel(report.awayWins, report.n)}</dd>
-                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.awayWins / report.n)}</dd>
+                    <dd className="font-display text-2xl tabular-nums">{exactPct(report.probabilities.away)}</dd>
+                    <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.away)}</dd>
                   </div>
                 </dl>
               </div>
@@ -1276,18 +1278,18 @@ export function Pitchline({ initial }: { initial: Board }) {
             <dl className="mt-6 grid grid-cols-3 gap-3 border-t border-border pt-4">
               <div>
                 <dt className="text-xs text-muted">Both score</dt>
-                <dd className="text-lg font-medium tabular-nums">{pctLabel(report.btts, report.n)}</dd>
-                <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.btts / report.n)}</dd>
+                <dd className="text-lg font-medium tabular-nums">{exactPct(report.probabilities.btts)}</dd>
+                <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.btts)}</dd>
               </div>
               <div>
                 <dt className="text-xs text-muted">Over 2.5</dt>
-                <dd className="text-lg font-medium tabular-nums">{pctLabel(report.over25, report.n)}</dd>
-                <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.over25 / report.n)}</dd>
+                <dd className="text-lg font-medium tabular-nums">{exactPct(report.probabilities.over25)}</dd>
+                <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.over25)}</dd>
               </div>
               <div>
                 <dt className="text-xs text-muted">{home.short} clean sheet</dt>
-                <dd className="text-lg font-medium tabular-nums">{pctLabel(report.homeClean, report.n)}</dd>
-                <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.homeClean / report.n)}</dd>
+                <dd className="text-lg font-medium tabular-nums">{exactPct(report.probabilities.homeClean)}</dd>
+                <dd className="text-xs text-muted tabular-nums">{fairDecimal(report.probabilities.homeClean)}</dd>
               </div>
             </dl>
             <p className="mt-3 text-xs text-muted">Small figures are fair decimal odds from the count. Not a price.</p>
@@ -1378,16 +1380,16 @@ export function Pitchline({ initial }: { initial: Board }) {
               <p className="mt-3 text-sm text-muted">
                 {priceGap(
                   priceMarket === "home"
-                    ? report.homeWins / report.n
+                    ? report.probabilities.home
                     : priceMarket === "draw"
-                      ? report.draws / report.n
+                      ? report.probabilities.draw
                       : priceMarket === "away"
-                        ? report.awayWins / report.n
+                        ? report.probabilities.away
                         : priceMarket === "btts"
-                          ? report.btts / report.n
+                          ? report.probabilities.btts
                           : priceMarket === "over"
-                            ? report.over25 / report.n
-                            : (report.n - report.over25) / report.n,
+                            ? report.probabilities.over25
+                            : report.probabilities.under25,
                   priceText,
                 ) ?? "Type a decimal above 1.01 to compare it with the fair price."}
               </p>

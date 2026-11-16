@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import type { SportmonksFixture, SportmonksOdd, SportmonksXgMetric } from "@/lib/providers/sportmonks"
+import type { SportmonksFixture, SportmonksOdd, SportmonksXgMetric } from "@/lib/providers/sportmonks-types"
 
 type ProviderStatus = {
   provider: string

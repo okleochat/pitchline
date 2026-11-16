@@ -12,37 +12,35 @@ export type PlayerScores = {
   minutes: number
 }
 
-export type LineupPlayer = {
+export type SquadPlayer = {
   id: string
   name: string
   number: number | null
   position: PlayerPosition
-  grid: string | null
   scores: PlayerScores | null
 }
 
-export type TeamLineupFactors = {
+export type TeamPlayerFactors = {
   attackMultiplier: number
   creativityMultiplier: number
   defenceMultiplier: number
-  benchStrength: number
-  ratedStarters: number
-  starterCount: number
+  /** Index for the lower-usage portion of the registered squad. */
+  squadDepth: number
+  ratedPlayers: number
+  squadCount: number
   coverage: number
   applied: boolean
 }
 
-export type ProTeamLineup = {
-  /** The Pitchline team label, not the provider's raw team record. */
+export type ProTeamSquad = {
+  /** Pitchline's team label, not the provider's raw team record. */
   teamName: string
-  startingCount: number
-  ratedStartingCount: number
-  substituteCount: number
-  ratedSubstituteCount: number
+  squadCount: number
+  ratedPlayerCount: number
   attackIndex: number
   creativityIndex: number
   defenceIndex: number
-  factors: TeamLineupFactors
+  factors: TeamPlayerFactors
 }
 
 export type PlayerDataStatus =
@@ -50,24 +48,17 @@ export type PlayerDataStatus =
   | "partial"
   | "not_configured"
   | "not_licensed"
-  | "fixture_not_selected"
   | "team_not_found"
-  | "match_not_found"
-  | "lineups_not_available"
+  | "squad_not_available"
   | "provider_error"
 
 export type ProPlayerData = {
   provider: "API-Football"
   status: PlayerDataStatus
   note: string
-  home: ProTeamLineup | null
-  away: ProTeamLineup | null
+  home: ProTeamSquad | null
+  away: ProTeamSquad | null
   adjustmentsApplied: boolean
-}
-
-export type ProPlayerFixtureRequest = {
-  kickoffAt: string
-  competitionName?: string
 }
 
 export type PlayerTeamContext = {

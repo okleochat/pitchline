@@ -1,4 +1,5 @@
 import { analyticalMarkets, type ModelKind } from "./sim.ts"
+import type { Team } from "@/data/football"
 
 const REQUIRED = [
   "fixture_id", "date", "features_as_of", "home_team", "away_team",
@@ -203,15 +204,25 @@ export function backtestRows(rows: BacktestInputRow[]): BacktestReport {
       else if (!xgSource) xgSource = xg.source
     }
 
-    const home = {
+    const home: Team = {
       id: row.home_team,
+      name: row.home_team,
+      short: row.home_team.slice(0, 4).toUpperCase(),
+      league: "eng",
+      mark: "#1e3348",
+      ink: "#f6f4ef",
       attack: numeric(row, "home_attack"),
       defense: numeric(row, "home_defense"),
       scorers: ["A", "B", "C"] as [string, string, string],
       ...(xg ? { xgFor: xg.home_xg_for, xgAgainst: xg.home_xg_against, xgSource: xg.source } : {}),
     }
-    const away = {
+    const away: Team = {
       id: row.away_team,
+      name: row.away_team,
+      short: row.away_team.slice(0, 4).toUpperCase(),
+      league: "eng",
+      mark: "#1e3348",
+      ink: "#f6f4ef",
       attack: numeric(row, "away_attack"),
       defense: numeric(row, "away_defense"),
       scorers: ["A", "B", "C"] as [string, string, string],

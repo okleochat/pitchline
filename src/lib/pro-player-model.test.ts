@@ -136,7 +136,7 @@ test("SportAPI per-match rows are aggregated into the selected current season on
   assert.equal(scores.appearances, 2)
   assert.equal(scores.minutes, 165)
   // The May row and the provider's career totals must not leak into season form.
-  assert.ok((scores.attack ?? 0) < 70)
+  assert.equal(scores.attack, 81.5)
   assert.equal(scores.seasonRating, null)
 })
 

@@ -170,10 +170,19 @@ export function normaliseLineupPlayer(
   playerStats: Map<string, PlayerScores>,
 ): LineupPlayer | null {
   const item = record(lineupPlayer)
-  const player = record(item?.player)
-  const id = player && numeric(player.id) !== null ? String(player.id) : ""
-  const name = typeof player?.name === "string" ? player.name.trim() : ""
-  if (!id || !name) return null
+  if (!item) return null
+
+  const player = record(item.player)
+  if (!player) return null
+
+  const playerId = numeric(player.id)
+  if (playerId === null) return null
+  const id = String(playerId)
+
+  if (typeof player.name !== "string") return null
+  const name = player.name.trim()
+  if (!name) return null
+
   const number = numeric(player.number)
   const position = positionFrom(player.pos)
   return {

@@ -608,11 +608,17 @@ async function buildBoard(): Promise<Board> {
       hourCycle: "h23",
       timeZone: "Europe/London",
     }).format(new Date(updatedAt)),
-    teams: await attachTeamXgMetrics(teams),
+    teams,
     fixtures,
     weekends,
     leagueStatus,
   }
+}
+
+export async function getLiveBoardForPro(isPro: boolean): Promise<Board> {
+  const board = await getLiveBoard()
+  if (!isPro) return board
+  return { ...board, teams: await attachTeamXgMetrics(board.teams) }
 }
 
 export function getLiveBoard(): Promise<Board> {
@@ -702,11 +708,11 @@ export async function getRecentForm(input: {
   awayEspn: string
   homeName?: string
   awayName?: string
-}): Promise<FormResult> {
+}, includePremium = false): Promise<FormResult> {
   const [home, away, xg] = await Promise.all([
     input.homeEspn ? recentGames(input.homeSlug, input.homeEspn) : Promise.resolve(null),
     input.awayEspn ? recentGames(input.awaySlug, input.awayEspn) : Promise.resolve(null),
-    getRecentTeamXgForm([input.homeName ?? "", input.awayName ?? ""].filter(Boolean)),
+    includePremium ? getRecentTeamXgForm([input.homeName ?? "", input.awayName ?? ""].filter(Boolean)) : Promise.resolve(new Map()),
   ])
   const homeXg = input.homeName ? xg.get(input.homeName) : undefined
   const awayXg = input.awayName ? xg.get(input.awayName) : undefined

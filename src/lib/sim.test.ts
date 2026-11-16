@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { analyticalMarkets, analyticalSplit, simulate } from "./sim.ts"
+import { analyticalMarkets, analyticalSplit, playOne, simulate } from "./sim.ts"
 
 const home = { id: "home", attack: 1.65, defense: 0.9, scorers: ["One", "Two", "Three"] }
 const away = { id: "away", attack: 1.2, defense: 1.4, scorers: ["Four", "Five", "Six"] }
@@ -30,4 +30,12 @@ test("Monte Carlo score sample is deterministic and does not control headline pr
   assert.deepEqual(first.scores, second.scores)
   assert.equal(first.n, 1000)
   assert.deepEqual(first.probabilities, otherRoll.probabilities)
+})
+
+test("match tape never presents generic placeholder labels as real player names", () => {
+  const generic = { id: "generic", attack: 3.2, defense: 0.8, scorers: ["Attacker", "Attacker", "Attacker"] }
+  const opponent = { id: "opponent", attack: 3.2, defense: 0.8, scorers: ["Attacker", "Attacker", "Attacker"] }
+  const tape = playOne(generic as never, opponent as never, 1, 99, "plain")
+  assert.ok(tape.length > 0)
+  assert.ok(tape.every((event) => !event.text.includes("Attacker")))
 })

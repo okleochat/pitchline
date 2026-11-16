@@ -541,7 +541,14 @@ async function loadLeague(
 }
 
 export async function mergeInternationalFixtures(board: Board, international: InternationalFixture[]): Promise<Board> {
-  if (!international.length) {
+  const nowMs = Date.now()
+  // The shared simulator board and Best Picks contain future fixtures only.
+  // Results and in-progress games are rendered by the date-specific page.
+  const upcoming = international.filter((fixture) => {
+    const kickoff = new Date(fixture.kickoff).getTime()
+    return !fixture.completed && fixture.statusState === "pre" && kickoff > nowMs
+  })
+  if (!upcoming.length) {
     return {
       ...board,
       weekends: { ...board.weekends, int: "No upcoming international window" },
@@ -569,7 +576,7 @@ export async function mergeInternationalFixtures(board: Board, international: In
     competitionName: string
     competitionRegion: string
   }>()
-  for (const fixture of international) {
+  for (const fixture of upcoming) {
     for (const side of [fixture.home, fixture.away]) {
       const key = fixture.competitionSlug + ":" + side.espnId
       if (sides.has(key)) continue
@@ -630,7 +637,7 @@ export async function mergeInternationalFixtures(board: Board, international: In
     hourCycle: "h23",
   }).format(new Date(iso))
 
-  const internationalFixtures: Fixture[] = international.flatMap((fixture) => {
+  const internationalFixtures: Fixture[] = upcoming.flatMap((fixture) => {
     const home = teamBySlugAndId.get(fixture.competitionSlug + ":" + fixture.home.espnId)
     const away = teamBySlugAndId.get(fixture.competitionSlug + ":" + fixture.away.espnId)
     if (!home || !away) return []

@@ -9,7 +9,7 @@ export type SportmonksXgMetric = {
   location?: "home" | "away" | string
   participant_id?: number
   type_id?: number
-  type?: { name?: string; code?: string }
+  type?: { id?: number; name?: string; code?: string }
   data?: { value?: number | string }
 }
 

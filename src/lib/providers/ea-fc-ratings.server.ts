@@ -363,6 +363,7 @@ async function findEaMatches(
   }
   const candidates = [...uniqueById.values()]
   const matches = new Map<string, Dict>()
+  const claimedEaIds = new Set<string>()
 
   for (const rosterPlayer of namedRoster) {
     const match = matchEaPlayerByName({
@@ -370,7 +371,12 @@ async function findEaMatches(
       position: rosterPlayer.position,
       nationality: rosterPlayer.nationality,
     }, candidates)
-    if (match) matches.set(rosterPlayer.id, match)
+    const eaId = stringValue(match?.id)
+    // One EA record must not inflate coverage by matching twice on an ESPN roster.
+    if (match && eaId && !claimedEaIds.has(eaId)) {
+      matches.set(rosterPlayer.id, match)
+      claimedEaIds.add(eaId)
+    }
   }
 
   const timestamps = shards

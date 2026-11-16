@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { AuthMenu } from "@/components/auth/auth-menu"
 import { ArrowLeftRight, ChevronDown, Minus, Pause, Play, Plus, RotateCcw } from "lucide-react"
 import {
@@ -613,7 +615,8 @@ function marketsFor(home: Team, away: Team, edge: number, fixture: Fixture, mode
   return rows.map((row) => ({ key: `${fixture.id}:${row.label}`, fixture, label: row.label, kind: row.kind, share: row.share }))
 }
 
-export function Pitchline({ initial }: { initial: Board }) {
+export function Pitchline({ initial, initialView = "desk" }: { initial: Board; initialView?: "desk" | "picks" }) {
+  const router = useRouter()
   const [board, setBoard] = useState(initial)
   const [league, setLeague] = useState<LeagueId>("eng")
   const [homeId, setHomeId] = useState("eng-ars")
@@ -628,7 +631,7 @@ export function Pitchline({ initial }: { initial: Board }) {
   const [sortKey, setSortKey] = useState<SortKey>("index")
   const [sortAsc, setSortAsc] = useState(false)
   const [ready, setReady] = useState(false)
-  const [view, setView] = useState<"desk" | "picks">("desk")
+  const [view, setView] = useState<"desk" | "picks">(initialView)
   const [pickKind, setPickKind] = useState<PickKind | "all">("all")
   const [pickLeague, setPickLeague] = useState<LeagueId | "all">("all")
   const [model, setModel] = useState<ModelKind>("plain")
@@ -678,7 +681,6 @@ export function Pitchline({ initial }: { initial: Board }) {
       if (typeof saved.edgePct === "number") setEdgePct(Math.min(140, Math.max(85, Math.round(saved.edgePct))))
       if (typeof saved.spread === "number") setSpread(roundHalf(saved.spread))
       if (typeof saved.totalLine === "number") setTotalLine(roundHalf(saved.totalLine))
-      if (saved.view === "picks" || saved.view === "desk") setView(saved.view)
       if (saved.model === "plain" || saved.model === "dixon") setModel(saved.model)
       if (saved.form === "season" || saved.form === "5" || saved.form === "10") setFormWindow(saved.form)
       if (typeof saved.level === "boolean") setLevel(saved.level)
@@ -835,6 +837,7 @@ export function Pitchline({ initial }: { initial: Board }) {
     setRoll(0)
     loadFixture(pick.fixture.homeId, pick.fixture.awayId, pick.fixture.league)
     setView("desk")
+    router.push("/")
     window.setTimeout(() => {
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
       deskRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" })
@@ -884,30 +887,20 @@ export function Pitchline({ initial }: { initial: Board }) {
         </div>
       </header>
 
-      <div className="mb-4 flex gap-2" role="tablist" aria-label="View">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "desk"}
-          onClick={() => setView("desk")}
-          className={`press h-11 rounded-lg px-4 text-sm font-medium ${
-            view === "desk" ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"
-          }`}
-        >
+      <nav className="mb-4 flex flex-wrap gap-2" aria-label="Main navigation">
+        <Link href="/" aria-current={view === "desk" ? "page" : undefined} className={`press inline-flex h-11 items-center rounded-lg px-4 text-sm font-medium ${view === "desk" ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"}`}>
           Match desk
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "picks"}
-          onClick={() => setView("picks")}
-          className={`press h-11 rounded-lg px-4 text-sm font-medium ${
-            view === "picks" ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"
-          }`}
-        >
+        </Link>
+        <Link href="/picks" aria-current={view === "picks" ? "page" : undefined} className={`press inline-flex h-11 items-center rounded-lg px-4 text-sm font-medium ${view === "picks" ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"}`}>
           Best picks
-        </button>
-      </div>
+        </Link>
+        <Link href="/fixtures/international" className="press inline-flex h-11 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground">
+          International fixtures
+        </Link>
+        <Link href="/model/backtest" className="press inline-flex h-11 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground">
+          Model lab
+        </Link>
+      </nav>
 
       {view === "picks" ? (
         <section className="mb-6" aria-label="Best picks">

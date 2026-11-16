@@ -46,15 +46,12 @@ export type ProTeamSquad = {
 export type PlayerDataStatus =
   | "available"
   | "partial"
-  | "syncing"
-  | "not_configured"
-  | "not_licensed"
   | "team_not_found"
   | "squad_not_available"
   | "provider_error"
 
 export type ProPlayerData = {
-  provider: "API-Football"
+  provider: "ESPN"
   status: PlayerDataStatus
   note: string
   home: ProTeamSquad | null
@@ -67,4 +64,6 @@ export type PlayerTeamContext = {
   name: string
   league: LeagueId
   rateLeague?: LeagueId
+  espnId?: string
+  feedSlug?: string
 }

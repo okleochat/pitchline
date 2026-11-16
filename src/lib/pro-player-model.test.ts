@@ -20,6 +20,8 @@ const attackerStats = {
 test("player scores are derived from provider performance statistics", () => {
   const score = derivePlayerScores(attackerStats)
   assert.ok(score)
+  assert.ok(score.attack !== null)
+  assert.ok(score.creativity !== null)
   assert.ok(score.attack > 50)
   assert.ok(score.creativity > 50)
   assert.equal(score.appearances, 24)

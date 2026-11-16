@@ -163,6 +163,8 @@ def normalise_player(raw: dict[str, Any]) -> dict[str, Any] | None:
     ]
 
     overall = raw.get("overallRating")
+    if isinstance(overall, dict):
+        overall = overall.get("value")
     if isinstance(overall, bool) or not isinstance(overall, (int, float)):
         overall = None
 

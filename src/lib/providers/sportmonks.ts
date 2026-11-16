@@ -63,7 +63,7 @@ function xgByLocation(fixture: SportmonksFixture): { home: number; away: number 
   const awayId = participants.find((participant) => participant.meta?.location === "away")?.id
   let home: number | null = null
   let away: number | null = null
-  for (const metric of fixture.xgfixture ?? []) {
+  for (const metric of fixture.xGFixture ?? fixture.xgfixture ?? []) {
     const value = metricValue(metric)
     if (value === null) continue
     if (homeId !== undefined && metric.participant_id === homeId) home = value
@@ -126,13 +126,13 @@ export async function getSportmonksFixtures(start: string, end: string): Promise
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.value
 
   const includes = ["participants", "league", "state"]
-  if (config.xgEnabled) includes.push("xGFixture.type")
+  if (config.xgEnabled) includes.push("xGFixture")
   if (config.oddsEnabled) includes.push("odds.bookmaker", "odds.market")
 
   const fixtures: SportmonksFixture[] = []
   let hasMore = true
   for (let page = 1; page <= FIXTURE_PAGE_LIMIT && hasMore; page += 1) {
-    const url = new URL(`${API_ROOT}/fixtures/between/${start}/${end}`)
+    const url = new URL(`${API_ROOT}/fixtures/between/date/${start}/${end}`)
     addDateRange(url, includes.join(";"), page)
     const body = await requestJson<{
       data?: SportmonksFixture[]
@@ -173,7 +173,7 @@ async function recentXgForTeam(name: string, start: string, end: string): Promis
 
   const teamId = await findTeamId(name)
   if (!teamId) return []
-  const include = "participants;state;xGFixture.type"
+  const include = "participants;state;xGFixture"
   const games: TeamXgForm[] = []
   let hasMore = true
   for (let page = 1; page <= TEAM_FIXTURE_PAGE_LIMIT && hasMore; page += 1) {

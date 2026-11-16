@@ -17,6 +17,7 @@ import {
   type Team,
 } from "@/data/football"
 import { loadBoard, loadForm, type FormResult } from "@/lib/board"
+import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
 import {
   DIXON_RHO,
   SIMS,
@@ -59,7 +60,6 @@ type FormWindow = "season" | "5" | "10"
 type PriceMarket = "home" | "draw" | "away" | "btts" | "over" | "under"
 
 const PICK_LINE = 0.8
-const MIN_INTL_HISTORY_FOR_PICKS = 3
 type PickKind = "result" | "goals" | "btts"
 type MarketPick = {
   key: string
@@ -825,8 +825,7 @@ export function Pitchline({
       // Do not surface probabilities based on the neutral placeholder ratings.
       // International Best Picks require at least three prior games per team.
       if (fixture.league === "int" &&
-        ((homeTeam.formMatches ?? 0) < MIN_INTL_HISTORY_FOR_PICKS ||
-         (awayTeam.formMatches ?? 0) < MIN_INTL_HISTORY_FOR_PICKS)) continue
+        !hasInternationalPickHistory(homeTeam.formMatches, awayTeam.formMatches)) continue
       const shapedFixture = shapePair(homeTeam, awayTeam, board.teams, level, null, null)
       ranked.push(...marketsFor(shapedFixture.home, shapedFixture.away, edge, fixture, model))
     }
@@ -1640,7 +1639,7 @@ export function Pitchline({
             ? "The UEFA scale is on for clubs rated from different leagues. "
             : ""}
           {league === "int"
-            ? `National-team ratings use previous completed matches from the same competition schedule. The team cards show the number of historical matches returned. Teams with no history use the neutral 1.35 goals-for and 1.35 goals-against fallback. Refreshed ${feedTimestamp(leagueStatus.updatedAt)}.`
+            ? `National-team ratings use previous completed matches from the same competition schedule. Team rows show the number of historical matches returned. Teams without history use a neutral 1.35 goals-for and 1.35 goals-against fallback; those fallback-only teams are excluded from international Best Picks. Refreshed ${feedTimestamp(leagueStatus.updatedAt)}.`
             : leagueStatus.standings === "live"
               ? `Ratings are this season’s scoring, refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}), not a betting line.`
               : `This competition is using saved ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}

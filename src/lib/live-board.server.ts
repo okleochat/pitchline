@@ -615,12 +615,6 @@ async function buildBoard(): Promise<Board> {
   }
 }
 
-export async function getLiveBoardForPro(isPro: boolean): Promise<Board> {
-  const board = await getLiveBoard()
-  if (!isPro) return board
-  return board
-}
-
 export function getLiveBoard(): Promise<Board> {
   if (cache && Date.now() - cache.at < cache.ttl) return Promise.resolve(cache.board)
   if (!inflight) {

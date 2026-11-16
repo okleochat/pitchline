@@ -43,6 +43,12 @@ function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null
 }
 
+function idValue(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim()
+  if (typeof value === "number" && Number.isSafeInteger(value)) return String(value)
+  return null
+}
+
 function numberValue(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value
   if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value)
@@ -74,7 +80,7 @@ function teamSide(value: unknown): InternationalFixture["home"] | null {
   const firstLogo = record(logos[0])
   const logo = stringValue(firstLogo?.href) ?? stringValue(team.logo)
 
-  const espnId = stringValue(team.id)
+  const espnId = idValue(team.id)
   if (!espnId) return null
 
   return {
@@ -102,7 +108,7 @@ function mapEvent(value: unknown, source: CompetitionSource): InternationalFixtu
   const away = teamSide(awayCompetitor)
   if (!home || !away) return null
 
-  const eventId = stringValue(event.id)
+  const eventId = idValue(event.id)
   if (!eventId) return null
 
   const status = eventStatus(event, competition ?? {})

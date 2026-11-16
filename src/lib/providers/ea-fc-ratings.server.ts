@@ -215,14 +215,24 @@ function normalizeRosterEntry(value: unknown): Dict | null {
   const name = athleteName(value)
   if (!id || !name) return null
 
+  const rawPosition = athlete.position ?? wrapper?.position
+  const position = record(rawPosition)
+  const rawNationality = athlete.nationality ?? athlete.citizenship ?? wrapper?.nationality
+  const nationality = record(rawNationality)
+
   return {
     athlete: {
       id,
       fullName: name,
       firstName: stringValue(athlete.firstName ?? athlete.first_name) ?? "",
       lastName: stringValue(athlete.lastName ?? athlete.last_name) ?? "",
-      position: athlete.position ?? wrapper?.position ?? null,
-      nationality: athlete.nationality ?? athlete.citizenship ?? wrapper?.nationality ?? null,
+      position: stringValue(
+        position?.abbreviation ?? position?.shortDisplayName ??
+        position?.displayName ?? position?.name ?? rawPosition,
+      ),
+      nationality: stringValue(
+        nationality?.displayName ?? nationality?.name ?? nationality?.abbreviation ?? rawNationality,
+      ),
       jersey: athlete.jersey ?? athlete.number ?? athlete.jerseyNumber ??
         athlete.jersey_number ?? wrapper?.jersey ?? wrapper?.number ?? null,
     },

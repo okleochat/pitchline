@@ -113,6 +113,16 @@ function exactPct(share: number): string {
   return `${(share * 100).toFixed(1)}%`
 }
 
+function feedTimestamp(iso: string): string {
+  const date = new Date(iso)
+  if (!Number.isFinite(date.getTime())) return "timestamp unavailable"
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Europe/London",
+  }).format(date)
+}
+
 function edgeCopy(pct: number): string {
   const delta = pct - 100
   if (delta === 0) return "Even pitch"
@@ -1527,9 +1537,11 @@ export function Pitchline({ initial }: { initial: Board }) {
                 ? "European clubs take their domestic scoring into the tie. Sides from leagues we don't carry are rated on their European games, pulled toward average when the sample is short. Index ranks net goals inside this competition. "
                 : "Attack is goals scored per match this season, defense is goals conceded. Lower defense is tighter. Index ranks net goals inside this league. "}
               {leagueStatus.standings === "live"
-                ? `Standings: live (${leagueStatus.teamCount} clubs), refreshed ${board.updatedLabel}.`
-                : `Standings: saved snapshot from ${board.updatedLabel}; live feed unavailable for this competition.`}
-              {leagueStatus.fixtures === "snapshot" ? " Fixtures are using saved fallback data." : " Fixtures are from the live feed."}
+                ? `Standings: live (${leagueStatus.teamCount} clubs), refreshed ${feedTimestamp(leagueStatus.updatedAt)}.`
+                : `Standings: saved snapshot from ${feedTimestamp(leagueStatus.updatedAt)}; live feed unavailable for this competition.`}
+              {leagueStatus.fixtures === "snapshot"
+                ? ` Fixtures are using saved fallback data from ${feedTimestamp(leagueStatus.fixturesUpdatedAt)}.`
+                : ` Fixtures are from the live feed, refreshed ${feedTimestamp(leagueStatus.fixturesUpdatedAt)}.`}
             </p>
           </div>
           <p className="text-sm text-muted">Tap a club for home. Away sets the other side.</p>
@@ -1625,8 +1637,8 @@ export function Pitchline({ initial }: { initial: Board }) {
             ? "The UEFA scale is on for clubs rated from different leagues. "
             : ""}
           {leagueStatus.standings === "live"
-            ? `Ratings are this season’s scoring, refreshed from this competition’s table (${board.updatedLabel}), not a betting line.`
-            : `This competition is using saved ratings from ${board.updatedLabel}. Not a betting line.`}
+            ? `Ratings are this season’s scoring, refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}), not a betting line.`
+            : `This competition is using saved ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}
         </p>
       </footer>
     </main>

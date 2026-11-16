@@ -1,4 +1,5 @@
 import "server-only"
+import { attachTeamXgMetrics, getRecentTeamXgForm } from "@/lib/providers/sportmonks"
 import { LEAGUES, TEAMS, isCup, snapshotBoard, type Board, type Fixture, type LeagueId, type Team } from "@/data/football"
 
 const TTL_MS = 15 * 60 * 1000
@@ -607,7 +608,7 @@ async function buildBoard(): Promise<Board> {
       hourCycle: "h23",
       timeZone: "Europe/London",
     }).format(new Date(updatedAt)),
-    teams,
+    teams: await attachTeamXgMetrics(teams),
     fixtures,
     weekends,
     leagueStatus,
@@ -630,7 +631,7 @@ export function getLiveBoard(): Promise<Board> {
   return inflight
 }
 
-export type FormGame = { gf: number; ga: number }
+export type FormGame = { gf: number; ga: number; xgf?: number; xga?: number }
 export type FormResult = {
   home: { games: FormGame[] } | null
   away: { games: FormGame[] } | null
@@ -699,13 +700,24 @@ export async function getRecentForm(input: {
   homeEspn: string
   awaySlug: string
   awayEspn: string
+  homeName?: string
+  awayName?: string
 }): Promise<FormResult> {
-  const [home, away] = await Promise.all([
+  const [home, away, xg] = await Promise.all([
     input.homeEspn ? recentGames(input.homeSlug, input.homeEspn) : Promise.resolve(null),
     input.awayEspn ? recentGames(input.awaySlug, input.awayEspn) : Promise.resolve(null),
+    getRecentTeamXgForm([input.homeName ?? "", input.awayName ?? ""].filter(Boolean)),
   ])
+  const homeXg = input.homeName ? xg.get(input.homeName) : undefined
+  const awayXg = input.awayName ? xg.get(input.awayName) : undefined
+  const chooseGames = (goals: FormGame[] | null, expected: { xgf: number; xga: number; date: string }[] | undefined) => {
+    if (expected && expected.length >= 5) return expected.map((game) => ({ gf: 0, ga: 0, xgf: game.xgf, xga: game.xga }))
+    return goals
+  }
+  const homeGames = chooseGames(home, homeXg)
+  const awayGames = chooseGames(away, awayXg)
   return {
-    home: home ? { games: home } : null,
-    away: away ? { games: away } : null,
+    home: homeGames ? { games: homeGames } : null,
+    away: awayGames ? { games: awayGames } : null,
   }
 }

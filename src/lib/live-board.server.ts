@@ -1,5 +1,5 @@
 import "server-only"
-import { attachTeamXgMetrics, getRecentTeamXgForm } from "@/lib/providers/sportmonks"
+import { getRecentTeamXgForm } from "@/lib/providers/sportmonks"
 import { LEAGUES, TEAMS, isCup, snapshotBoard, type Board, type Fixture, type LeagueId, type Team } from "@/data/football"
 
 const TTL_MS = 15 * 60 * 1000
@@ -618,7 +618,7 @@ async function buildBoard(): Promise<Board> {
 export async function getLiveBoardForPro(isPro: boolean): Promise<Board> {
   const board = await getLiveBoard()
   if (!isPro) return board
-  return { ...board, teams: await attachTeamXgMetrics(board.teams) }
+  return board
 }
 
 export function getLiveBoard(): Promise<Board> {

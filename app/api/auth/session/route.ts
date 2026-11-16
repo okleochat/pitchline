@@ -11,16 +11,28 @@ const RECENT_SIGN_IN_SECONDS = 5 * 60
 function sameOrigin(request: NextRequest): boolean {
   const origin = request.headers.get("origin")
   if (!origin) return false
-  try { return new URL(origin).origin === request.nextUrl.origin } catch { return false }
+  try {
+    const parsed = new URL(origin)
+    const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+    const requestHost = forwardedHost || request.headers.get("host") || request.nextUrl.host
+    const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()
+    const requestProtocol = forwardedProto ? forwardedProto + ":" : request.nextUrl.protocol
+    return parsed.host === requestHost && parsed.protocol === requestProtocol
+  } catch {
+    return false
+  }
 }
 
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ error: "invalid_origin" }, { status: 403 })
+
+  let stage = "verify_id_token"
   try {
     const body = (await request.json()) as { idToken?: unknown }
     if (typeof body.idToken !== "string" || body.idToken.length > 12_000) {
       return NextResponse.json({ error: "invalid_token" }, { status: 400 })
     }
+
     const auth = getFirebaseAdminAuth()
     const decoded = await auth.verifyIdToken(body.idToken, true)
     const authTime = Number(decoded.auth_time ?? 0)
@@ -28,17 +40,28 @@ export async function POST(request: NextRequest) {
     if (!authTime || age < 0 || age > RECENT_SIGN_IN_SECONDS) {
       return NextResponse.json({ error: "recent_sign_in_required" }, { status: 401 })
     }
+
+    stage = "create_session_cookie"
     const session = await auth.createSessionCookie(body.idToken, { expiresIn: SESSION_DURATION_MS })
 
-    const profileRef = getFirebaseAdminFirestore().collection("users").doc(decoded.uid)
-    const profile = await profileRef.get()
-    const profileData = {
-      displayName: typeof decoded.name === "string" ? decoded.name : null,
-      photoURL: typeof decoded.picture === "string" ? decoded.picture : null,
-      updatedAt: FieldValue.serverTimestamp(),
-      ...(!profile.exists ? { createdAt: FieldValue.serverTimestamp() } : {}),
+    // Profile persistence is useful, but it is not an authentication prerequisite.
+    try {
+      const profileRef = getFirebaseAdminFirestore().collection("users").doc(decoded.uid)
+      const profile = await profileRef.get()
+      const profileData = {
+        displayName: typeof decoded.name === "string" ? decoded.name : null,
+        photoURL: typeof decoded.picture === "string" ? decoded.picture : null,
+        updatedAt: FieldValue.serverTimestamp(),
+        ...(!profile.exists ? { createdAt: FieldValue.serverTimestamp() } : {}),
+      }
+      await profileRef.set(profileData, { merge: true })
+    } catch (error) {
+      console.warn("[pitchline/auth] Session created, but profile sync failed.", {
+        code: typeof error === "object" && error !== null && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "unknown",
+      })
     }
-    await profileRef.set(profileData, { merge: true })
 
     const response = NextResponse.json({ ok: true })
     response.cookies.set(SESSION_COOKIE_NAME, session, {
@@ -49,8 +72,12 @@ export async function POST(request: NextRequest) {
       maxAge: Math.floor(SESSION_DURATION_MS / 1000),
     })
     return response
-  } catch {
-    return NextResponse.json({ error: "session_creation_failed" }, { status: 503 })
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : error instanceof Error ? error.name : "unknown"
+    console.error("[pitchline/auth] Session creation failed.", { stage, code })
+    return NextResponse.json({ error: "session_creation_failed", stage }, { status: 503 })
   }
 }
 

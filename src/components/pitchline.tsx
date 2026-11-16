@@ -747,7 +747,7 @@ export function Pitchline({
   useEffect(() => {
     if (!ready) return
     if (session.loading) return
-    const payload: DeskState = { league, homeId, awayId, edgePct, spread, totalLine, model, form: formWindow, level, engineMode }
+    const payload: DeskState = { league, homeId, awayId, edgePct, spread, totalLine, model, form: formWindow, level, engineMode: isPro ? engineMode : undefined }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
   }, [ready, session.loading, league, homeId, awayId, edgePct, spread, totalLine, model, formWindow, level, engineMode])
 
@@ -919,7 +919,7 @@ export function Pitchline({
       model,
       form: formWindow,
       level,
-      engineMode,
+      engineMode: isPro ? engineMode : undefined,
     } satisfies DeskState))
     window.location.assign("/")
   }

@@ -116,7 +116,7 @@ export function derivePlayerScores(statistics: unknown): PlayerScores | null {
 }
 
 /**
- * API-Football's /players/squads endpoint returns registered squad members
+ * API-Football's /players/squads endpoint returns current squad players
  * directly as a current registered-squad player record.
  */
 export function normaliseSquadPlayer(
@@ -193,7 +193,7 @@ function weightedAverage(
 }
 
 /**
- * Estimate team strength from the whole registered squad, not a predicted
+ * Estimate team strength from the whole current squad, not a predicted
  * formation or a matchday XI. Playing time weights contributors, positions
  * distinguish player responsibilities, and low-usage players inform squad
  * depth. Adjustments shrink towards neutral when squad-stat coverage is thin.

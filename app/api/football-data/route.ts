@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSportmonksFixtures, sportmonksConfig, SportmonksError } from "@/lib/providers/sportmonks"
+import { getCurrentUser } from "@/lib/firebase/server-session"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -30,6 +31,9 @@ export async function GET(request: NextRequest) {
   const start = validDate(startInput)
   const end = validDate(endInput)
   if (!start || !end) return NextResponse.json({ error: "Use valid YYYY-MM-DD start and end dates." }, { status: 400 })
+
+  const user = await getCurrentUser()
+  if (!user?.isPro) return NextResponse.json({ error: "pro_required" }, { status: user ? 403 : 401 })
 
   try {
     const result = await getSportmonksFixtures(start, end)

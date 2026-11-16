@@ -65,11 +65,6 @@ export async function POST(request: NextRequest) {
   const away = teamInput(body?.away)
   const edge = typeof body?.edge === "number" ? body.edge : Number.NaN
   const roll = typeof body?.roll === "number" ? body.roll : Number.NaN
-  const fixtureInput = record(body?.fixture)
-  const kickoffAt = typeof fixtureInput?.kickoffAt === "string" &&
-    Number.isFinite(new Date(fixtureInput.kickoffAt).getTime())
-    ? fixtureInput.kickoffAt
-    : undefined
   if (!home || !away || home.id === away.id) {
     return NextResponse.json({ error: "invalid_teams" }, { status: 400 })
   }
@@ -82,7 +77,6 @@ export async function POST(request: NextRequest) {
 
   try {
     const playerData = await getProPlayerData({
-      kickoffAt,
       home: { id: home.id, name: home.name, league: home.league, rateLeague: home.rateLeague },
       away: { id: away.id, name: away.name, league: away.league, rateLeague: away.rateLeague },
     })

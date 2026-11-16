@@ -39,7 +39,7 @@ Repeated simulations reuse the shared `provider_api_cache` collection, with an i
 
 ## 4. Permission and production operation
 
-The project owner has confirmed that ESPN provided written permission for the intended use during the research phase. Keep that correspondence with the company's data-provider and rights records, and retain any scope, attribution, territory, or product restrictions stated in that email.
+The project owner reports that ESPN confirmed by email that its data may be used. Keep that correspondence with the company's data-provider and rights records, and follow the exact scope, attribution, territory, and product restrictions stated in the email.
 
 The ESPN player-data adapter runs server-side and uses Pitchline's existing ESPN transport. No ESPN credentials are placed in browser code or committed to the repository.
 

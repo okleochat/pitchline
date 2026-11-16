@@ -95,6 +95,7 @@ type LoadedLeague = {
   weekend: string
   season: string
   fixturesSource: "live" | "snapshot"
+  fixturesUpdatedAt: string
   names: { raw: string; team: Team }[]
 }
 
@@ -539,6 +540,7 @@ async function loadLeague(
     weekend: fixtures.length ? weekendLabel(fixtures.map((item) => new Date(item.time)), source.tz) : saved.weekends[league],
     season,
     fixturesSource: ordered.length ? "live" : "snapshot",
+    fixturesUpdatedAt: ordered.length ? new Date().toISOString() : saved.leagueStatus[league].fixturesUpdatedAt,
     names,
   }
 }
@@ -588,6 +590,7 @@ async function buildBoard(): Promise<Board> {
           teamCount: result.teams.length,
           fixtureCount: result.fixtures.length,
           updatedAt,
+          fixturesUpdatedAt: result.fixturesUpdatedAt,
         }
       : saved.leagueStatus[league.id]
   }

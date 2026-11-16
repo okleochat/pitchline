@@ -330,6 +330,7 @@ export type LeagueFeedStatus = {
   teamCount: number
   fixtureCount: number
   updatedAt: string
+  fixturesUpdatedAt: string
 }
 
 export type Board = {
@@ -361,6 +362,7 @@ export function snapshotBoard(): Board {
           teamCount: TEAMS.filter((team) => team.league === league.id).length,
           fixtureCount: FIXTURES.filter((fixture) => fixture.league === league.id).length,
           updatedAt: "2026-11-15T18:00:00.000Z",
+          fixturesUpdatedAt: "2026-11-15T18:00:00.000Z",
         },
       ]),
     ) as Record<LeagueId, LeagueFeedStatus>,

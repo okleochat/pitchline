@@ -158,6 +158,142 @@ def fold_name(value: str) -> str:
 
 
 
+EXPECTED_FC27_RATINGS = {
+    "kylian mbappe": 91,
+    "erling haaland": 91,
+    "lamine yamal": 90,
+}
+
+
+def validate_fc27_edition(raw_players: list[dict[str, Any]]) -> None:
+    observed: dict[str, int] = {}
+    for raw in raw_players:
+        player = normalise_player(raw)
+        if not player:
+            continue
+        overall = player.get("overall")
+        if not isinstance(overall, int):
+            continue
+        for name_key in player.get("nameKeys", []):
+            if name_key in EXPECTED_FC27_RATINGS:
+                observed[name_key] = overall
+
+    mismatches = {
+        name: {"expected": rating, "observed": observed.get(name)}
+        for name, rating in EXPECTED_FC27_RATINGS.items()
+        if observed.get(name) != rating
+    }
+    if mismatches:
+        raise RuntimeError(
+            "The EA response does not match the verified FC 27 base ratings for "
+            + json.dumps(mismatches, ensure_ascii=False)
+            + ". EA may be serving an older edition or may have changed its feed; sync aborted."
+        )
+
+
+def request_page(offset: int, cache_buster: int) -> dict[str, Any]:
+    params = urlencode({
+        "locale": "en",
+        "limit": PAGE_SIZE,
+        "offset": offset,
+        "cb": cache_buster,
+    })
+    request = Request(
+        f"{EA_API}?{params}",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "Pitchline-EA-FC27-Ratings-Sync/1.0",
+            "Referer": EA_RATINGS_PAGE,
+            "drop-referrer": EA_RATINGS_PAGE,
+            "x-feature": EA_FEATURE_ID,
+        },
+    )
+
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+                raise RuntimeError("EA returned an unexpected JSON shape; expected an items array.")
+            return payload
+        except HTTPError as error:
+            if error.code in (401, 403, 404):
+                raise RuntimeError(
+                    f"EA ratings endpoint returned HTTP {error.code}. The public feed may have changed "
+                    "or denied this request. Pitchline will not attempt to bypass that restriction."
+                ) from error
+            if error.code == 429 or 500 <= error.code < 600:
+                if attempt >= MAX_RETRIES:
+                    raise RuntimeError(f"EA ratings endpoint kept returning HTTP {error.code}.") from error
+                retry_after = error.headers.get("Retry-After")
+                try:
+                    delay = min(60.0, max(1.0, float(retry_after))) if retry_after else 2.0 ** attempt
+                except (TypeError, ValueError):
+                    delay = 2.0 ** attempt
+                print(f"EA returned HTTP {error.code}; retrying in {delay:.0f}s ({attempt + 1}/{MAX_RETRIES})")
+                time.sleep(delay)
+                continue
+            raise RuntimeError(f"EA ratings endpoint returned HTTP {error.code}.") from error
+        except (URLError, TimeoutError, json.JSONDecodeError) as error:
+            if attempt >= MAX_RETRIES:
+                raise RuntimeError(f"Could not retrieve valid JSON from EA: {error}") from error
+            delay = min(30.0, 2.0 ** attempt)
+            print(f"EA request failed; retrying in {delay:.0f}s ({attempt + 1}/{MAX_RETRIES})")
+            time.sleep(delay)
+
+    raise RuntimeError("EA request failed unexpectedly.")
+
+
+def fetch_all_players(page_delay: float = 0.35) -> tuple[list[dict[str, Any]], int]:
+    cache_buster = int(time.time())
+    first = request_page(0, cache_buster)
+    total = first.get("totalItems")
+    if isinstance(total, bool) or not isinstance(total, int) or total < 10_000 or total > 100_000:
+        raise RuntimeError(
+            f"EA reported {total!r} records. Refusing to save this as FC 27; "
+            "the edition response may be stale or incomplete."
+        )
+
+    first_items = first["items"]
+    if not first_items:
+        raise RuntimeError("EA returned an empty first page; sync aborted.")
+
+    pages = math.ceil(total / PAGE_SIZE)
+    print(f"EA reports {total:,} player items ({pages} pages).")
+    raw_players: list[dict[str, Any]] = [
+        item for item in first_items if isinstance(item, dict)
+    ]
+
+    for page_number, offset in enumerate(range(PAGE_SIZE, total, PAGE_SIZE), start=2):
+        payload = request_page(offset, cache_buster)
+        if payload.get("totalItems") != total:
+            raise RuntimeError("EA's total item count changed during pagination; sync aborted.")
+        items = payload.get("items", [])
+        if not isinstance(items, list) or not items:
+            raise RuntimeError(f"EA returned an empty or invalid page at offset {offset}; sync aborted.")
+        raw_players.extend(item for item in items if isinstance(item, dict))
+        if page_number == pages or page_number % 10 == 0:
+            print(f"Fetched page {page_number}/{pages} ({len(raw_players):,}/{total:,} rows).")
+        if page_delay > 0:
+            time.sleep(page_delay)
+
+    players_by_id: dict[str, dict[str, Any]] = {}
+    for raw in raw_players:
+        player = normalise_player(raw)
+        if player:
+            players_by_id[player["id"]] = player
+
+    players = list(players_by_id.values())
+    if len(players) < int(total * 0.95):
+        raise RuntimeError(
+            f"Only {len(players):,} unique usable players were normalized from {total:,} items. "
+            "Sync aborted rather than publishing an incomplete database."
+        )
+
+    validate_fc27_edition(raw_players)
+    return players, total
+
+
 def is_mens_player(player: dict[str, Any]) -> bool:
     gender = fold_name(str(player.get("gender") or ""))
     return gender in {"men", "men s football", "mens football", "male", "mens"}

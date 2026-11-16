@@ -4,15 +4,17 @@ import { aggregateMatchXg, buildPrematchRows } from "./statsbomb-backtest.mjs"
 
 test("aggregates event-level StatsBomb shot xG by team", () => {
   const result = aggregateMatchXg([
-    { type: { name: "Shot" }, team: { name: "A" }, shot: { statsbomb_xg: 0.2 } },
-    { type: { name: "Shot" }, team: { name: "A" }, shot: { statsbomb_xg: 0.5 } },
-    { type: { name: "Shot" }, team: { name: "B" }, shot: { statsbomb_xg: 0.1 } },
+    { type: { name: "Shot" }, team: { id: 10, name: "A" }, shot: { statsbomb_xg: 0.2 } },
+    { type: { name: "Shot" }, team: { id: 10, name: "A" }, shot: { statsbomb_xg: 0.5 } },
+    { type: { name: "Shot" }, team: { id: 20, name: "B" }, shot: { statsbomb_xg: 0.1 } },
     { type: { name: "Pass" }, team: { name: "A" } },
   ])
   assert.equal(result.complete, true)
   assert.equal(result.totals.get("A").xgFor, 0.7)
   assert.equal(result.totals.get("A").shots, 2)
   assert.equal(result.totals.get("B").xgFor, 0.1)
+  assert.equal(result.totals.get("10").xgFor, 0.7)
+  assert.equal(result.totals.get("20").xgFor, 0.1)
 })
 
 test("uses only five previous completed matches and excludes same-day matches", () => {

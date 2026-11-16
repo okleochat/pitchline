@@ -1333,7 +1333,7 @@ export function Pitchline({
               Possessions move through build-up, progression, chance creation and finishing. The model adjusts for the score, late-game urgency and fatigue.
             </p>
             <p className="mt-2 text-xs text-muted">
-              Team-level rates remain the baseline. When an approved provider feed returns both starting XIs with sufficient player-season coverage, Pitchline derives positional indices and adjusts the matchup. Otherwise it clearly falls back to team-level inputs.
+              Team-level rates remain the baseline. When an approved provider feed returns both registered squads with sufficient player-season coverage, Pitchline derives squad-wide attack, creativity, defence and depth indices. No matchday starting XI or formation is required.
             </p>
           </div>
         ) : (
@@ -1869,7 +1869,7 @@ export function Pitchline({
       <footer className="px-1 text-sm text-muted">
         <p>
           {isPro && engineMode === "pro" ? (
-            "The Pro phase-of-play engine simulates build-up, progression, chance creation and finishing across 2,500 possession-sequence matches. It incorporates score-state urgency and fatigue. Where approved player data covers both starting XIs, derived positional indices adjust the attacking, creativity and defensive phases; otherwise it falls back to team-level inputs. Treat it as experimental until historical out-of-sample testing confirms an improvement."
+            "The Pro phase-of-play engine simulates build-up, progression, chance creation and finishing across 2,500 possession-sequence matches. It incorporates score-state urgency and fatigue. Where approved player data covers both registered squads, derived squad-wide indices adjust attacking, creativity, defensive and late-game depth effects; otherwise it uses team-level inputs. It does not require matchday lineups. Treat it as experimental until historical out-of-sample testing confirms an improvement."
           ) : (
             <>
               Expected goals equal a side’s attack times the opponent’s defense, scaled to a league average of 1.35, then

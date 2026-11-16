@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { backtestRows } from "./backtest.mjs"
 
 const ROOT = "https://raw.githubusercontent.com/hudl/open-data/master/data"
 const USER_AGENT = "Pitchline-StatsBomb-OpenData-Research/1.0"
@@ -72,8 +71,10 @@ export function buildPrematchRows(matches, windowSize = 5) {
     // Every fixture on a date is scored before any fixture from that date is added to history.
     // This conservative day boundary prevents same-day kick-off ordering from leaking features.
     for (const match of group) {
-      const homeHistory = history.get(match.homeTeam) ?? []
-      const awayHistory = history.get(match.awayTeam) ?? []
+      const homeKey = match.homeKey ?? match.homeTeam
+      const awayKey = match.awayKey ?? match.awayTeam
+      const homeHistory = history.get(homeKey) ?? []
+      const awayHistory = history.get(awayKey) ?? []
       if (homeHistory.length < windowSize || awayHistory.length < windowSize) continue
 
       const homeLast = homeHistory.slice(-windowSize)
@@ -101,12 +102,14 @@ export function buildPrematchRows(matches, windowSize = 5) {
     for (const match of group) {
       if (!Number.isInteger(match.homeGoals) || !Number.isInteger(match.awayGoals)) continue
       if (!Number.isFinite(match.homeXg) || !Number.isFinite(match.awayXg)) continue
-      const home = history.get(match.homeTeam) ?? []
+      const homeKey = match.homeKey ?? match.homeTeam
+      const awayKey = match.awayKey ?? match.awayTeam
+      const home = history.get(homeKey) ?? []
       home.push({ xgFor: match.homeXg, xgAgainst: match.awayXg })
-      history.set(match.homeTeam, home)
-      const away = history.get(match.awayTeam) ?? []
+      history.set(homeKey, home)
+      const away = history.get(awayKey) ?? []
       away.push({ xgFor: match.awayXg, xgAgainst: match.homeXg })
-      history.set(match.awayTeam, away)
+      history.set(awayKey, away)
     }
   }
 
@@ -172,6 +175,8 @@ async function runBacktest(options) {
     kickoff: isoForMatch(match),
     homeTeam: match.home_team?.home_team_name,
     awayTeam: match.away_team?.away_team_name,
+    homeKey: String(match.home_team?.home_team_id ?? match.home_team?.id ?? ""),
+    awayKey: String(match.away_team?.away_team_id ?? match.away_team?.id ?? ""),
     homeGoals: match.home_score,
     awayGoals: match.away_score,
   })).filter((match) => match.id && match.homeTeam && match.awayTeam && match.kickoff)
@@ -199,6 +204,7 @@ async function runBacktest(options) {
     throw new Error(`No fixtures have ${windowSize} prior completed StatsBomb matches for both teams with usable shot-level xG. Try another competition/season or a smaller research window; do not fill missing values with goals.`)
   }
 
+  const { backtestRows } = await import("./backtest.mjs")
   const report = backtestRows(rows)
   const metadata = {
     ...report,

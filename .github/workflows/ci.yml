@@ -6,18 +6,36 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm install --no-audit --no-fund
+      - name: Regenerate lockfile for Firebase deployment repair
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/firebase-npm-lockfile'
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Commit regenerated lockfile to repair branch
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/firebase-npm-lockfile'
+        env:
+          PR_BRANCH: ${{ github.head_ref }}
+        run: |
+          if ! git diff --quiet -- package-lock.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: sync npm lockfile"
+            git push origin "HEAD:${PR_BRANCH}"
+          fi
+      - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

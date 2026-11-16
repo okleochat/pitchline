@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { analyticalMarkets } from "../src/lib/sim.ts"
 
 const REQUIRED = [
-  "fixture_id", "date", "home_team", "away_team",
+  "fixture_id", "date", "features_as_of", "home_team", "away_team",
   "home_attack", "home_defense", "away_attack", "away_defense",
   "home_goals", "away_goals",
 ]
@@ -107,7 +107,12 @@ export function backtestRows(rows) {
     const rowNumber = row._row ?? String(index + 2)
     if (!row.fixture_id || ids.has(row.fixture_id)) throw new Error("Row " + rowNumber + ": fixture_id must be unique.")
     ids.add(row.fixture_id)
-    if (!Number.isFinite(Date.parse(row.date))) throw new Error("Row " + rowNumber + ": date is invalid.")
+    const kickoff = Date.parse(row.date)
+    const featureCutoff = Date.parse(row.features_as_of)
+    if (!Number.isFinite(kickoff)) throw new Error("Row " + rowNumber + ": date is invalid.")
+    if (!Number.isFinite(featureCutoff) || featureCutoff >= kickoff) {
+      throw new Error("Row " + rowNumber + ": features_as_of must be a valid timestamp before kickoff.")
+    }
     const hg = numeric(row, "home_goals")
     const ag = numeric(row, "away_goals")
     if (!Number.isInteger(hg) || !Number.isInteger(ag)) throw new Error("Row " + rowNumber + ": goals must be whole numbers.")

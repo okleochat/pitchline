@@ -165,12 +165,12 @@ export async function getInternationalFixtures(date: string): Promise<{
   // Schedule results are paginated by tournament priority. Read at most three
   // pages (150 tournament slots) and cache each page for 15 minutes to protect
   // the provider's free request quota during evaluation.
-  const firstPage = await getJson("/api/schedule/" + date, 15 * 60 * 1000)
+  const firstPage = await getJson("/schedule/" + date, 15 * 60 * 1000)
   const totalPages = Math.max(1, number(firstPage.totalPages) ?? 1)
   const requestedPages = Math.min(3, totalPages)
   const extraPages = await Promise.all(
     Array.from({ length: requestedPages - 1 }, (_, index) =>
-      getJson("/api/schedule/" + date + "?page=" + (index + 2), 15 * 60 * 1000)
+      getJson("/schedule/" + date + "?page=" + (index + 2), 15 * 60 * 1000)
         .catch(() => null),
     ),
   )
@@ -208,7 +208,7 @@ export async function getMatchXg(matchId: string) {
     throw new SportsApiProError("feature_disabled", "The xG integration is disabled until provider coverage is verified.")
   }
 
-  const payload = await getJson("/api/match/" + matchId + "/shotmap", 60 * 1000)
+  const payload = await getJson("/match/" + matchId + "/shotmap", 60 * 1000)
   const data = record(payload.data)
   const shots = Array.isArray(data?.shotmap) ? data.shotmap.map(record).filter((shot): shot is Dict => Boolean(shot)) : []
   if (!shots.length || shots.some((shot) => number(shot.xg) === null || typeof shot.isHome !== "boolean")) {
@@ -245,7 +245,7 @@ export async function getMatchOdds(matchId: string) {
     throw new SportsApiProError("feature_disabled", "The bookmaker odds integration is disabled.")
   }
 
-  const payload = await getJson("/api/match/" + matchId + "/odds/all", 30 * 1000)
+  const payload = await getJson("/match/" + matchId + "/odds/all", 30 * 1000)
   const data = record(payload.data)
   return {
     source: "SportsAPI Pro",

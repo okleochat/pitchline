@@ -103,7 +103,7 @@ async function requestJson<T>(url: URL): Promise<T> {
   return await response.json() as T
 }
 
-function addDateRange(url: URL, start: string, end: string, include: string, page = 1) {
+function addDateRange(url: URL, include: string, page = 1) {
   url.searchParams.set("include", include)
   url.searchParams.set("per_page", "50")
   url.searchParams.set("page", String(page))
@@ -133,7 +133,7 @@ export async function getSportmonksFixtures(start: string, end: string): Promise
   let hasMore = true
   for (let page = 1; page <= FIXTURE_PAGE_LIMIT && hasMore; page += 1) {
     const url = new URL(`${API_ROOT}/fixtures/between/${start}/${end}`)
-    addDateRange(url, start, end, includes.join(";"), page)
+    addDateRange(url, includes.join(";"), page)
     const body = await requestJson<{
       data?: SportmonksFixture[]
       pagination?: { has_more?: boolean }
@@ -178,7 +178,7 @@ async function recentXgForTeam(name: string, start: string, end: string): Promis
   let hasMore = true
   for (let page = 1; page <= TEAM_FIXTURE_PAGE_LIMIT && hasMore; page += 1) {
     const url = new URL(`${API_ROOT}/fixtures/between/${start}/${end}/${teamId}`)
-    addDateRange(url, start, end, include, page)
+    addDateRange(url, include, page)
     const body = await requestJson<{
       data?: SportmonksFixture[]
       pagination?: { has_more?: boolean }

@@ -143,6 +143,7 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
   const statusLabel: Record<ProPlayerData["status"], string> = {
     available: "Squad adjustments applied",
     partial: "Player data coverage is partial",
+    syncing: "Loading player season data",
     not_configured: "Player feed not configured",
     not_licensed: "Player feed awaiting permission",
     team_not_found: "Team mapping unavailable",
@@ -720,6 +721,7 @@ export function Pitchline({
   const [proReport, setProReport] = useState<ProReport | null>(null)
   const [proLoading, setProLoading] = useState(false)
   const [proError, setProError] = useState<string | null>(null)
+  const [proPlayerRefresh, setProPlayerRefresh] = useState(0)
   const view = initialView
   const [pickKind, setPickKind] = useState<PickKind | "all">("all")
   const [pickLeague, setPickLeague] = useState<LeagueId | "all">("all")
@@ -912,7 +914,22 @@ export function Pitchline({
       })
 
     return () => controller.abort()
-  }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll])
+  }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll, proPlayerRefresh])
+
+  useEffect(() => {
+    if (
+      !isPro ||
+      engineMode !== "pro" ||
+      view !== "desk" ||
+      same ||
+      proReport?.playerData?.status !== "syncing"
+    ) return
+
+    const timer = window.setTimeout(() => {
+      setProPlayerRefresh((value) => value + 1)
+    }, 65_000)
+    return () => window.clearTimeout(timer)
+  }, [isPro, engineMode, view, same, proReport?.playerData?.status])
 
   const report = isPro && engineMode === "pro" && view === "desk" ? proReport : classicReport
 

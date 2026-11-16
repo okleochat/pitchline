@@ -128,7 +128,7 @@ export function deriveSportApiPlayerScores(
     .filter(([key]) => key !== "minutes")
     .some(([, aliases]) => selected.some((value) => {
       const match = record(value)
-      return Boolean(match && aliases.some((key) => numeric(match[key]) !== null))
+      return Boolean(match && aliases.some((key) => (numeric(match[key]) ?? 0) > 0))
     }))
   const minutes = sum(fieldAliases.minutes)
   const appearances = selected.filter((value) => {

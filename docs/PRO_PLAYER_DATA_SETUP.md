@@ -1,15 +1,14 @@
-# Enabling Pro player and lineup intelligence
+# Enabling Pro player and current-squad intelligence
 
-The code for the API-Football connector is included, but the integration is deliberately disabled by default. Do not enable it until the intended commercial use, display of data-derived results, and any league/federation rights have been confirmed.
+The API-Football connector enriches Pro simulations using each team's current current squad and player-season performance. It does **not** wait for a fixture-specific starting XI or formation.
 
-## 1. Create a free API-Football key
+## 1. API-Football key
 
 1. Open [API-Football](https://www.api-football.com/).
-2. Create an account and activate the Free plan.
-3. Copy the API key from the dashboard.
-4. Keep the key private. Do not send it in a chat, commit it to GitHub, or put it in a `NEXT_PUBLIC_*` variable. Rotate the key immediately if it has been pasted into a chat, issue, log, or source file.
+2. Create an account and activate a plan that includes the required player endpoints.
+3. Keep the API key private. Do not send it in a chat, issue, log, or source file, and never put it in a `NEXT_PUBLIC_*` variable. Rotate it immediately if it has been exposed.
 
-The published Free plan currently lists 100 requests per day and includes player and lineup endpoints. It is suitable for a small-scale integration smoke test, not unlimited production traffic.
+The published Free plan currently lists 100 requests per day and 10 requests per minute. This is enough for controlled testing, but national-team squad lookups can consume multiple requests on the first run because Pitchline looks up individual player-season records. Team mappings are cached for seven days, squad snapshots for 24 hours, and player statistics for 18 hours. Pitchline uses a shared Firestore request budget of six calls per minute across App Hosting instances and automatically resumes deferred lookups.
 
 ## 2. Confirm rights before enabling data use
 
@@ -27,30 +26,30 @@ In Firebase Console:
 4. Only after the permissions described above are confirmed, add the runtime variable `API_FOOTBALL_DATA_USE_ALLOWED` with value `true`.
 5. Trigger a new App Hosting rollout.
 
-Alternatively, from an authenticated local checkout, run:
+The repository intentionally does not hard-code the secret. Keep the key in Secret Manager and grant the `pitchline` App Hosting backend permission to read it.
 
-```bash
-firebase apphosting:secrets:set API_FOOTBALL_KEY --project pitchline-app
-```
+## 4. How the player-data lookup works
 
-Follow the prompts to enter the rotated key and grant the requested Secret Manager permissions. The CLI can add the secret reference to `apphosting.yaml` for the backend. Confirm that the runtime binding is named `API_FOOTBALL_KEY` and is attached to the `pitchline` App Hosting backend. See the [official App Hosting secret configuration guide](https://firebase.google.com/docs/app-hosting/configure) for the current console and CLI flow.
+- API-Football `/players/squads?team={teamId}` supplies the team's current current squad.
+- Club teams use `/players?team={teamId}&season={season}&page={page}` for the club's season player statistics. A second page is requested only when page one is full.
+- National teams use `/players?id={playerId}&season={season}` for each current squad member so the model can use the player's club-season performance rather than a small national-team appearance sample.
+- No fixture ID, kickoff timestamp, fixture lineup, starting XI or formation is required.
+- The browser receives only aggregate indices and coverage counts. Individual provider records and the API key remain server-side.
 
-The repository intentionally does not reference a secret that may not yet exist, so simply merging this code will not break deployments that have not configured the key.
+The API-Football squads endpoint is a current-squad snapshot, not a historical archive of competition registration. A future tournament prediction can use the roster currently returned by the provider; Pitchline cannot claim it is the official tournament squad until the provider's snapshot reflects the announced roster.
 
-Do not configure the permission flag to true merely because an API key exists. Without both settings, Pitchline will continue to run the Pro team-level simulation and display why player data is unavailable.
+## 5. Verify the integration
 
-## 4. Verify the integration
+Use a Pro account, choose any two teams in the Pro simulator, and run the simulation. An upcoming fixture does not need to be selected.
 
-Use a Pro account and select a live upcoming fixture whose teams are covered by API-Football.
+- The panel should show **Player & squad intelligence**.
+- Each side should show the number of current squad members with usable season-stat records.
+- Attack, creativity, defence and squad-depth indices are calculated by Pitchline.
+- Player adjustments are applied only when both teams have at least eight rated players and at least 30% coverage.
+- If either team has insufficient coverage, the simulation still runs, but both teams' player-derived multipliers remain neutral.
 
-- Before the provider publishes lineups, Pitchline should show **Lineups not published yet**.
-- Once lineups are available, Pitchline should show the number of starters with usable season stats for each side.
-- Player adjustments should be applied only when both teams have at least seven rated starters and at least 60% starting-XI coverage.
-- If either side has insufficient coverage, neither side should be adjusted.
-- The UI displays Pitchline-derived team indices and the adjustment size; raw player records and the provider API key are never sent to the browser.
+## 6. Request quota and caching
 
-## 5. Request quota and caching
+API-Football's published Free plan lists 100 requests per day. Team mapping is cached for seven days, current-squad snapshots for 24 hours, and player statistics for 18 hours in the private Firestore `provider_api_cache` collection, with a local in-memory cache on each App Hosting instance.
 
-API-Football's published Free plan is 100 requests/day. The connector caches team mapping for seven days, player season pages for 18 hours, team fixture lists for 20 minutes and lineups for 10 minutes. Those cached responses are shared across Firebase App Hosting instances in the private Firestore `provider_api_cache` collection, with local per-instance caching on top.
-
-The collection is server-only: the existing Firestore rules deny client access and the Admin SDK is used from server code. Monitor API-Football usage in its dashboard during the initial test period. A low free-tier quota means we should not poll lineups continuously or trigger refreshes for every market calculation.
+For club teams, Pitchline requests one or two team-season statistics pages. For national teams, it requests the player-season record for each member of the current squad, with a concurrency limit of four. The first analysis of two national teams can therefore use a significant fraction of the free daily quota. Pitchline caps outgoing calls at six per App Hosting instance per minute; if more player records are needed, the Pro panel automatically resumes the lookup after a short interval. Repeating the same analysis reuses cached data. Monitor API-Football usage during initial testing.

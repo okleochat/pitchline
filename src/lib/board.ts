@@ -24,7 +24,7 @@ export async function loadForm(input: {
 
 
 export async function loadProSimulation(input: {
-  data: { home: ProTeam; away: ProTeam; edge: number; roll: number; fixture?: { kickoffAt: string } }
+  data: { home: ProTeam; away: ProTeam; edge: number; roll: number }
   signal?: AbortSignal
 }): Promise<ProReport> {
   const response = await fetch("/api/pro/simulate", {

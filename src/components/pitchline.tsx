@@ -21,7 +21,7 @@ import { loadBoard, loadForm, loadProSimulation, type FormResult } from "@/lib/b
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
 import { PRO_SIM_RUNS } from "@/lib/pro-sim-config"
 import type { ProReport } from "@/lib/pro-sim"
-import type { ProPlayerData, ProTeamLineup } from "@/lib/pro-player-data"
+import type { ProPlayerData, ProTeamSquad } from "@/lib/pro-player-data"
 import {
   DIXON_RHO,
   SIMS,
@@ -106,28 +106,33 @@ function playerImpactText(value: number): string {
   return (delta > 0 ? "+" : "") + delta.toFixed(1) + "%"
 }
 
-function ProLineupSummary({ lineup }: { lineup: ProTeamLineup }) {
+function ProSquadSummary({ squad }: { squad: ProTeamSquad }) {
   return (
     <div className="rounded-lg border border-border bg-background p-3">
-      <p className="text-sm font-semibold">{lineup.teamName}</p>
+      <p className="text-sm font-semibold">{squad.teamName}</p>
       <p className="mt-1 text-xs text-muted">
-        Player data coverage · {lineup.ratedStartingCount}/{lineup.startingCount} starters · {lineup.ratedSubstituteCount}/{lineup.substituteCount} substitutes
+        Player-season coverage · {squad.ratedPlayerCount}/{squad.squadCount} players in current squad · {(squad.factors.coverage * 100).toFixed(0)}%
       </p>
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
           <p className="text-xs text-muted">Attack index</p>
-          <p className="mt-1 font-display text-xl tabular-nums">{lineup.attackIndex.toFixed(1)}</p>
-          <p className="text-xs text-muted">Impact {playerImpactText(lineup.factors.attackMultiplier)}</p>
+          <p className="mt-1 font-display text-xl tabular-nums">{squad.attackIndex.toFixed(1)}</p>
+          <p className="text-xs text-muted">Impact {playerImpactText(squad.factors.attackMultiplier)}</p>
         </div>
         <div>
           <p className="text-xs text-muted">Creativity index</p>
-          <p className="mt-1 font-display text-xl tabular-nums">{lineup.creativityIndex.toFixed(1)}</p>
-          <p className="text-xs text-muted">Impact {playerImpactText(lineup.factors.creativityMultiplier)}</p>
+          <p className="mt-1 font-display text-xl tabular-nums">{squad.creativityIndex.toFixed(1)}</p>
+          <p className="text-xs text-muted">Impact {playerImpactText(squad.factors.creativityMultiplier)}</p>
         </div>
         <div>
           <p className="text-xs text-muted">Defence index</p>
-          <p className="mt-1 font-display text-xl tabular-nums">{lineup.defenceIndex.toFixed(1)}</p>
-          <p className="text-xs text-muted">Conceding {playerImpactText(lineup.factors.defenceMultiplier)}</p>
+          <p className="mt-1 font-display text-xl tabular-nums">{squad.defenceIndex.toFixed(1)}</p>
+          <p className="text-xs text-muted">Conceding {playerImpactText(squad.factors.defenceMultiplier)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted">Squad depth</p>
+          <p className="mt-1 font-display text-xl tabular-nums">{squad.factors.squadDepth.toFixed(1)}</p>
+          <p className="text-xs text-muted">Rotation quality</p>
         </div>
       </div>
     </div>
@@ -136,35 +141,34 @@ function ProLineupSummary({ lineup }: { lineup: ProTeamLineup }) {
 
 function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
   const statusLabel: Record<ProPlayerData["status"], string> = {
-    available: "Player adjustments applied",
-    partial: "Player data partially available",
+    available: "Squad adjustments applied",
+    partial: "Player data coverage is partial",
+    syncing: "Loading player season data",
     not_configured: "Player feed not configured",
     not_licensed: "Player feed awaiting permission",
-    fixture_not_selected: "Select an upcoming fixture",
     team_not_found: "Team mapping unavailable",
-    match_not_found: "Fixture mapping unavailable",
-    lineups_not_available: "Lineups not published yet",
+    squad_not_available: "Registered squad unavailable",
     provider_error: "Player data temporarily unavailable",
   }
   return (
-    <section className="mt-5 border-t border-border pt-4" aria-label="Player and lineup intelligence">
+    <section className="mt-5 border-t border-border pt-4" aria-label="Player and squad intelligence">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-display text-xl">Player & lineup intelligence</h3>
+        <h3 className="font-display text-xl">Player & squad intelligence</h3>
         <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium">
           {statusLabel[data.status]}
         </span>
       </div>
       <p className="mt-2 text-sm text-muted">{data.note}</p>
-      <p className="mt-1 text-xs text-muted">Source: {data.provider} · Team indices are calculated by Pitchline from available season statistics.</p>
+      <p className="mt-1 text-xs text-muted">Source: {data.provider} · Pitchline derives team indices from players in current squad' season performance. No matchday XI is needed.</p>
       {data.home || data.away ? (
         <div className="mt-3 grid gap-3 md:grid-cols-2">
-          {data.home ? <ProLineupSummary lineup={data.home} /> : null}
-          {data.away ? <ProLineupSummary lineup={data.away} /> : null}
+          {data.home ? <ProSquadSummary squad={data.home} /> : null}
+          {data.away ? <ProSquadSummary squad={data.away} /> : null}
         </div>
       ) : null}
       {data.adjustmentsApplied ? (
         <p className="mt-3 text-xs text-muted">
-          Both teams' player-derived indices are incorporated into the Pro match simulation. Indices are Pitchline calculations, not EA ratings or raw provider statistics.
+          Both current squads' player-derived indices are incorporated into the Pro match simulation. Indices are Pitchline calculations, not EA ratings or raw provider statistics.
         </p>
       ) : null}
     </section>
@@ -717,6 +721,7 @@ export function Pitchline({
   const [proReport, setProReport] = useState<ProReport | null>(null)
   const [proLoading, setProLoading] = useState(false)
   const [proError, setProError] = useState<string | null>(null)
+  const [proPlayerRefresh, setProPlayerRefresh] = useState(0)
   const view = initialView
   const [pickKind, setPickKind] = useState<PickKind | "all">("all")
   const [pickLeague, setPickLeague] = useState<LeagueId | "all">("all")
@@ -893,7 +898,7 @@ export function Pitchline({
     setProLoading(true)
     setProError(null)
     loadProSimulation({
-      data: { home: desk.home, away: desk.away, edge, roll, ...(selectedFixture?.kickoffAt ? { fixture: { kickoffAt: selectedFixture.kickoffAt } } : {}) },
+      data: { home: desk.home, away: desk.away, edge, roll },
       signal: controller.signal,
     })
       .then((result) => {
@@ -909,7 +914,22 @@ export function Pitchline({
       })
 
     return () => controller.abort()
-  }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll, selectedFixture?.kickoffAt])
+  }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll, proPlayerRefresh])
+
+  useEffect(() => {
+    if (
+      !isPro ||
+      engineMode !== "pro" ||
+      view !== "desk" ||
+      same ||
+      proReport?.playerData?.status !== "syncing"
+    ) return
+
+    const timer = window.setTimeout(() => {
+      setProPlayerRefresh((value) => value + 1)
+    }, 65_000)
+    return () => window.clearTimeout(timer)
+  }, [isPro, engineMode, view, same, proReport?.playerData?.status])
 
   const report = isPro && engineMode === "pro" && view === "desk" ? proReport : classicReport
 
@@ -1330,7 +1350,7 @@ export function Pitchline({
               Possessions move through build-up, progression, chance creation and finishing. The model adjusts for the score, late-game urgency and fatigue.
             </p>
             <p className="mt-2 text-xs text-muted">
-              Team-level rates remain the baseline. When an approved provider feed returns both starting XIs with sufficient player-season coverage, Pitchline derives positional indices and adjusts the matchup. Otherwise it clearly falls back to team-level inputs.
+              Team-level rates remain the baseline. When an approved provider feed returns both current squads with sufficient player-season coverage, Pitchline derives squad-wide attack, creativity, defence and depth indices. No matchday starting XI or formation is required.
             </p>
           </div>
         ) : (
@@ -1866,7 +1886,7 @@ export function Pitchline({
       <footer className="px-1 text-sm text-muted">
         <p>
           {isPro && engineMode === "pro" ? (
-            "The Pro phase-of-play engine simulates build-up, progression, chance creation and finishing across 2,500 possession-sequence matches. It incorporates score-state urgency and fatigue. Where approved player data covers both starting XIs, derived positional indices adjust the attacking, creativity and defensive phases; otherwise it falls back to team-level inputs. Treat it as experimental until historical out-of-sample testing confirms an improvement."
+            "The Pro phase-of-play engine simulates build-up, progression, chance creation and finishing across 2,500 possession-sequence matches. It incorporates score-state urgency and fatigue. Where approved player data covers both current squads, derived squad-wide indices adjust attacking, creativity, defensive and late-game depth effects; otherwise it uses team-level inputs. It does not require matchday lineups. Treat it as experimental until historical out-of-sample testing confirms an improvement."
           ) : (
             <>
               Expected goals equal a side’s attack times the opponent’s defense, scaled to a league average of 1.35, then

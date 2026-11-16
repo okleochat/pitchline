@@ -1,11 +1,18 @@
 import type {
-  LineupPlayer,
   PlayerPosition,
   PlayerScores,
-  TeamLineupFactors,
+  SquadPlayer,
+  TeamPlayerFactors,
 } from "./pro-player-data.ts"
 
 type Dict = Record<string, unknown>
+
+export type DerivedSquadStrength = {
+  attackIndex: number
+  creativityIndex: number
+  defenceIndex: number
+  factors: TeamPlayerFactors
+}
 
 function record(value: unknown): Dict | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Dict : null
@@ -108,94 +115,33 @@ export function derivePlayerScores(statistics: unknown): PlayerScores | null {
   }
 }
 
-export function deriveLineupFactors(
-  starters: LineupPlayer[],
-  substitutes: LineupPlayer[],
-): TeamLineupFactors {
-  const rated = starters.filter((player) => player.scores !== null)
-  const ratedStarters = rated.length
-  const starterCount = starters.length
-  const coverage = starterCount > 0 ? ratedStarters / starterCount : 0
-
-  const weightedAverage = (
-    key: "attack" | "creativity" | "defence" | "goalkeeper",
-    weights: Record<PlayerPosition, number>,
-  ) => {
-    let sum = 0
-    let weightTotal = 0
-    for (const player of rated) {
-      const score = player.scores?.[key]
-      const weight = weights[player.position]
-      if (score === null || score === undefined || weight <= 0) continue
-      sum += score * weight
-      weightTotal += weight
-    }
-    return weightTotal > 0 ? sum / weightTotal : 50
-  }
-
-  const attackScore = weightedAverage("attack", { GK: 0.05, DF: 0.45, MF: 1, FW: 1.45, UNK: 0.65 })
-  const creativityScore = weightedAverage("creativity", { GK: 0.05, DF: 0.5, MF: 1.4, FW: 0.9, UNK: 0.7 })
-  const defenceScore = weightedAverage("defence", { GK: 0.4, DF: 1.45, MF: 0.95, FW: 0.35, UNK: 0.7 })
-  const keeper = rated.find((player) => player.position === "GK" && player.scores?.goalkeeper !== null)
-  const keeperScore = keeper?.scores?.goalkeeper ?? 50
-  const defenceComposite = defenceScore * 0.78 + keeperScore * 0.22
-  const benchScores = substitutes
-    .map((player) => player.scores?.seasonRating ?? null)
-    .filter((score): score is number => score !== null)
-  const benchStrength = benchScores.length
-    ? benchScores.reduce((sum, score) => sum + score, 0) / benchScores.length
-    : 50
-
-  // Shrink every player adjustment towards neutral when the provider's season
-  // stats do not cover the full starting XI.
-  const enoughData = ratedStarters >= 7 && coverage >= 0.6
-  const shrink = enoughData ? coverage : 0
-  const multiplier = (score: number, divisor: number, min: number, max: number) =>
-    Math.min(max, Math.max(min, 1 + ((score - 50) / divisor) * shrink))
-
-  return {
-    attackMultiplier: multiplier(attackScore, 280, 0.93, 1.07),
-    creativityMultiplier: multiplier(creativityScore, 250, 0.92, 1.08),
-    defenceMultiplier: multiplier(defenceComposite, -280, 0.93, 1.07),
-    benchStrength: benchStrength,
-    ratedStarters,
-    starterCount,
-    coverage,
-    applied: enoughData,
-  }
-}
-
-export function normaliseLineupPlayer(
-  lineupPlayer: unknown,
+/**
+ * API-Football's /players/squads endpoint returns current squad players
+ * directly as a current registered-squad player record.
+ */
+export function normaliseSquadPlayer(
+  squadEntry: unknown,
   playerStats: Map<string, PlayerScores>,
-): LineupPlayer | null {
-  const item = record(lineupPlayer)
+): SquadPlayer | null {
+  const item = record(squadEntry)
   if (!item) return null
-
-  const player = record(item.player)
-  if (!player) return null
-
+  const player = record(item.player) ?? item
   const playerId = numeric(player.id)
   if (playerId === null) return null
   const id = String(playerId)
+  if (typeof player.name !== "string" || !player.name.trim()) return null
 
-  if (typeof player.name !== "string") return null
-  const name = player.name.trim()
-  if (!name) return null
-
-  const number = numeric(player.number)
-  const position = positionFrom(player.pos)
   return {
     id,
-    name,
-    number: number === null ? null : number,
-    position,
-    grid: typeof player.grid === "string" ? player.grid : null,
+    name: player.name.trim(),
+    number: numeric(player.number),
+    position: positionFrom(player.position ?? player.pos),
     scores: playerStats.get(id) ?? null,
   }
 }
 
-export function buildLineupPlayerStats(
+/** Build a lookup of player-season scores keyed by API-Football player ID. */
+export function buildPlayerSeasonStats(
   playerResponse: unknown[],
 ): Map<string, PlayerScores> {
   const result = new Map<string, PlayerScores>()
@@ -206,14 +152,112 @@ export function buildLineupPlayerStats(
     const playerId = numeric(player.id)
     if (playerId === null) continue
     const id = String(playerId)
-    const stats = Array.isArray(row?.statistics) ? row.statistics : []
-    const best = [...stats].sort((left, right) => {
+    const statistics = Array.isArray(row?.statistics) ? row.statistics : []
+    const best = [...statistics].sort((left, right) => {
       const leftGames = record(valueAt(left, "games"))
       const rightGames = record(valueAt(right, "games"))
       return metric(rightGames, "minutes") - metric(leftGames, "minutes")
     })[0]
     const scores = derivePlayerScores(best)
-    if (scores) result.set(id, scores)
+    if (!scores) continue
+
+    const previous = result.get(id)
+    if (!previous || scores.minutes > previous.minutes) result.set(id, scores)
   }
   return result
+}
+
+function involvementWeight(player: SquadPlayer): number {
+  const minutes = player.scores?.minutes ?? 0
+  // Diminishing returns prevent one high-minute player from dominating the
+  // team index while still giving regular contributors more influence.
+  return 0.25 + Math.min(1.25, Math.sqrt(minutes / 1800))
+}
+
+function weightedAverage(
+  players: SquadPlayer[],
+  key: "attack" | "creativity" | "defence" | "goalkeeper",
+  positionWeights: Record<PlayerPosition, number>,
+): number {
+  let total = 0
+  let weightTotal = 0
+  for (const player of players) {
+    const score = player.scores?.[key]
+    const roleWeight = positionWeights[player.position]
+    if (score === null || score === undefined || roleWeight <= 0) continue
+    const weight = roleWeight * involvementWeight(player)
+    total += score * weight
+    weightTotal += weight
+  }
+  return weightTotal > 0 ? total / weightTotal : 50
+}
+
+/**
+ * Estimate team strength from the whole current squad, not a predicted
+ * formation or a matchday XI. Playing time weights contributors, positions
+ * distinguish player responsibilities, and low-usage players inform squad
+ * depth. Adjustments shrink towards neutral when squad-stat coverage is thin.
+ */
+export function deriveSquadFactors(players: SquadPlayer[]): DerivedSquadStrength {
+  const rated = players.filter((player) => player.scores !== null)
+  const squadCount = players.length
+  const ratedPlayers = rated.length
+  const coverage = squadCount > 0 ? ratedPlayers / squadCount : 0
+
+  const attackIndex = weightedAverage(
+    rated,
+    "attack",
+    { GK: 0.05, DF: 0.45, MF: 1, FW: 1.45, UNK: 0.65 },
+  )
+  const creativityIndex = weightedAverage(
+    rated,
+    "creativity",
+    { GK: 0.05, DF: 0.5, MF: 1.4, FW: 0.9, UNK: 0.7 },
+  )
+  const outfieldDefence = weightedAverage(
+    rated,
+    "defence",
+    { GK: 0.1, DF: 1.45, MF: 0.95, FW: 0.35, UNK: 0.7 },
+  )
+  const goalkeeperIndex = weightedAverage(
+    rated,
+    "goalkeeper",
+    { GK: 1, DF: 0, MF: 0, FW: 0, UNK: 0 },
+  )
+  const defenceIndex = outfieldDefence * 0.78 + goalkeeperIndex * 0.22
+
+  const usageRanked = [...rated].sort(
+    (left, right) => (right.scores?.minutes ?? 0) - (left.scores?.minutes ?? 0),
+  )
+  const depthPool = usageRanked.length >= 6
+    ? usageRanked.slice(Math.floor(usageRanked.length / 2))
+    : usageRanked
+  const depthScores = depthPool.map((player) =>
+    player.scores?.seasonRating ??
+      ((player.scores?.attack ?? 50) + (player.scores?.creativity ?? 50) + (player.scores?.defence ?? 50)) / 3,
+  )
+  const squadDepth = depthScores.length
+    ? depthScores.reduce((sum, score) => sum + score, 0) / depthScores.length
+    : 50
+
+  const enoughData = squadCount >= 12 && ratedPlayers >= 8 && coverage >= 0.3
+  const shrink = enoughData ? Math.min(1, coverage) : 0
+  const multiplier = (score: number, divisor: number, min: number, max: number) =>
+    Math.min(max, Math.max(min, 1 + ((score - 50) / divisor) * shrink))
+
+  return {
+    attackIndex: Math.round(attackIndex * 10) / 10,
+    creativityIndex: Math.round(creativityIndex * 10) / 10,
+    defenceIndex: Math.round(defenceIndex * 10) / 10,
+    factors: {
+      attackMultiplier: multiplier(attackIndex, 280, 0.93, 1.07),
+      creativityMultiplier: multiplier(creativityIndex, 250, 0.92, 1.08),
+      defenceMultiplier: multiplier(defenceIndex, -280, 0.93, 1.07),
+      squadDepth: Math.round(squadDepth * 10) / 10,
+      ratedPlayers,
+      squadCount,
+      coverage,
+      applied: enoughData,
+    },
+  }
 }

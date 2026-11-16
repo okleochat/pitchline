@@ -76,12 +76,12 @@ function phaseProfile(
   const mismatch = Math.tanh(Math.log((adjustedAttack + 0.35) / (adjustedDefense + 0.35)))
   const fatigue = minute <= 55 ? 1 : 1 - 0.06 * ((minute - 55) / 35)
   const benchRecovery = clamp(1 + (benchStrength - 50) / 2000, 0.97, 1.03)
-  const substitutionRecovery = minute >= 70 ? benchRecovery : 1
+  const squadDepthRecovery = minute >= 70 ? benchRecovery : 1
   const urgency = minute >= 55 && trailing ? 1.16 : minute >= 55 && leading ? 0.94 : 1
 
   return {
-    buildUp: clamp((BASE_BUILD_UP + mismatch * 0.035) * fatigue * substitutionRecovery, 0.72, 0.96),
-    progression: clamp((BASE_PROGRESSION + mismatch * 0.045) * fatigue * substitutionRecovery, 0.52, 0.84),
+    buildUp: clamp((BASE_BUILD_UP + mismatch * 0.035) * fatigue * squadDepthRecovery, 0.72, 0.96),
+    progression: clamp((BASE_PROGRESSION + mismatch * 0.045) * fatigue * squadDepthRecovery, 0.52, 0.84),
     chanceCreation: clamp((BASE_CHANCE_CREATION + mismatch * 0.03) * urgency, 0.1, 0.3),
   }
 }

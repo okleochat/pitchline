@@ -269,7 +269,7 @@ def fetch_all_players(page_delay: float = 0.35) -> tuple[list[dict[str, Any]], i
 
 def is_mens_player(player: dict[str, Any]) -> bool:
     gender = fold_name(str(player.get("gender") or ""))
-    return gender in {"men", "mens football", "male", "mens"}
+    return gender in {"men", "men s football", "mens football", "male", "mens"}
 
 
 def firestore_team_documents(players: list[dict[str, Any]], synced_at: str) -> dict[str, dict[str, Any]]:

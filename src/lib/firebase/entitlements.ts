@@ -1,4 +1,8 @@
-export type SubscriptionRecord = { status?: unknown; currentPeriodEnd?: unknown }
+export type SubscriptionRecord = {
+  plan?: unknown
+  status?: unknown
+  currentPeriodEnd?: unknown
+}
 
 function timestampMillis(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value < 10_000_000_000 ? value * 1000 : value
@@ -21,9 +25,9 @@ function timestampMillis(value: unknown): number | null {
   return null
 }
 
-/** Pro is granted only from a server-managed active subscription with a future expiry. */
+/** Pro is granted only by a server-managed Pro record with an active status and future expiry. */
 export function isSubscriptionActive(record: SubscriptionRecord | undefined, now = Date.now()): boolean {
-  if (!record || (record.status !== "active" && record.status !== "trialing")) return false
+  if (!record || record.plan !== "pro" || (record.status !== "active" && record.status !== "trialing")) return false
   const end = timestampMillis(record.currentPeriodEnd)
   return end !== null && end > now
 }

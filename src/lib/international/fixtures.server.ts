@@ -300,7 +300,7 @@ export async function getUpcomingInternationalFixtures(days = 14): Promise<Inter
     const events = (board?.events as unknown[] | undefined) ?? []
     for (const event of events) {
       const fixture = mapEvent(event, source)
-      if (!fixture || fixture.completed || fixture.statusState !== "pre") continue
+      if (!fixture) continue
       const kickoff = new Date(fixture.kickoff).getTime()
       if (kickoff < now || kickoff > end) continue
       if (!byId.has(fixture.id)) byId.set(fixture.id, fixture)

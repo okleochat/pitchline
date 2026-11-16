@@ -103,6 +103,7 @@ export default async function InternationalPage({
           <h2 className="font-display text-2xl">No major international fixtures found</h2>
           <p className="mt-2 text-sm text-muted">No matches are scheduled in the selected national-team competitions on this date.</p>
           <p className="mt-2 text-xs text-muted">Coverage includes AFCON, AFCON qualifiers, UEFA Nations League, the World Cup and regional World Cup qualifiers, the Euros, Copa América, the Gold Cup and the Asian Cup.</p>
+          {result.partial ? <p className="mt-3 text-xs text-muted">Some competition feeds did not respond, so this date may be incomplete.</p> : null}
         </section>
       ) : result ? (
         <>

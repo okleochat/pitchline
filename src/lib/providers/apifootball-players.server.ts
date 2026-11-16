@@ -23,6 +23,10 @@ const API_BASE = "https://v3.football.api-sports.io"
 const TEAM_CACHE_MS = 7 * 24 * 60 * 60 * 1000
 const SQUAD_CACHE_MS = 24 * 60 * 60 * 1000
 const PLAYER_CACHE_MS = 18 * 60 * 60 * 1000
+const API_WINDOW_MS = 60 * 1000
+const API_MAX_REQUESTS_PER_WINDOW = 8
+let apiWindowStartedAt = 0
+let apiWindowRequestCount = 0
 const apiCache = new Map<string, ApiCacheValue>()
 const inFlight = new Map<string, Promise<unknown>>()
 
@@ -146,6 +150,19 @@ async function apiRequest(endpoint: string, params: Record<string, string>): Pro
   const apiKey = process.env.API_FOOTBALL_KEY?.trim()
   if (!apiKey) throw new Error("not_configured")
 
+  // API-Football's Free plan allows 10 requests/minute. Keep a small safety
+  // margin per App Hosting instance; deferred lookups are resumed from cache
+  // on the next client refresh rather than bursting and risking a 429.
+  const now = Date.now()
+  if (now - apiWindowStartedAt >= API_WINDOW_MS) {
+    apiWindowStartedAt = now
+    apiWindowRequestCount = 0
+  }
+  if (apiWindowRequestCount >= API_MAX_REQUESTS_PER_WINDOW) {
+    throw new Error("request_deferred")
+  }
+  apiWindowRequestCount += 1
+
   const url = new URL(API_BASE + "/" + endpoint.replace(/^\//, ""))
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value)
 
@@ -159,7 +176,7 @@ async function apiRequest(endpoint: string, params: Record<string, string>): Pro
   } catch {
     throw new Error("provider_unavailable")
   }
-  if (response.status === 429) throw new Error("rate_limited")
+  if (response.status === 429) throw new Error("request_deferred")
   if (!response.ok) throw new Error("provider_unavailable")
 
   let payload: unknown

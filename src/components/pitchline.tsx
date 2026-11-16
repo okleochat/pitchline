@@ -111,7 +111,7 @@ function ProSquadSummary({ squad }: { squad: ProTeamSquad }) {
     <div className="rounded-lg border border-border bg-background p-3">
       <p className="text-sm font-semibold">{squad.teamName}</p>
       <p className="mt-1 text-xs text-muted">
-        EA player database · {squad.ratedPlayerCount}/{squad.squadCount} rated players · {(squad.factors.coverage * 100).toFixed(0)}%
+        EA attribute matches · {squad.ratedPlayerCount}/{squad.squadCount} ESPN roster players · {(squad.factors.coverage * 100).toFixed(0)}%
       </p>
       {squad.topPlayers.length ? (
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
@@ -157,8 +157,9 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
   const statusLabel: Record<ProPlayerData["status"], string> = {
     available: "EA rating adjustments applied",
     partial: "EA player coverage is insufficient",
-    team_not_found: "EA ratings unavailable for one or both teams",
-    provider_error: "EA ratings database temporarily unavailable",
+    team_not_found: "ESPN team mapping unavailable",
+    roster_unavailable: "ESPN current roster unavailable",
+    provider_error: "ESPN / EA player data temporarily unavailable",
   }
   return (
     <section className="mt-5 border-t border-border pt-4" aria-label="Player and squad intelligence">
@@ -169,7 +170,7 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
         </span>
       </div>
       <p className="mt-2 text-sm text-muted">{data.note}</p>
-      <p className="mt-1 text-xs text-muted">Source: {data.provider} · Position-aware indices are derived from EA overall ratings and individual attributes. These are base player-quality estimates, not live form, confirmed lineups, injuries or real-world match statistics.</p>
+      <p className="mt-1 text-xs text-muted">Sources: ESPN current rosters + {data.provider} · Position-aware indices use EA overall ratings and individual attributes. These are base player-quality estimates, not live form, confirmed lineups, injuries or real-world match statistics.</p>
       {data.home || data.away ? (
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {data.home ? <ProSquadSummary squad={data.home} /> : null}
@@ -1349,7 +1350,7 @@ export function Pitchline({
               Possessions move through build-up, progression, chance creation and finishing. The model adjusts for the score, late-game urgency and fatigue.
             </p>
             <p className="mt-2 text-xs text-muted">
-              Team-level rates remain the baseline. When the EA FC 27 database contains at least 12 rated players and 60% coverage for both clubs, Pitchline derives position-aware attack, creativity, defence and depth indices from EA player attributes. EA ratings do not establish current form or matchday availability.
+              Team-level rates remain the baseline. ESPN supplies the current roster; Pitchline matches those players to EA FC 27 base attributes. Adjustments require at least 12 matched players and 60% roster coverage for both teams. EA ratings do not establish current form or matchday availability.
             </p>
           </div>
         ) : (

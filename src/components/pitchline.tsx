@@ -1485,8 +1485,8 @@ export function Pitchline({
                 </dl>
               </div>
             </div>
-                          {isPro && engineMode === "pro" && proReport ? (
-                <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm sm:grid-cols-3">
+            {isPro && engineMode === "pro" && proReport ? (
+              <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm sm:grid-cols-3">
                   <div>
                     <dt className="text-xs text-muted">Possession</dt>
                     <dd className="mt-1 font-medium tabular-nums">{home.short} {proReport.details.possessionHomePct.toFixed(1)}%</dd>
@@ -1511,8 +1511,8 @@ export function Pitchline({
                     <dt className="text-xs text-muted">Chance creation</dt>
                     <dd className="mt-1 font-medium tabular-nums">{proReport.details.chanceCreationHomePct.toFixed(1)}%–{proReport.details.chanceCreationAwayPct.toFixed(1)}%</dd>
                   </div>
-                </dl>
-              ) : null}
+              </dl>
+            ) : null}
             {isPro && engineMode === "pro" && proReport?.playerData ? <ProPlayerDataPanel data={proReport.playerData} /> : null}
             <dl className="mt-6 grid grid-cols-3 gap-3 border-t border-border pt-4">
               <div>

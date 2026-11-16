@@ -112,8 +112,7 @@ function emptyProbabilities(): MarketProbabilities {
  * Pro phase-of-play simulation.
  *
  * Each match is sampled as a sequence of possessions. Possessions move through
- * build-up, progression, chance creation and finishing. Match state and a
- * lightweight fatigue and squad-depth curves alter those phase probabilities.
+ * build-up, progression, chance creation and finishing. Match state, fatigue and squad depth alter those phase probabilities.
  *
  * Team-level attack/defence rates provide the stable baseline. When a permitted
  * player feed returns adequately covered registered squads, derived team-level

@@ -1,37 +1,44 @@
 # Firebase setup for Pitchline
 
-Firebase integration is in the codebase, but no Firebase project has been connected or provisioned by this change. The app remains usable without Firebase configuration.
+The Firebase Web App configuration supplied for `pitchline-app` is now included in the App Hosting build/runtime configuration and is configured in the connected Vercel project. These public Web SDK values identify the Firebase web app; they are not a substitute for server credentials or proof that Authentication and Firestore are enabled.
 
-## 1. Create or select a Firebase project
+## Authentication and authorized domains
 
-1. Create a project or select the project you want Pitchline to use.
-2. Add a Web App and copy its configuration values.
-3. Enable Authentication → Sign-in method → Email/Password.
-4. Enable Authentication → Sign-in method → Google and configure the support email.
-5. Create a Cloud Firestore database in production mode. Choose the region carefully because Firestore's database location cannot be changed later.
-6. In Authentication → Settings → Authorized domains, confirm localhost and add the production domain plus the Vercel preview domain used for sign-in tests.
+In Firebase Console → Authentication → Sign-in method:
 
-## 2. Deploy Firestore rules
+1. Enable **Email/Password**.
+2. Enable **Google** and select a support email.
+3. Add the Firebase App Hosting hostname and the Vercel production hostname under Authentication → Settings → Authorized domains. Add preview domains only when you actually use them.
 
-Deploy firestore.rules with the Firebase CLI, or paste its contents into Firestore → Rules and publish them. Users can access only their own profile and saved-analysis subcollection. Subscription documents are inaccessible to browser clients.
+The repository contains email/password and Google sign-in flows. Provider enablement remains a Firebase Console setting and must be verified with a real sign-in on each host.
 
-## 3. Configure environment variables
+## Firestore and security rules
 
-Set these in local .env.local and in the Vercel project's Environment Variables:
+Create a Cloud Firestore database if one does not already exist. Then publish the repository's `firestore.rules`:
 
-- NEXT_PUBLIC_FIREBASE_API_KEY
-- NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
-- NEXT_PUBLIC_FIREBASE_PROJECT_ID
-- NEXT_PUBLIC_FIREBASE_APP_ID
-- FIREBASE_SERVICE_ACCOUNT_JSON (server-only service-account JSON, stored as a secret)
-- FIREBASE_PROJECT_ID (optional override)
+```bash
+firebase use pitchline-app
+firebase deploy --only firestore:rules
+```
 
-Create a service account in Google Cloud IAM → Service Accounts and grant only the Firebase Authentication/Firestore permissions needed by the backend. Store its JSON in FIREBASE_SERVICE_ACCOUNT_JSON. Do not commit it, expose it in a NEXT_PUBLIC_ variable, or paste it into chat.
+Review the Firebase CLI project selection before running the command. The rules allow a signed-in user to manage only their own profile and saved analyses. Browser clients are explicitly denied access to `subscriptions/{uid}`; server-side Firebase Admin access is required for subscriptions.
 
-## 4. Sessions and Pro access
+## Server credentials by hosting platform
 
-The browser signs in with Firebase Auth, then exchanges its ID token for a five-day, HTTP-only, same-site session cookie. The server verifies session cookies with revocation checking.
+**Firebase App Hosting:** the runtime can use Google Application Default Credentials (ADC) from its attached service identity. Grant that identity only the Firebase Authentication and Firestore permissions required by the app. No downloaded service-account private key is required for this host.
 
-Pro status is derived server-side from subscriptions/{uid}. A document grants access only when status is active or trialing and currentPeriodEnd is a future Firestore timestamp. The browser cannot read or modify subscription records.
+**Vercel:** add `FIREBASE_SERVICE_ACCOUNT_JSON` as an encrypted server-only environment variable, plus `FIREBASE_PROJECT_ID=pitchline-app`. Do not prefix the service-account variable with `NEXT_PUBLIC_`, commit it, or paste it into chat.
 
-A payment provider/webhook still needs to be selected and connected before purchases, renewals, cancellations or refunds can update subscription records automatically. Until then, do not grant Pro by trusting a client-side flag.
+The Admin SDK now uses ADC when no JSON service account is configured, and retains service-account JSON support for Vercel.
+
+## Session and Pro access
+
+The browser signs in through Firebase Auth and exchanges its ID token for a five-day, HTTP-only, same-site server session cookie. The server verifies the cookie with revocation checking.
+
+Pro access is evaluated server-side from `subscriptions/{uid}`. The record must contain all of:
+
+- `plan: "pro"`
+- `status: "active"` (or `"trialing"`)
+- `currentPeriodEnd`: a Firestore Timestamp in the future
+
+See [PRO_TEST_ACCESS.md](./PRO_TEST_ACCESS.md) for the manual test-account procedure. Payment processing is intentionally not connected yet; renewals, cancellations and refunds are not automated.

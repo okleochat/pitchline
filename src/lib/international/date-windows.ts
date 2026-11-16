@@ -27,3 +27,8 @@ export function monthKeysInRange(startDate: string, endDate: string): string[] {
   }
   return months
 }
+
+/** Upcoming-only cache must never replace today's full scoreboard. */
+export function canReuseUpcomingCache(requestedDate: string, today: string, endDate: string): boolean {
+  return requestedDate > today && requestedDate <= endDate
+}

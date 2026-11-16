@@ -899,6 +899,9 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
         <Link href="/fixtures/international" className="press inline-flex h-11 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground">
           International fixtures
         </Link>
+        <Link href="/data" className="press inline-flex h-11 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground">
+          Data centre
+        </Link>
         <Link href="/model/backtest" className="press inline-flex h-11 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground">
           Model lab
         </Link>
@@ -1631,8 +1634,8 @@ export function Pitchline({ initial, initialView = "desk" }: { initial: Board; i
           {level
             ? "The UEFA scale is on for clubs rated from different leagues. "
             : ""}
-          {home.xgSource && away.xgSource
-            ? `Both sides have source-attributed rolling xG/xGA from ${home.xgSource} and ${away.xgSource}.`
+          {desk.home.xgSource && desk.away.xgSource
+            ? `Both sides have source-attributed rolling xG/xGA from ${desk.home.xgSource} and ${desk.away.xgSource}.`
             : leagueStatus.standings === "live"
               ? `Goals-based ratings refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}); xG is used only when verified for both teams.`
               : `This competition is using saved goals-based ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}

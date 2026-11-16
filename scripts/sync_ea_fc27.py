@@ -291,7 +291,10 @@ def main() -> int:
             sample = request_page(0, int(time.time()))
             total = sample.get("totalItems")
             items = sample.get("items") or []
-            print(f"EA probe succeeded: totalItems={total}, firstPageItems={len(items)}.")
+            if not isinstance(total, int) or total < 10_000 or not isinstance(items, list):
+                raise RuntimeError(f"EA probe returned an unexpected database size or page shape: totalItems={total!r}.")
+            validate_fc27_edition([item for item in items if isinstance(item, dict)])
+            print(f"EA FC 27 probe passed: totalItems={total:,}, firstPageItems={len(items)}; verified top-player ratings.")
             return 0
 
         players, total = fetch_all_players(args.page_delay)

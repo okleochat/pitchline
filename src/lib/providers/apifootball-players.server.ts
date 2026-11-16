@@ -237,15 +237,21 @@ function seasonPlayerResponse(payload: unknown[]): unknown[] {
   return payload
 }
 
+type ParsedLineup = {
+  teamId: string
+  starters: LineupPlayer[]
+  substitutes: LineupPlayer[]
+  factors: TeamLineupFactors
+}
+
 function parseLineupSide(
   value: unknown,
   stats: Map<string, PlayerScores>,
-): ProTeamLineup | null {
+): ParsedLineup | null {
   const row = record(value)
   const team = record(row?.team)
   const teamId = numberValue(team?.id)
-  const teamName = stringValue(team?.name)
-  if (teamId === null || !teamName) return null
+  if (teamId === null) return null
   const starts = Array.isArray(row?.startXI) ? row.startXI : []
   const substitutes = Array.isArray(row?.substitutes) ? row.substitutes : []
   const starterPlayers = starts
@@ -254,19 +260,38 @@ function parseLineupSide(
   const benchPlayers = substitutes
     .map((player) => normaliseLineupPlayer(player, stats))
     .filter((player): player is LineupPlayer => player !== null)
-  const factors = deriveLineupFactors(starterPlayers, benchPlayers)
   return {
     teamId: String(teamId),
-    teamName,
-    formation: stringValue(row?.formation),
-    coach: stringValue(record(row?.coach)?.name),
     starters: starterPlayers,
     substitutes: benchPlayers,
-    factors,
+    factors: deriveLineupFactors(starterPlayers, benchPlayers),
   }
 }
 
-function ratedStarterCount(lineup: ProTeamLineup | null): number {
+function averageScore(players: LineupPlayer[], key: "attack" | "creativity" | "defence"): number {
+  const values = players
+    .map((player) => player.scores?.[key] ?? null)
+    .filter((value): value is number => value !== null)
+  if (!values.length) return 50
+  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10
+}
+
+function publicLineup(teamName: string, lineup: ParsedLineup): ProTeamLineup {
+  const ratedSubs = lineup.substitutes.filter((player) => player.scores !== null).length
+  return {
+    teamName,
+    startingCount: lineup.starters.length,
+    ratedStartingCount: lineup.factors.ratedStarters,
+    substituteCount: lineup.substitutes.length,
+    ratedSubstituteCount: ratedSubs,
+    attackIndex: averageScore(lineup.starters, "attack"),
+    creativityIndex: averageScore(lineup.starters, "creativity"),
+    defenceIndex: averageScore(lineup.starters, "defence"),
+    factors: lineup.factors,
+  }
+}
+
+function ratedStarterCount(lineup: ParsedLineup | null): number {
   return lineup?.factors.ratedStarters ?? 0
 }
 
@@ -287,7 +312,6 @@ function resultData(
   note: string,
   home: ProTeamLineup | null = null,
   away: ProTeamLineup | null = null,
-  fixtureId?: string,
 ): ProPlayerData {
   return {
     provider: "API-Football",
@@ -296,8 +320,6 @@ function resultData(
     home,
     away,
     adjustmentsApplied: Boolean(home?.factors.applied && away?.factors.applied),
-    ...(fixtureId ? { fixtureId } : {}),
-    retrievedAt: new Date().toISOString(),
   }
 }
 
@@ -313,6 +335,9 @@ export async function getProPlayerData(input: {
 }): Promise<ProPlayerData> {
   if (!process.env.API_FOOTBALL_KEY?.trim()) {
     return resultData("not_configured", "Add API_FOOTBALL_KEY as a Firebase App Hosting secret to enable player and lineup intelligence.")
+  }
+  if (process.env.API_FOOTBALL_DATA_USE_ALLOWED?.toLowerCase() !== "true") {
+    return resultData("not_licensed", "The API connection is disabled until permission to use this data in Pitchline Pro and any necessary competition rights have been confirmed.")
   }
   if (!input.kickoffAt || !Number.isFinite(new Date(input.kickoffAt).getTime())) {
     return resultData("fixture_not_selected", "Choose an upcoming Pitchline fixture with a live kick-off timestamp to look up the official team lineups.")
@@ -368,7 +393,7 @@ export async function getProPlayerData(input: {
     }
 
     if (!homeLineup || !awayLineup) {
-      return resultData("partial", "The fixture was found, but the provider did not return a lineup for both teams.", homeLineup, awayLineup, match.id)
+      return resultData("partial", "The fixture was found, but the provider did not return a lineup for both teams.", homeLineup ? publicLineup(input.home.name, homeLineup) : null, awayLineup ? publicLineup(input.away.name, awayLineup) : null)
     }
     const bothApplied = homeLineup.factors.applied && awayLineup.factors.applied
     return resultData(
@@ -376,9 +401,8 @@ export async function getProPlayerData(input: {
       bothApplied
         ? "Both starting XIs have enough player-season coverage. Player-derived adjustments are applied to the Pro simulation."
         : "Lineups were found, but there is not enough player-stat coverage across both starting XIs to adjust team strength. The match stays on team-level Pro inputs.",
-      homeLineup,
-      awayLineup,
-      match.id,
+      publicLineup(input.home.name, homeLineup),
+      publicLineup(input.away.name, awayLineup),
     )
   } catch (error) {
     const reason = error instanceof Error ? error.message : ""

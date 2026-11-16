@@ -1,3 +1,4 @@
+import "server-only"
 import { LEAGUES, TEAMS, isCup, snapshotBoard, type Board, type Fixture, type LeagueId, type Team } from "@/data/football"
 
 const TTL_MS = 15 * 60 * 1000
@@ -93,6 +94,7 @@ type LoadedLeague = {
   fixtures: Fixture[]
   weekend: string
   season: string
+  fixturesSource: "live" | "snapshot"
   names: { raw: string; team: Team }[]
 }
 
@@ -536,6 +538,7 @@ async function loadLeague(
     fixtures: ordered.length ? ordered : savedFixtures,
     weekend: fixtures.length ? weekendLabel(fixtures.map((item) => new Date(item.time)), source.tz) : saved.weekends[league],
     season,
+    fixturesSource: ordered.length ? "live" : "snapshot",
     names,
   }
 }
@@ -575,6 +578,19 @@ async function buildBoard(): Promise<Board> {
   }
 
   const updatedAt = new Date().toISOString()
+  const leagueStatus = {} as Board["leagueStatus"]
+  for (const league of LEAGUES) {
+    const result = loaded.get(league.id)
+    leagueStatus[league.id] = result
+      ? {
+          standings: "live",
+          fixtures: result.fixturesSource,
+          teamCount: result.teams.length,
+          fixtureCount: result.fixtures.length,
+          updatedAt,
+        }
+      : saved.leagueStatus[league.id]
+  }
   return {
     season,
     source: "live",
@@ -591,6 +607,7 @@ async function buildBoard(): Promise<Board> {
     teams,
     fixtures,
     weekends,
+    leagueStatus,
   }
 }
 
@@ -649,7 +666,12 @@ async function recentGames(slug: string, espnId: string): Promise<FormGame[] | n
   const json = await getJson(`https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/teams/${espnId}/schedule`)
   const events = (json?.events as Record<string, unknown>[] | undefined) ?? []
   const games: FormGame[] = []
-  for (const event of events) {
+  const newestFirst = [...events].sort((left, right) => {
+    const leftDate = new Date(String(left.date ?? "")).getTime()
+    const rightDate = new Date(String(right.date ?? "")).getTime()
+    return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0)
+  })
+  for (const event of newestFirst) {
     if (!isFinal(event)) continue
     const competition = (
       event.competitions as { competitors?: { team?: { id?: string | number }; score?: unknown }[] }[] | undefined

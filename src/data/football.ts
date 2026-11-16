@@ -36,6 +36,10 @@ export type Team = {
   feedSlug?: string
   /** League the attack and defense rates actually come from. */
   rateLeague?: LeagueId
+  /** Optional, source-attributed xG and xGA per match. Never inferred from goals. */
+  xgFor?: number
+  xgAgainst?: number
+  xgSource?: string
 }
 
 export type Fixture = {
@@ -211,10 +215,9 @@ export function isCup(id: LeagueId): boolean {
 }
 
 /**
- * UEFA association coefficients as of 5 Nov 2026, divided by England (107.685).
- * Championship is not a UEFA league — 0.60 is a labeled desk estimate.
- * Saudi, MLS, Brazil, Liga MX and the European competitions stay at 1.
- * Same weight on both sides cancels inside the goal formula.
+ * Coarse association-level proxy, not calibrated club Elo or club strength.
+ * Championship uses a desk estimate; non-UEFA competitions remain neutral.
+ * Cross-league predictions are exploratory until validated against historical fixtures.
  */
 export const LEAGUE_WEIGHT: Record<LeagueId, number> = {
   eng: 1,
@@ -281,12 +284,20 @@ export function formRate(
   if (!games?.length || take <= 0) return null
   const slice = games.slice(0, take)
   const played = slice.length
-  const gf = slice.reduce((sum, game) => sum + game.gf, 0)
-  const ga = slice.reduce((sum, game) => sum + game.ga, 0)
+  const halfLife = Math.max(1, take / 2)
+  let totalWeight = 0
+  let gf = 0
+  let ga = 0
+  slice.forEach((game, index) => {
+    const weight = Math.exp((-Math.LN2 * index) / halfLife)
+    totalWeight += weight
+    gf += game.gf * weight
+    ga += game.ga * weight
+  })
   return {
     played,
-    attack: Math.round((gf / played) * 100) / 100,
-    defense: Math.round((ga / played) * 100) / 100,
+    attack: Math.round((gf / (totalWeight || 1)) * 100) / 100,
+    defense: Math.round((ga / (totalWeight || 1)) * 100) / 100,
   }
 }
 
@@ -313,6 +324,14 @@ export function shapePair(
   return { home: nextHome, away: nextAway, homeLeague, awayLeague, homeWeight, awayWeight, leveled }
 }
 
+export type LeagueFeedStatus = {
+  standings: "live" | "snapshot"
+  fixtures: "live" | "snapshot"
+  teamCount: number
+  fixtureCount: number
+  updatedAt: string
+}
+
 export type Board = {
   season: string
   source: "live" | "snapshot"
@@ -321,6 +340,7 @@ export type Board = {
   teams: Team[]
   fixtures: Fixture[]
   weekends: Record<LeagueId, string>
+  leagueStatus: Record<LeagueId, LeagueFeedStatus>
 }
 
 /** Last confirmed board. Used when the live tables cannot be reached. */
@@ -332,6 +352,18 @@ export function snapshotBoard(): Board {
     updatedLabel: "15 Nov 2026",
     teams: TEAMS,
     fixtures: FIXTURES,
+    leagueStatus: Object.fromEntries(
+      LEAGUES.map((league) => [
+        league.id,
+        {
+          standings: "snapshot" as const,
+          fixtures: "snapshot" as const,
+          teamCount: TEAMS.filter((team) => team.league === league.id).length,
+          fixtureCount: FIXTURES.filter((fixture) => fixture.league === league.id).length,
+          updatedAt: "2026-11-15T18:00:00.000Z",
+        },
+      ]),
+    ) as Record<LeagueId, LeagueFeedStatus>,
     weekends: {
       eng: "21–23 Nov",
       esp: "20–23 Nov",

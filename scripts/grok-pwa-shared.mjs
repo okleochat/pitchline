@@ -309,13 +309,14 @@ export function resolveOgTitle(
   host = "",
   documentTitle = "",
 ) {
-  const fromSite = String(site.title ?? "").trim();
-  if (fromSite) return fromSite;
   const fromDoc = String(documentTitle ?? "").trim();
   if (fromDoc) return fromDoc;
+  const fromArg = String(appName ?? "").trim();
+  if (fromArg && fromArg !== DEFAULT_APP_NAME) return fromArg;
+  const fromSite = String(site.title ?? "").trim();
+  if (fromSite) return fromSite;
   const fromHost = appNameFromHost(host);
   if (fromHost && fromHost !== DEFAULT_APP_NAME) return fromHost;
-  const fromArg = String(appName ?? "").trim();
   return fromArg || DEFAULT_APP_NAME;
 }
 
@@ -423,7 +424,14 @@ export function normalizeHeadContext(ctx = {}) {
     ctx.site !== undefined ? ctx.site : snapshotOgIdentity(cwd).site,
     cwd,
   );
-  const appName = resolveOgTitle(site, ctx.appName ?? DEFAULT_APP_NAME, ctx.host ?? "");
+  // A published grok.me slug is a better default than the generic workspace
+  // site title, unless the caller supplied an explicit site identity.
+  const host = String(ctx.host ?? "");
+  if (ctx.site === undefined && host.toLowerCase().endsWith(".grok.me")) {
+    delete site.title;
+  }
+  const appName = String(ctx.appName ?? "").trim() ||
+    resolveOgTitle(site, DEFAULT_APP_NAME, host);
   return {
     appName,
     projectId: ctx.projectId ?? readGrokProjectId(),

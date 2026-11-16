@@ -160,20 +160,44 @@ export async function getInternationalFixtures(date: string): Promise<{
     throw new SportsApiProError("invalid_response", "A valid YYYY-MM-DD date is required.")
   }
 
-  // One date request, cached for 15 minutes. This keeps the free-tier request budget predictable.
-  const payload = await getJson("/api/schedule/" + date, 15 * 60 * 1000)
-  const events = Array.isArray(payload.events)
-    ? payload.events
-    : Array.isArray(record(payload.data)?.events)
-      ? record(payload.data)?.events as unknown[]
-      : []
+  // Schedule results are paginated by tournament priority. Read at most three
+  // pages (150 tournament slots) and cache each page for 15 minutes to protect
+  // the provider's free request quota during evaluation.
+  const firstPage = await getJson("/api/schedule/" + date, 15 * 60 * 1000)
+  const totalPages = Math.max(1, number(firstPage.totalPages) ?? 1)
+  const requestedPages = Math.min(3, totalPages)
+  const extraPages = await Promise.all(
+    Array.from({ length: requestedPages - 1 }, (_, index) =>
+      getJson("/api/schedule/" + date + "?page=" + (index + 2), 15 * 60 * 1000)
+        .catch(() => null),
+    ),
+  )
+  const pages = [firstPage, ...extraPages.filter((page): page is Dict => Boolean(page))]
+  const events = pages.flatMap((page) =>
+    Array.isArray(page.events)
+      ? page.events
+      : Array.isArray(record(page.data)?.events)
+        ? record(page.data)?.events as unknown[]
+        : [],
+  )
+  const uniqueEvents = new Map<string, unknown>()
+  for (const event of events) {
+    const value = record(event)
+    if (value?.id !== undefined) uniqueEvents.set(String(value.id), event)
+  }
 
-  const fixtures = events
+  const fixtures = [...uniqueEvents.values()]
     .map(mapInternationalEvent)
     .filter((fixture): fixture is InternationalFixture => Boolean(fixture?.id))
     .sort((a, b) => a.kickoff.localeCompare(b.kickoff))
 
-  return { date, source: "SportsAPI Pro", fixtures }
+  return {
+    date,
+    source: "SportsAPI Pro" as const,
+    fixtures,
+    pagesFetched: pages.length,
+    paginationPartial: pages.length < totalPages,
+  }
 }
 
 export async function getMatchXg(matchId: string) {

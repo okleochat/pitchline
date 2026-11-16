@@ -101,7 +101,7 @@ function isSeniorNationalSide(value: unknown): boolean {
   const team = record(value)
   if (!team || team.national !== true) return false
   const name = text(team.name, text(team.shortName))
-  return !/\bU[- ]?(?:17|19|20|21|23)\b/i.test(name)
+  return !/\bU[- ]?(?:15|16|17|18|19|20|21|23)\b/i.test(name)
 }
 
 function mapInternationalEvent(value: unknown): InternationalFixture | null {
@@ -155,6 +155,8 @@ export async function getInternationalFixtures(date: string): Promise<{
   date: string
   source: "SportsAPI Pro"
   fixtures: InternationalFixture[]
+  pagesFetched: number
+  paginationPartial: boolean
 }> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date + "T00:00:00Z"))) {
     throw new SportsApiProError("invalid_response", "A valid YYYY-MM-DD date is required.")
@@ -206,7 +208,7 @@ export async function getMatchXg(matchId: string) {
     throw new SportsApiProError("feature_disabled", "The xG integration is disabled until provider coverage is verified.")
   }
 
-  const payload = await getJson("/api/match/" + matchId + "/shotmap", 6 * 60 * 60 * 1000)
+  const payload = await getJson("/api/match/" + matchId + "/shotmap", 60 * 1000)
   const data = record(payload.data)
   const shots = Array.isArray(data?.shotmap) ? data.shotmap.map(record).filter((shot): shot is Dict => Boolean(shot)) : []
   if (!shots.length || shots.some((shot) => number(shot.xg) === null || typeof shot.isHome !== "boolean")) {

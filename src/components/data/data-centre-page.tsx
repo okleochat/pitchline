@@ -26,11 +26,16 @@ function fixtureXg(fixture: SportmonksFixture) {
   let home: number | null = null
   let away: number | null = null
   for (const metric of (fixture.xgfixture ?? []) as SportmonksXgMetric[]) {
-    if (metric.type?.code !== "expected-goals") continue
+    if (Number(metric.type_id ?? metric.type?.id) !== 5304 && metric.type?.code !== "expected-goals") continue
     const value = Number(metric.data?.value)
     if (!Number.isFinite(value)) continue
-    if (metric.location === "home") home = value
-    if (metric.location === "away") away = value
+    const participants = fixture.participants ?? []
+    const homeId = participants.find((participant) => participant.meta?.location === "home")?.id
+    const awayId = participants.find((participant) => participant.meta?.location === "away")?.id
+    if (homeId !== undefined && metric.participant_id === homeId) home = value
+    else if (awayId !== undefined && metric.participant_id === awayId) away = value
+    else if (metric.location === "home") home = value
+    else if (metric.location === "away") away = value
   }
   return home === null || away === null ? null : { home, away }
 }
@@ -174,7 +179,7 @@ export function DataCentrePage() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     {odds.slice(0, 6).map((odd) => (
                       <span key={odd.id ?? `${odd.market_id}-${odd.bookmaker_id}-${odd.label}`} className="rounded-lg border border-border bg-background px-2 py-1 text-xs">
-                        {odd.market_description ?? odd.market?.name ?? "Market"} · {odd.name ?? odd.label}: <strong>{odd.value}</strong>
+                        {odd.market_description ?? odd.market?.name ?? "Market"} · {odd.name ?? odd.label}: <strong>{odd.value}</strong>{odd.bookmaker?.name ? ` · ${odd.bookmaker.name}` : ""}
                       </span>
                     ))}
                   </div>

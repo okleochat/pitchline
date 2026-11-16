@@ -25,7 +25,7 @@ function dateInput(date: Date) {
 function fixtureXg(fixture: SportmonksFixture) {
   let home: number | null = null
   let away: number | null = null
-  for (const metric of (fixture.xGFixture ?? fixture.xgfixture ?? []) as SportmonksXgMetric[]) {
+  for (const metric of (fixture.expected ?? fixture.xGFixture ?? fixture.xgfixture ?? []) as SportmonksXgMetric[]) {
     if (Number(metric.type_id ?? metric.type?.id) !== 5304 && metric.type?.code !== "expected-goals") continue
     const value = Number(metric.data?.value)
     if (!Number.isFinite(value)) continue

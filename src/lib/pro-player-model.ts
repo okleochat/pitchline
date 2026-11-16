@@ -24,7 +24,10 @@ function valueAt(source: unknown, key: string): unknown {
 
 function numeric(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value
-  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value)
+  if (typeof value === "string" && value.trim()) {
+    const cleaned = value.replace(/,/g, "").trim()
+    if (cleaned && Number.isFinite(Number(cleaned))) return Number(cleaned)
+  }
   return null
 }
 
@@ -45,11 +48,13 @@ function clamp(value: number, min = 0, max = 100): number {
 }
 
 function positionFrom(value: unknown): PlayerPosition {
-  const raw = typeof value === "string" ? value.trim().toLowerCase() : ""
-  if (raw === "g" || raw.includes("goalkeeper") || raw === "goalie") return "GK"
-  if (raw === "d" || raw.includes("defender") || raw.includes("back")) return "DF"
-  if (raw === "m" || raw.includes("midfielder")) return "MF"
-  if (raw === "f" || raw.includes("attacker") || raw.includes("forward") || raw.includes("striker")) return "FW"
+  const position = record(value)
+  const candidate = position?.abbreviation ?? position?.abbr ?? position?.name ?? position?.displayName ?? value
+  const raw = typeof candidate === "string" ? candidate.trim().toLowerCase() : ""
+  if (raw === "g" || raw === "gk" || raw.includes("goalkeeper") || raw === "goalie") return "GK"
+  if (raw === "d" || raw === "df" || raw === "def" || raw.includes("defender") || raw.includes("back")) return "DF"
+  if (raw === "m" || raw === "mf" || raw === "mid" || raw.includes("midfielder")) return "MF"
+  if (raw === "f" || raw === "fw" || raw === "att" || raw.includes("attacker") || raw.includes("forward") || raw.includes("striker")) return "FW"
   return "UNK"
 }
 
@@ -115,6 +120,188 @@ export function derivePlayerScores(statistics: unknown): PlayerScores | null {
   }
 }
 
+const ESPN_STAT_ALIASES: Record<string, string> = {
+  appearances: "appearances",
+  appearences: "appearances",
+  gamesplayed: "appearances",
+  matchesplayed: "appearances",
+  apps: "appearances",
+  gp: "appearances",
+  minutes: "minutes",
+  minutesplayed: "minutes",
+  totalminutes: "minutes",
+  mins: "minutes",
+  avgminutes: "averageMinutes",
+  averageminutes: "averageMinutes",
+  minutespergame: "averageMinutes",
+  goal: "goals",
+  goals: "goals",
+  goalsscored: "goals",
+  totalgoals: "goals",
+  assist: "assists",
+  assists: "assists",
+  totalassists: "assists",
+  shot: "shots",
+  shots: "shots",
+  totalshots: "shots",
+  shotattempts: "shots",
+  shotsontarget: "shotsOnTarget",
+  shotsongoal: "shotsOnTarget",
+  keypasses: "keyPasses",
+  chancescreated: "keyPasses",
+  passaccuracy: "passAccuracy",
+  passesaccuracy: "passAccuracy",
+  tackle: "tackles",
+  tackles: "tackles",
+  totaltackles: "tackles",
+  interceptions: "interceptions",
+  interception: "interceptions",
+  duels: "duels",
+  totalduels: "duels",
+  duelswon: "duelsWon",
+  aerialduelswon: "duelsWon",
+  dribbleattempts: "dribbleAttempts",
+  dribblesattempted: "dribbleAttempts",
+  dribbles: "dribbleAttempts",
+  dribblessuccessful: "dribbleSuccess",
+  dribblescompleted: "dribbleSuccess",
+  dribblesuccess: "dribbleSuccess",
+  saves: "saves",
+  goalkeeperSaves: "saves",
+  goalsconceded: "conceded",
+  conceded: "conceded",
+  rating: "rating",
+  averagerating: "rating",
+  seasonrating: "rating",
+  avgRating: "rating",
+};
+
+function normaliseStatName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "")
+}
+
+function espnStatKey(value: string): string | null {
+  return ESPN_STAT_ALIASES[normaliseStatName(value)] ?? null
+}
+
+function readEspnStats(source: unknown): Map<string, number> {
+  const result = new Map<string, number>()
+  const visited = new Set<object>()
+
+  const assign = (name: unknown, value: unknown) => {
+    if (typeof name !== "string") return
+    const key = espnStatKey(name)
+    const parsed = numeric(value)
+    if (key && parsed !== null && !result.has(key)) result.set(key, parsed)
+  }
+
+  const visit = (value: unknown, depth: number, path: string[] = []) => {
+    if (depth > 9 || value === null || value === undefined) return
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, depth + 1, path))
+      return
+    }
+    const item = record(value)
+    if (!item || visited.has(item)) return
+    visited.add(item)
+
+    const label = item.name ?? item.displayName ?? item.display_name ?? item.shortDisplayName ?? item.abbreviation
+    if (typeof label === "string") {
+      assign(label, item.value ?? item.total ?? item.count ?? item.displayValue ?? item.display_value)
+      if (Array.isArray(item.names) && Array.isArray(item.values)) {
+        item.names.forEach((name, index) => assign(name, item.values?.[index]))
+      }
+    }
+
+    const labels = Array.isArray(item.names) ? item.names : Array.isArray(item.labels) ? item.labels : null
+    const values = Array.isArray(item.values) ? item.values : null
+    if (labels && values) labels.forEach((name, index) => assign(name, values[index]))
+
+    for (const [key, child] of Object.entries(item)) {
+      const qualified = [...path, key].join("_")
+      if (typeof child === "number" || typeof child === "string") {
+        assign(key, child)
+        assign(qualified, child)
+        continue
+      }
+
+      const keyName = normaliseStatName(key)
+      if (["total", "value", "count", "displayvalue"].includes(keyName) && path.length) {
+        assign(path.join("_"), child)
+      }
+
+      if (child && typeof child === "object") {
+        visit(child, depth + 1, [...path, key])
+      }
+    }
+  }
+
+  visit(source, 0)
+  return result
+}
+
+/**
+ * Translate ESPN soccer's category/name/value payloads into the shared player
+ * score inputs. We intentionally require actual performance metrics: a row
+ * containing only a player ID or appearance count is not rated.
+ */
+export function deriveEspnPlayerScores(source: unknown): PlayerScores | null {
+  const stats = readEspnStats(source)
+  const value = (key: string) => stats.get(key) ?? 0
+  const has = (key: string) => stats.has(key)
+  const appearances = value("appearances")
+  const averageMinutes = value("averageMinutes")
+  const minutes = value("minutes") || averageMinutes * appearances
+  const performanceKeys = [
+    "goals", "assists", "shots", "shotsOnTarget", "keyPasses", "tackles",
+    "interceptions", "duels", "duelsWon", "dribbleAttempts", "dribbleSuccess",
+    "saves", "conceded", "rating",
+  ]
+  if (appearances <= 0 || minutes <= 0 || !performanceKeys.some(has)) return null
+
+  const rawRating = has("rating") ? value("rating") : null
+  const rating = rawRating === null ? null : rawRating > 10 ? rawRating / 10 : rawRating
+  const rawPassAccuracy = has("passAccuracy") ? value("passAccuracy") : null
+  const passAccuracy = rawPassAccuracy === null
+    ? null
+    : rawPassAccuracy <= 1 ? rawPassAccuracy * 100 : rawPassAccuracy
+
+  return derivePlayerScores({
+    games: {
+      appearances,
+      appearences: appearances,
+      minutes,
+      rating,
+    },
+    goals: {
+      total: value("goals"),
+      assists: value("assists"),
+      saves: value("saves"),
+      conceded: value("conceded"),
+    },
+    shots: {
+      total: value("shots"),
+      on: value("shotsOnTarget"),
+    },
+    passes: {
+      key: value("keyPasses"),
+      accuracy: passAccuracy,
+    },
+    tackles: {
+      total: value("tackles"),
+      interceptions: value("interceptions"),
+    },
+    duels: {
+      total: value("duels"),
+      won: value("duelsWon"),
+    },
+    dribbles: {
+      attempts: value("dribbleAttempts"),
+      success: value("dribbleSuccess"),
+    },
+  })
+}
+
 /**
  * API-Football's /players/squads endpoint returns current squad players
  * directly as a current registered-squad player record.
@@ -125,17 +312,18 @@ export function normaliseSquadPlayer(
 ): SquadPlayer | null {
   const item = record(squadEntry)
   if (!item) return null
-  const player = record(item.player) ?? item
-  const playerId = numeric(player.id)
+  const player = record(item.athlete) ?? record(item.player) ?? item
+  const playerId = numeric(player.id ?? player.athleteId ?? player.athlete_id)
   if (playerId === null) return null
   const id = String(playerId)
-  if (typeof player.name !== "string" || !player.name.trim()) return null
+  const name = player.name ?? player.fullName ?? player.displayName ?? player.display_name
+  if (typeof name !== "string" || !name.trim()) return null
 
   return {
     id,
-    name: player.name.trim(),
-    number: numeric(player.number),
-    position: positionFrom(player.position ?? player.pos),
+    name: name.trim(),
+    number: numeric(player.number ?? player.jersey ?? item.jersey),
+    position: positionFrom(player.position ?? player.pos ?? item.position),
     scores: playerStats.get(id) ?? null,
   }
 }

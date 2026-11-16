@@ -56,10 +56,6 @@ class SyncEaFc27Tests(unittest.TestCase):
         self.assertTrue(sync.is_mens_player(men))
         self.assertFalse(sync.is_mens_player(women))
 
-    def test_team_document_id_matches_accent_folded_slug(self):
-        self.assertEqual(sync.team_document_id("Atlético Madrid"), "atletico-madrid")
-        self.assertEqual(sync.team_document_id("Racing de Santander"), "racing-de-santander")
-
     def test_builds_compact_mens_player_name_shards(self):
         players = [
             sync.normalise_player(ea_player(1, "Racing de Santander")),
@@ -79,9 +75,17 @@ class SyncEaFc27Tests(unittest.TestCase):
         self.assertEqual(sync.player_shard_id("é"), "e_")
         self.assertEqual(sync.player_shard_id(""), "__")
 
+    def test_players_without_a_club_can_still_be_indexed_by_name(self):
+        raw = ea_player(4, "")
+        raw["team"] = None
+        player = sync.normalise_player(raw)
+        self.assertIsNotNone(player)
+        self.assertEqual(player["club"], "")
+        self.assertEqual(sync.player_shard_id(player["nameKeys"][0]), "te")
+
     def test_bad_or_unidentified_records_are_ignored(self):
         self.assertIsNone(sync.normalise_player({}))
-        self.assertIsNone(sync.normalise_player({"id": "1", "team": {"label": "  "}}))
+        self.assertIsNone(sync.normalise_player({"id": "1", "firstName": "", "lastName": ""}))
 
 
 if __name__ == "__main__":

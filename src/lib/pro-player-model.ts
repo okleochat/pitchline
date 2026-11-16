@@ -117,7 +117,7 @@ export function derivePlayerScores(statistics: unknown): PlayerScores | null {
 
 /**
  * API-Football's /players/squads endpoint returns registered squad members
- * directly (rather than the nested startXI/substitutes shape from fixtures).
+ * directly as a current registered-squad player record.
  */
 export function normaliseSquadPlayer(
   squadEntry: unknown,

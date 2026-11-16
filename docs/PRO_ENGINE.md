@@ -34,7 +34,7 @@ For club teams, Pitchline retrieves the current squad and the club's season play
 
 For national teams, Pitchline retrieves the current squad and then requests each squad member's player-season record by player ID. This uses the player's club-season performance rather than relying on the small number of appearances they may have made for their national side.
 
-These individual lookups are cached for 18 hours and run with limited concurrency. They can consume a meaningful part of API-Football's 100-request free daily quota when a new international pairing is first analysed. Repeated simulations reuse the shared Firestore cache.
+These individual lookups are cached for 18 hours and run with limited concurrency. Registered-squad snapshots are cached for 24 hours. They can consume a meaningful part of API-Football's 100-request free daily quota when a new international pairing is first analysed. Repeated simulations reuse the shared Firestore cache.
 
 ### How squad strength is estimated
 

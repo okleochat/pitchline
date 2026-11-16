@@ -110,7 +110,7 @@ export function expectedGoals(home: Team, away: Team, edge: number): { homeXg: n
   const safe = clamp(edge, 0.7, 1.6)
   const useSourceXg = [home.xgFor, home.xgAgainst, away.xgFor, away.xgAgainst].every(
     (value) => typeof value === "number" && Number.isFinite(value) && value >= 0,
-  ) && Boolean(home.xgSource && away.xgSource)
+  ) && Boolean(home.xgSource && away.xgSource && home.xgSource === away.xgSource)
   const homeAttack = useSourceXg ? home.xgFor! : home.attack
   const homeDefence = useSourceXg ? home.xgAgainst! : home.defense
   const awayAttack = useSourceXg ? away.xgFor! : away.attack

@@ -207,6 +207,28 @@ function rosterEntries(payload: unknown): unknown[] {
   return result
 }
 
+function normalizeRosterEntry(value: unknown): Dict | null {
+  const athlete = athleteRecord(value)
+  if (!athlete) return null
+  const wrapper = record(value)
+  const id = athleteId(value)
+  const name = athleteName(value)
+  if (!id || !name) return null
+
+  return {
+    athlete: {
+      id,
+      fullName: name,
+      firstName: stringValue(athlete.firstName ?? athlete.first_name) ?? "",
+      lastName: stringValue(athlete.lastName ?? athlete.last_name) ?? "",
+      position: athlete.position ?? wrapper?.position ?? null,
+      nationality: athlete.nationality ?? athlete.citizenship ?? wrapper?.nationality ?? null,
+      jersey: athlete.jersey ?? athlete.number ?? athlete.jerseyNumber ??
+        athlete.jersey_number ?? wrapper?.jersey ?? wrapper?.number ?? null,
+    },
+  }
+}
+
 async function currentRoster(slug: string, teamId: string): Promise<unknown[] | null> {
   const key = "espn-ea-ratings-roster:v1:" + slug + ":" + teamId
   return cached(key, ROSTER_CACHE_MS, async () => {
@@ -214,6 +236,8 @@ async function currentRoster(slug: string, teamId: string): Promise<unknown[] | 
     const payload = await getEspnJson(url)
     if (!payload) return null
     const players = rosterEntries(payload)
+      .map(normalizeRosterEntry)
+      .filter((player): player is Dict => player !== null)
     return players.length ? players : null
   })
 }

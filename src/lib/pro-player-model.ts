@@ -150,6 +150,7 @@ const ESPN_STAT_ALIASES: Record<string, string> = {
   shotson: "shotsOnTarget",
   totalshots: "shots",
   shotattempts: "shots",
+  shotontarget: "shotsOnTarget",
   shotsontarget: "shotsOnTarget",
   shotsongoal: "shotsOnTarget",
   keypasses: "keyPasses",
@@ -177,13 +178,13 @@ const ESPN_STAT_ALIASES: Record<string, string> = {
   dribblescompleted: "dribbleSuccess",
   dribblesuccess: "dribbleSuccess",
   saves: "saves",
-  goalkeeperSaves: "saves",
+  goalkeepersaves: "saves",
   goalsconceded: "conceded",
   conceded: "conceded",
   rating: "rating",
   averagerating: "rating",
   seasonrating: "rating",
-  avgRating: "rating",
+  avgrating: "rating",
 };
 
 function normaliseStatName(value: string): string {
@@ -313,8 +314,8 @@ export function deriveEspnPlayerScores(source: unknown): PlayerScores | null {
 }
 
 /**
- * API-Football's /players/squads endpoint returns current squad players
- * directly as a current registered-squad player record.
+ * ESPN's current-roster endpoint returns athlete records directly or wrapped
+ * in an athlete property. Both forms normalize to the same internal shape.
  */
 export function normaliseSquadPlayer(
   squadEntry: unknown,
@@ -338,7 +339,7 @@ export function normaliseSquadPlayer(
   }
 }
 
-/** Build a lookup of player-season scores keyed by API-Football player ID. */
+/** Build a lookup of legacy player-season rows keyed by provider player ID. */
 export function buildPlayerSeasonStats(
   playerResponse: unknown[],
 ): Map<string, PlayerScores> {

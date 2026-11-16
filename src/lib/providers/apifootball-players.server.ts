@@ -24,7 +24,7 @@ const TEAM_CACHE_MS = 7 * 24 * 60 * 60 * 1000
 const SQUAD_CACHE_MS = 24 * 60 * 60 * 1000
 const PLAYER_CACHE_MS = 18 * 60 * 60 * 1000
 const API_WINDOW_MS = 60 * 1000
-const API_MAX_REQUESTS_PER_WINDOW = 6
+const API_MAX_REQUESTS_PER_WINDOW = 8
 const apiCache = new Map<string, ApiCacheValue>()
 const inFlight = new Map<string, Promise<unknown>>()
 

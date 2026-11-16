@@ -10,9 +10,24 @@ Monitor `/api/health` with an external uptime checker. It returns non-secret sta
 
 The health endpoint does not prove that Firebase Authentication providers are enabled, Firestore exists, rules have been published, or credentials are valid. Verify those in the Firebase Console and by completing an end-to-end sign-in test.
 
-## Vercel
+## Hosting: Vercel and Firebase App Hosting
 
-The project uses Next.js, Node.js 22.x and the repository build command. SSO protection stays enabled for Preview deployments; production custom domains remain accessible to the intended users.
+Vercel remains one deployment target, but its Hobby-team deployment quota is independent from Firebase.
+
+For an independent Next.js fallback, use **Firebase App Hosting** (not static-only Firebase Hosting). App Hosting has first-party Next.js support and runs builds on Cloud Build, serves SSR/API routes on Cloud Run, and caches through Cloud CDN.
+
+1. In Firebase Console, select project `pitchline-app` → Hosting & Serverless → App Hosting → Create backend.
+2. Connect GitHub repository `okleochat/pitchline`, select `main` as the live branch, and set the app root to `/`.
+3. Choose a supported region close to the primary audience. Keep Firestore in a nearby region to reduce backend latency.
+4. Enable automatic rollouts. App Hosting will build and deploy future commits to that branch independently of Vercel.
+5. Configure the same public Firebase Web App variables and server-only secrets in the App Hosting backend settings. Do not store service-account JSON or API tokens in this repository.
+6. Add the Firebase-provided domain as an authorised Firebase Authentication domain. Add a custom domain only after testing sign-in, sessions, APIs and health checks on the Firebase URL.
+
+The repository includes `apphosting.yaml` with conservative Cloud Run runtime settings (scale to zero, at most three instances). The first backend must be created by a Firebase project Owner in the Console or with the Firebase CLI.
+
+App Hosting requires the Blaze pay-as-you-go plan. Firebase publishes monthly no-cost allowances for Cloud Run, Cloud Build, bandwidth and related services, then charges usage above those allowances. Configure a billing budget and Cloud Run spend cap before enabling the backend. It is a separate deployment quota from Vercel, not unlimited free hosting.
+
+Do not use classic Firebase Hosting as a static export: Pitchline depends on Next.js server rendering and API routes. Firebase's framework-aware Hosting path can support SSR but remains an early public preview; App Hosting is the recommended full-stack path.
 
 ## Firebase
 

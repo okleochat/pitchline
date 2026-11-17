@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { requireProUser } from "@/lib/firebase/server-session"
 import { simulatePro, type ProTeam } from "@/lib/pro-sim"
 import { getProPlayerData } from "@/lib/providers/ea-fc-ratings.server"
+import { hasEligibleProPickSquadData } from "@/lib/pro-pick-eligibility"
 import type { LeagueId } from "@/data/football"
 
 export const runtime = "nodejs"
@@ -65,7 +66,11 @@ function fixtureInput(value: unknown): PickFixtureInput | null {
   return { fixtureId, home, away, edge }
 }
 
-async function simulatePick(fixture: PickFixtureInput) {
+type ProPickSimulationResult =
+  | { fixtureId: string; probabilities: ReturnType<typeof simulatePro>["probabilities"] }
+  | { fixtureId: string; excluded: true }
+
+async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulationResult> {
   const playerData = await getProPlayerData({
     home: {
       id: fixture.home.id, name: fixture.home.name, league: fixture.home.league,
@@ -76,9 +81,21 @@ async function simulatePick(fixture: PickFixtureInput) {
       rateLeague: fixture.away.rateLeague, espnId: fixture.away.espnId, feedSlug: fixture.away.feedSlug,
     },
   })
-  const homeFactors = playerData.adjustmentsApplied ? playerData.home?.factors : undefined
-  const awayFactors = playerData.adjustmentsApplied ? playerData.away?.factors : undefined
-  const report = simulatePro(fixture.home, fixture.away, fixture.edge, 0, homeFactors, awayFactors)
+
+  if (!hasEligibleProPickSquadData(playerData)) {
+    return { fixtureId: fixture.fixtureId, excluded: true }
+  }
+
+  // Eligibility guarantees that both rated squads were incorporated. Do not
+  // emit a Classic/team-only fallback when the Pro engine is selected.
+  const report = simulatePro(
+    fixture.home,
+    fixture.away,
+    fixture.edge,
+    0,
+    playerData.home?.factors,
+    playerData.away?.factors,
+  )
   return { fixtureId: fixture.fixtureId, probabilities: report.probabilities }
 }
 
@@ -110,8 +127,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const results = await Promise.all((fixtures as PickFixtureInput[]).map(simulatePick))
-    return NextResponse.json({ results }, { headers: { "Cache-Control": "private, no-store" } })
+    const simulations = await Promise.all((fixtures as PickFixtureInput[]).map(simulatePick))
+    const results = simulations.flatMap((item) =>
+      "probabilities" in item ? [item] : [],
+    )
+    const excludedCount = simulations.length - results.length
+    return NextResponse.json(
+      { results, excludedCount },
+      { headers: { "Cache-Control": "private, no-store" } },
+    )
   } catch {
     return NextResponse.json({ error: "pro_picks_failed" }, { status: 500 })
   }

@@ -7,7 +7,6 @@ import { ArrowLeftRight, ChevronDown, Minus, Pause, Play, Plus, RotateCcw, Spark
 import {
   LEAGUES,
   formRate,
-  isCup,
   leagueName,
   leagueShort,
   shapePair,
@@ -24,7 +23,6 @@ import { PRO_SIM_RUNS } from "@/lib/pro-sim-config"
 import type { ProReport } from "@/lib/pro-sim"
 import type { ProPlayerData, ProTeamSquad } from "@/lib/pro-player-data"
 import {
-  DIXON_RHO,
   SIMS,
   analyticalSplit,
   fairDecimal,
@@ -158,13 +156,6 @@ function barWidth(share: number): string {
 
 function exactPct(share: number): string {
   return `${(share * 100).toFixed(1)}%`
-}
-
-function edgeCopy(pct: number): string {
-  const delta = pct - 100
-  if (delta === 0) return "Even pitch"
-  const sign = delta > 0 ? "+" : "−"
-  return `${sign}${Math.abs(delta)}% home scoring`
 }
 
 function TeamSelect({
@@ -539,11 +530,6 @@ function MatchTape({
   )
 }
 
-function weightLabel(league: LeagueId, weight: number): string {
-  const body = weight.toFixed(2)
-  return league === "ch" ? `${body} estimate` : body
-}
-
 function formSide(name: string, sample: RateSample | null, take: number): string {
   if (!sample) return `${name} stays on the season rate`
   const count = sample.played < take ? `${sample.played} on the feed` : `${sample.played} matches`
@@ -591,20 +577,20 @@ function ModelBar({
       onPick: (id) => onForm(id as FormWindow),
     },
     {
-      label: "Draws",
+      label: "Simulation",
       value: model,
       options: [
-        { id: "plain", label: "Independent" },
-        { id: "dixon", label: "Dixon–Coles" },
+        { id: "plain", label: "Standard" },
+        { id: "dixon", label: "Adjusted" },
       ],
       onPick: (id) => onModel(id as ModelKind),
     },
     {
-      label: "Leagues",
+      label: "Team strength",
       value: level ? "on" : "off",
       options: [
-        { id: "off", label: "Raw" },
-        { id: "on", label: "UEFA scale" },
+        { id: "off", label: "Base" },
+        { id: "on", label: "Adjusted" },
       ],
       onPick: (id) => onLevel(id === "on"),
     },
@@ -814,7 +800,6 @@ export function Pitchline({
   const away = teamBy(awayId) ?? board.teams.find((team) => team.league === league && team.id !== home.id) ?? board.teams.find((team) => team.id !== home.id) ?? board.teams[0]
   const edge = edgePct / 100
   const same = home.id === away.id
-  const selectedFixture = board.fixtures.find((fixture) => fixture.homeId === home.id && fixture.awayId === away.id)
 
   useEffect(() => {
     if (formWindow === "season") {
@@ -1279,18 +1264,18 @@ export function Pitchline({
       <section className="mb-6" aria-label="Matchweek">
         <div className="mb-3 flex items-baseline justify-between gap-3">
           <h2 className="font-display text-2xl tracking-tight">Up next</h2>
-          <p className="text-sm text-muted">{board.weekends[league]} · refreshes on its own</p>
+          <p className="text-sm text-muted">{board.weekends[league]}</p>
         </div>
         <div className="rail -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
           {fixtures.length === 0 ? (
-            <p className="text-sm text-muted">No fixtures in this window. The board below is still live.</p>
+            <p className="text-sm text-muted">No upcoming fixtures.</p>
           ) : null}
           {fixtures.map((fixture) => {
             const homeTeam = teamBy(fixture.homeId)
             const awayTeam = teamBy(fixture.awayId)
             if (!homeTeam || !awayTeam) return null
             const shapedFixture = shapePair(homeTeam, awayTeam, board.teams, level, null, null)
-            const split = analyticalSplit(shapedFixture.home, shapedFixture.away, edge, model)
+            const split = analyticalSplit(shapedFixture.home, shapedFixture.away, fixtureHomeEdge(fixture.league, board), model)
             const active = homeTeam.id === home.id && awayTeam.id === away.id
             return (
               <button
@@ -1400,9 +1385,9 @@ export function Pitchline({
         <div className="mt-5">
           <div className="flex items-baseline justify-between gap-3">
             <label htmlFor="home-edge" className="text-sm font-medium">
-              Home edge
+              Home advantage
             </label>
-            <span className="font-display text-xl tabular-nums">{edgeCopy(edgePct)}</span>
+            <span className="font-display text-xl tabular-nums">{edgePct}%</span>
           </div>
           <input
             id="home-edge"
@@ -1472,7 +1457,7 @@ export function Pitchline({
             disabled={same || running}
           >
             <RotateCcw className="size-4" />
-            {running ? "Simulating…" : isPro && engineMode === "pro" ? `Run ${PRO_SIM_RUNS.toLocaleString("en-GB")} again` : `Run ${SIMS.toLocaleString("en-GB")} again`}
+            {running ? "Simulating…" : "Run again"}
           </button>
           {!(isPro && engineMode === "pro") ? (
             <button
@@ -1579,17 +1564,7 @@ export function Pitchline({
                     <dd className="mt-1 font-medium tabular-nums">{proReport.details.shotsOnTargetHome.toFixed(1)}–{proReport.details.shotsOnTargetAway.toFixed(1)}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-muted">Build-up success</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.buildUpSuccessHomePct.toFixed(1)}%–{proReport.details.buildUpSuccessAwayPct.toFixed(1)}%</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted">Progression success</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.progressionSuccessHomePct.toFixed(1)}%–{proReport.details.progressionSuccessAwayPct.toFixed(1)}%</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted">Chance creation</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.chanceCreationHomePct.toFixed(1)}%–{proReport.details.chanceCreationAwayPct.toFixed(1)}%</dd>
-                  </div>
+
               </dl>
             ) : null}
             {isPro && engineMode === "pro" && proReport?.playerData ? <ProPlayerDataPanel data={proReport.playerData} /> : null}
@@ -1616,7 +1591,7 @@ export function Pitchline({
           <div className="mb-4 grid gap-4 lg:grid-cols-2">
             <section className="panel">
               <h2 className="font-display text-2xl tracking-tight">Scorelines</h2>
-              <p className="mt-1 mb-4 text-sm text-muted">Share of the {report.n.toLocaleString("en-GB")} simulated matches. The ring marks the mode inside 0–4.</p>
+              <p className="mt-1 mb-4 text-sm text-muted">The most frequent scorelines.</p>
               <ScoreMatrix report={report} />
               <ol className="mt-4 space-y-1">
                 {report.top.map((line) => (

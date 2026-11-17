@@ -730,6 +730,7 @@ export async function mergeInternationalFixtures(board: Board, international: In
         fixtureCount: internationalFixtures.length,
         updatedAt: now,
         fixturesUpdatedAt: now,
+        homeAdvantagePct: 100,
       },
     },
   }
@@ -806,7 +807,7 @@ async function buildBoard(): Promise<Board> {
     weekends,
     leagueStatus,
   }
-  const international = await getUpcomingInternationalFixtures(14).catch(() => null)
+  const international = await getUpcomingInternationalFixtures(30).catch(() => null)
   return international ? mergeInternationalFixtures(baseBoard, international.fixtures) : baseBoard
 }
 

@@ -3,7 +3,7 @@ import test from "node:test"
 import { estimateHomeAdvantage, homeAdvantageForLeague } from "./home-advantage.ts"
 
 test("home advantage uses recent completed home and away scoring", () => {
-  const scores = Array.from({ length: 40 }, () => ({ homeGoals: 2, awayGoals: 1 }))
+  const scores = Array.from({ length: 40 }, () => ({ homeGoals: 3, awayGoals: 2 }))
   const edge = estimateHomeAdvantage(scores)
   assert.ok(edge > 1.1 && edge < 1.3)
 })

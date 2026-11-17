@@ -1,0 +1,58 @@
+name: Sync EA FC 27 player ratings
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/sync_ea_fc27.py"
+      - "scripts/requirements-ea-fc27.txt"
+      - ".github/workflows/sync-ea-fc27.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ea-fc27-ratings-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out Pitchline
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Firestore client
+        run: python -m pip install --disable-pip-version-check -r scripts/requirements-ea-fc27.txt
+
+      - name: Test the EA FC 27 sync logic
+        run: python -m unittest scripts.test_sync_ea_fc27
+
+      - name: Check Google workload identity configuration
+        env:
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$GCP_WORKLOAD_IDENTITY_PROVIDER" ] || [ -z "$GCP_SERVICE_ACCOUNT" ]; then
+            echo "::error::Set the GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT repository variables. See docs/EA_FC_RATINGS_SETUP.md."
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud (keyless OIDC)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Download, validate and publish the FC 27 player database
+        run: python scripts/sync_ea_fc27.py --upload-firestore --project-id pitchline-app --page-delay 0.4

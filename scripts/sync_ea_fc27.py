@@ -402,7 +402,27 @@ def firestore_player_shards(players: list[dict[str, Any]], synced_at: str) -> di
         raise RuntimeError("No men's EA player-name shards were created; refusing to upload an empty database.")
     return documents
 
-def upload_firestore(documents: dict[str, dict[str, Any]], project_id: str) -> None:
+def snapshot_collection_name(synced_at: str) -> str:
+    token = re.sub(r"[^A-Za-z0-9]", "", synced_at)
+    if not token:
+        raise RuntimeError("A valid sync timestamp is required to publish an EA snapshot.")
+    return f"ea_fc27_players_{token}"
+
+
+def delete_firestore_collection(client: Any, collection: Any, batch_size: int = 400) -> None:
+    snapshots = list(collection.stream())
+    for start in range(0, len(snapshots), batch_size):
+        batch = client.batch()
+        for snapshot in snapshots[start:start + batch_size]:
+            batch.delete(snapshot.reference)
+        batch.commit()
+
+
+def upload_firestore(
+    documents: dict[str, dict[str, Any]],
+    project_id: str,
+    synced_at: str,
+) -> None:
     try:
         from google.cloud import firestore
     except ImportError as error:
@@ -412,27 +432,37 @@ def upload_firestore(documents: dict[str, dict[str, Any]], project_id: str) -> N
         ) from error
 
     client = firestore.Client(project=project_id)
-    collection = client.collection("ea_fc27_player_shards")
-    existing = {snapshot.id for snapshot in collection.stream()}
-    desired = set(documents)
-    stale = existing - desired
-    operations: list[tuple[str, Any, Any]] = []
+    metadata_ref = client.collection("ea_fc27_meta").document("current")
+    previous_metadata = metadata_ref.get().to_dict() or {}
+    previous_collection_name = previous_metadata.get("activeCollection")
+    retired_collection_name = previous_metadata.get("previousCollection")
 
-    for document_id, document in documents.items():
-        operations.append(("set", collection.document(document_id), document))
-    for document_id in stale:
-        operations.append(("delete", collection.document(document_id), None))
+    # Stage a complete new version. The app keeps reading the previous
+    # snapshot until every shard is committed and verified.
+    collection_name = snapshot_collection_name(synced_at)
+    collection = client.collection(collection_name)
+    desired_ids = set(documents)
+    operations = [
+        (collection.document(document_id), document)
+        for document_id, document in documents.items()
+    ]
 
     batch_size = 400
     for start in range(0, len(operations), batch_size):
         batch = client.batch()
-        for action, reference, value in operations[start:start + batch_size]:
-            if action == "set":
-                batch.set(reference, value)
-            else:
-                batch.delete(reference)
+        for reference, value in operations[start:start + batch_size]:
+            batch.set(reference, value)
         batch.commit()
-        print(f"Firestore sync: {min(start + batch_size, len(operations))}/{len(operations)} writes.")
+        print(f"Firestore staging: {min(start + batch_size, len(operations))}/{len(operations)} shard writes.")
+
+    published_ids = {snapshot.id for snapshot in collection.stream()}
+    if published_ids != desired_ids:
+        missing = sorted(desired_ids - published_ids)[:10]
+        unexpected = sorted(published_ids - desired_ids)[:10]
+        raise RuntimeError(
+            "Firestore snapshot verification failed; the previous active database was left unchanged. "
+            f"Missing shards: {missing}; unexpected shards: {unexpected}."
+        )
 
     unique_player_ids = {
         str(player.get("id"))
@@ -445,14 +475,45 @@ def upload_firestore(documents: dict[str, dict[str, Any]], project_id: str) -> N
         "source": "EA public player ratings page",
         "playerCount": len(unique_player_ids),
         "shardCount": len(documents),
-        "syncedAt": now_iso(),
+        "syncedAt": synced_at,
+        "snapshotId": collection_name.removeprefix("ea_fc27_players_"),
+        "activeCollection": collection_name,
+        # Retain the just-replaced active snapshot for instances with a cached
+        # collection pointer. It becomes eligible for cleanup on the next sync.
+        "previousCollection": (
+            previous_collection_name
+            if isinstance(previous_collection_name, str)
+            and previous_collection_name.startswith("ea_fc27_players_")
+            and previous_collection_name != collection_name
+            else None
+        ),
     }
-    client.collection("ea_fc27_meta").document("current").set(metadata)
+
+    # One metadata write is the publish/commit point used by the app.
+    metadata_ref.set(metadata)
     print(
-        f"Uploaded {metadata['playerCount']:,} men's players across "
-        f"{metadata['shardCount']:,} player-name shards to project {project_id}."
+        f"Published {metadata['playerCount']:,} men's players across "
+        f"{metadata['shardCount']:,} verified name shards to project {project_id}. "
+        f"Active collection: {collection_name}."
     )
 
+    # Keep the just-replaced active version for one full refresh cycle. This
+    # protects app instances that briefly cache the old activeCollection value.
+    # Delete only the older retired snapshot, after the new pointer is published.
+    if (
+        isinstance(retired_collection_name, str)
+        and retired_collection_name.startswith("ea_fc27_players_")
+        and retired_collection_name not in {collection_name, previous_collection_name}
+    ):
+        try:
+            delete_firestore_collection(client, client.collection(retired_collection_name), batch_size)
+            print(f"Removed retired EA player snapshot: {retired_collection_name}.")
+        except Exception as error:
+            print(
+                "Warning: the new EA snapshot is active, but the previous snapshot "
+                f"could not be cleaned up: {error}",
+                file=sys.stderr,
+            )
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sync public EA FC 27 player ratings to Pitchline.")
@@ -496,7 +557,7 @@ def main() -> int:
 
         if args.upload_firestore:
             documents = firestore_player_shards(players, synced_at)
-            upload_firestore(documents, args.project_id)
+            upload_firestore(documents, args.project_id, synced_at)
         else:
             men = sum(1 for player in players if is_mens_player(player))
             shards = len(firestore_player_shards(players, synced_at))

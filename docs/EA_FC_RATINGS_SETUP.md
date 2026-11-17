@@ -2,7 +2,7 @@
 
 Pitchline uses **ESPN for the current team roster** and **EA SPORTS FC 27 for the player-quality attributes**. ESPN remains the source for fixtures, competitions and team identities. Pitchline does not request individual ESPN season-stat profiles for this feature.
 
-The complete EA ratings download is synchronized by a local Python utility into private Firebase Firestore storage. The raw player database is not committed to this public GitHub repository and is not returned to the browser.
+The complete EA ratings download is synchronized automatically by GitHub Actions into private Firebase Firestore storage. The workflow runs weekly, runs again when the sync code changes on `main`, and can be started from the Actions tab with **Run workflow**. The raw player database is not committed to this public GitHub repository and is not returned to the browser.
 
 ## What these ratings mean
 
@@ -21,64 +21,85 @@ Players are aggregated by their current ESPN roster positions. EA does not provi
 
 The Pro simulator applies player adjustments only when both ESPN rosters have at least 12 EA-matched players and at least 60% coverage. If either side misses that threshold, both teams retain neutral player multipliers.
 
-## 1. Requirements
+## 1. One-time Google Cloud connection
 
-- Python 3.10 or newer.
-- A network connection that can access EA's public ratings feed.
-- A Google account with Firestore write permission in project `pitchline-app`.
-- Google Cloud CLI for Application Default Credentials.
+GitHub Actions uses **Workload Identity Federation (OIDC)**. No service-account JSON key is created or stored in GitHub.
 
-The download uses Python's standard library. Only Firestore upload requires an extra package:
+The one-time setup creates a narrowly scoped service account, allows only this repository's `main` branch to impersonate it, and grants Firestore data access in project `pitchline-app`.
+
+Run the following once from an administrator workstation with the Google Cloud CLI authenticated and permission to manage IAM in `pitchline-app`:
+
+```bash
+PROJECT_ID="pitchline-app"
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+SA_NAME="pitchline-ea-ratings-sync"
+SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+POOL_ID="github-pitchline"
+PROVIDER_ID="github-pitchline"
+
+gcloud services enable iam.googleapis.com cloudresourcemanager.googleapis.com iamcredentials.googleapis.com sts.googleapis.com --project "$PROJECT_ID"
+
+gcloud iam service-accounts create "$SA_NAME" \
+  --project "$PROJECT_ID" \
+  --display-name="Pitchline EA FC ratings sync"
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/datastore.user"
+
+gcloud iam workload-identity-pools create "$POOL_ID" \
+  --project="$PROJECT_ID" --location="global" \
+  --display-name="Pitchline GitHub Actions"
+
+gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" \
+  --project="$PROJECT_ID" --location="global" \
+  --workload-identity-pool="$POOL_ID" \
+  --display-name="Pitchline repository main branch" \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
+  --attribute-condition="assertion.repository == 'okleochat/pitchline' && assertion.ref == 'refs/heads/main'"
+
+gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+  --project="$PROJECT_ID" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/attribute.repository/okleochat/pitchline"
+
+echo "GCP_WORKLOAD_IDENTITY_PROVIDER=projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
+echo "GCP_SERVICE_ACCOUNT=${SA_EMAIL}"
+```
+
+Before merging the automation PR or starting its first run, open **GitHub → Settings → Secrets and variables → Actions → Variables** and create these two repository variables using the exact values printed above. The workflow is triggered by the merge to `main`, so configure them first:
+
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`
+- `GCP_SERVICE_ACCOUNT`
+
+These are resource identifiers, not private keys. Do not create a JSON service-account key or put credentials in the repository.
+
+## 2. Automatic refresh behaviour
+
+The workflow is defined in `.github/workflows/sync-ea-fc27.yml` and:
+
+- Runs every Monday at 05:23 UTC.
+- Runs after changes to the sync script, its dependency file or the workflow are pushed to `main`.
+- Supports an optional manual run through **GitHub → Actions → Sync EA FC 27 player ratings → Run workflow**.
+- Installs the Firestore client, runs the Python unit tests, downloads all EA pages, validates the FC 27 edition and publishes the verified database.
+
+The workflow uses GitHub's short-lived OIDC identity; it does not need a long-lived Google credential stored in the repository. A failed EA request, stale-edition validation, incomplete download or Firestore verification does not switch Pitchline to a partial database.
+
+## 3. Snapshot publishing and data safety
+
+Each refresh uploads to a new versioned Firestore collection. It verifies the full set of shard documents and only then atomically updates `ea_fc27_meta/current.activeCollection`. Pitchline reads the active collection pointer, so the previous complete snapshot remains in use until the new one is ready.
+
+After publication, the just-replaced snapshot is retained for one refresh cycle so app instances with a briefly cached pointer can continue reading it. On the following refresh, the older retired snapshot is cleaned up on a best-effort basis. A cleanup issue does not roll back or invalidate the newly published snapshot.
+
+The normalized local copy is written to `data/ea-fc27/players.json` by the script but remains gitignored. Firestore stores only the compact player fields needed for matching and simulation; raw downloads and credentials are not committed.
+
+For local development only, the optional utility can still be run manually:
 
 ```bash
 python -m pip install -r scripts/requirements-ea-fc27.txt
-```
-
-## 2. Check EA access
-
-Run a one-page probe before downloading the full database:
-
-```bash
 python scripts/sync_ea_fc27.py --probe-only
-```
-
-The collector calls the public paginated ratings feed requested by EA's own ratings page, with the page's observed feature/referrer headers. The full download checks the reported dataset size, deduplicates player IDs, validates player records and checks for a known FC 27 top-rated player before saving.
-
-EA's endpoint and headers are undocumented and can change. If EA returns HTTP 403/429, changes the response format, or the FC 27 validation fails, the script stops. It does not bypass authentication, CAPTCHAs, access controls or rate limits.
-
-## 3. Download and upload
-
-Authenticate Google Cloud Application Default Credentials:
-
-```bash
-gcloud auth application-default login
-```
-
-Your Google identity needs permission to write to Firestore in project `pitchline-app` (for example, the Cloud Datastore User role).
-
-Run the sync:
-
-```bash
 python scripts/sync_ea_fc27.py --upload-firestore --project-id pitchline-app
-```
-
-The collector:
-
-1. Downloads EA's paginated player records in batches of 100, with a pause between requests.
-2. Normalizes EA IDs, names, club, league, nationality, positions, base ratings, detailed attributes and PlayStyles.
-3. Stores both common names and full names as strict normalized match keys.
-4. Deduplicates EA records by player ID and validates database completeness.
-5. Saves a local normalized copy to `data/ea-fc27/players.json`.
-6. Uploads men's player records into compact name-prefix documents in the private `ea_fc27_player_shards` Firestore collection.
-7. Updates `ea_fc27_meta/current` with the database name, sync timestamp and player/shard counts.
-8. Deletes stale documents from that dedicated name-shard collection after a successful current sync.
-
-The local `data/ea-fc27/` folder is gitignored. Do not commit the dataset. Firestore stores only the normalized player fields needed for matching and simulation; no API credentials are stored.
-
-To download a local copy without uploading:
-
-```bash
-python scripts/sync_ea_fc27.py
 ```
 
 ## 4. How Pro uses the data
@@ -97,7 +118,7 @@ Raw EA player records stay server-side. The browser receives only aggregate team
 
 ## 5. Refresh and verify
 
-A weekly refresh is a reasonable starting cadence. Run the same upload command again to update the EA ratings snapshot and its name shards. The Firestore documents include a sync timestamp so Pitchline can show which snapshot was used.
+The scheduled GitHub Actions workflow refreshes the EA ratings snapshot every week, and the Firestore metadata and player shards carry the same sync timestamp so Pitchline can show exactly which snapshot was used. No routine local command is required. For an early refresh, start **Sync EA FC 27 player ratings** from the GitHub Actions tab.
 
 After the first upload:
 

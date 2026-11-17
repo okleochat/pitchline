@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { SiteHeader } from "@/components/site-header"
 import { useFirebaseSession } from "@/components/auth/firebase-auth-provider"
-import { ArrowLeftRight, ChevronDown, Minus, Pause, Play, Plus, RotateCcw, Sparkles } from "lucide-react"
+import { ArrowLeftRight, ChevronDown, LoaderCircle, Minus, Pause, Play, Plus, RotateCcw, Sparkles } from "lucide-react"
 import {
   LEAGUES,
   formRate,
@@ -1492,9 +1492,12 @@ export function Pitchline({
           <p className="text-sm">Pick two different teams.</p>
         </section>
       ) : isPro && engineMode === "pro" && proLoading ? (
-        <section className="panel mb-4" aria-live="polite">
-          <p className="text-sm font-medium">Running Pro simulation…</p>
-          <p className="mt-1 text-sm text-muted">Please wait while your results are prepared.</p>
+        <section className="panel mb-4" aria-live="polite" aria-busy="true">
+          <div className="flex items-center gap-2">
+            <LoaderCircle className="size-4 animate-spin text-primary" aria-hidden="true" />
+            <p className="text-sm font-medium">Loading Pro Engine…</p>
+          </div>
+          <p className="mt-1 text-sm text-muted">Preparing squad data and match simulation.</p>
         </section>
       ) : isPro && engineMode === "pro" && proError ? (
         <section className="panel mb-4" role="alert">

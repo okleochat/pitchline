@@ -1,10 +1,8 @@
 import { Pitchline } from "@/components/pitchline"
-import { getLiveBoard } from "@/lib/live-board.server"
+import { snapshotBoard } from "@/data/football"
 
-export const dynamic = "force-dynamic"
-export const revalidate = 0
-
-export default async function HomePage() {
-  const board = await getLiveBoard()
-  return <Pitchline initial={board} />
+export default function HomePage() {
+  // Render the bundled board immediately. Live ESPN refresh runs after the
+  // client mounts, so a cold ESPN refresh cannot delay the first page paint.
+  return <Pitchline initial={snapshotBoard()} />
 }

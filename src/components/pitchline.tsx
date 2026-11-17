@@ -1344,7 +1344,7 @@ export function Pitchline({
                 onClick={() => setEngineMode("classic")}
                 className={`press min-h-11 rounded-lg px-3 text-sm font-medium ${engineMode === "classic" ? "bg-primary text-primary-foreground" : "border border-border bg-background"}`}
               >
-                Classic Monte Carlo
+                Classic
               </button>
             </div>
           </div>
@@ -1434,12 +1434,12 @@ export function Pitchline({
               ? "Reading recent matches…"
               : formNote === "missing"
                 ? league === "int"
-                  ? "No completed history returned for one or both teams. Competition-base rates stay on."
-                  : "Recent form needs the live tables. Season rates stay on."
+                  ? "Recent form is unavailable for this match."
+                  : "Recent form is unavailable for this match."
                 : formNote === "error"
                   ? league === "int"
-                    ? "International match history did not load. Competition-base rates stay on."
-                    : "Recent matches did not load. Season rates stay on."
+                    ? "Recent form is temporarily unavailable."
+                    : "Recent form is temporarily unavailable."
                   : `Last ${take}: ${formSide(home.short, desk.homeSample, take)}. ${formSide(away.short, desk.awaySample, take)}.`}
           </p>
         ) : null}
@@ -1477,8 +1477,8 @@ export function Pitchline({
         </section>
       ) : isPro && engineMode === "pro" && proLoading ? (
         <section className="panel mb-4" aria-live="polite">
-          <p className="text-sm font-medium">Running the Pro phase-of-play simulation…</p>
-          <p className="mt-1 text-sm text-muted">Simulating 2,500 matches as possession sequences.</p>
+          <p className="text-sm font-medium">Running Pro simulation…</p>
+          <p className="mt-1 text-sm text-muted">Please wait while your results are prepared.</p>
         </section>
       ) : isPro && engineMode === "pro" && proError ? (
         <section className="panel mb-4" role="alert">

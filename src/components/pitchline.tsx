@@ -17,6 +17,7 @@ import {
   type Team,
 } from "@/data/football"
 import { loadBoard, loadForm, loadProPickMarkets, loadProSimulation, type FormResult, type ProPickFixtureInput } from "@/lib/board"
+import { createProPickCacheKey, readProPickCache, writeProPickCache } from "@/lib/pro-pick-cache"
 import { homeAdvantageForLeague } from "@/lib/home-advantage"
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
 import type { ProReport } from "@/lib/pro-sim"
@@ -57,6 +58,7 @@ type DeskState = {
   form?: "season" | "5" | "10"
   level?: boolean
   engineMode?: "pro" | "classic"
+  pickThreshold?: number
 }
 
 type FormWindow = "season" | "5" | "10"
@@ -687,6 +689,7 @@ export function Pitchline({
   const [proPickLoading, setProPickLoading] = useState(false)
   const [proPickError, setProPickError] = useState<string | null>(null)
   const [proPickProgress, setProPickProgress] = useState({ done: 0, total: 0 })
+  const [proPickThreshold, setProPickThreshold] = useState(80)
   const view = initialView
   const [pickKind, setPickKind] = useState<PickKind | "all">("all")
   const [pickLeague, setPickLeague] = useState<LeagueId | "all">("all")
@@ -769,6 +772,9 @@ export function Pitchline({
       if (saved.model === "plain" || saved.model === "dixon") setModel(saved.model)
       if (saved.form === "season" || saved.form === "5" || saved.form === "10") setFormWindow(saved.form)
       if (typeof saved.level === "boolean") setLevel(saved.level)
+      if (initialView === "picks" && typeof saved.pickThreshold === "number") {
+        setProPickThreshold(Math.min(95, Math.max(50, Math.round(saved.pickThreshold))))
+      }
     }
     setReady(true)
     return () => {
@@ -797,9 +803,9 @@ export function Pitchline({
   useEffect(() => {
     if (!ready) return
     if (session.loading) return
-    const payload: DeskState = { league, homeId, awayId, edgePct, spread, totalLine, model, form: formWindow, level, engineMode: isPro ? engineMode : undefined }
+    const payload: DeskState = { league, homeId, awayId, edgePct, spread, totalLine, model, form: formWindow, level, engineMode: isPro ? engineMode : undefined, pickThreshold: isPro && view === "picks" ? proPickThreshold : undefined }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
-  }, [ready, session.loading, league, homeId, awayId, edgePct, spread, totalLine, model, formWindow, level, engineMode])
+  }, [ready, session.loading, league, homeId, awayId, edgePct, spread, totalLine, model, formWindow, level, engineMode, isPro, view, proPickThreshold])
 
   const teamBy = (id: string) => board.teams.find((team) => team.id === id)
   const home = teamBy(homeId) ?? board.teams.find((team) => team.league === league) ?? board.teams[0]
@@ -924,8 +930,15 @@ export function Pitchline({
     return inputs
   }, [view, isPro, engineMode, board.teams, board.fixtures, board.leagueStatus, level, edgePct])
 
+  const proPickCacheKey = useMemo(
+    () => isPro && engineMode === "pro" && session.user?.uid && proPickInputs.length
+      ? createProPickCacheKey(session.user.uid, proPickInputs)
+      : null,
+    [isPro, engineMode, session.user?.uid, proPickInputs],
+  )
+
   useEffect(() => {
-    if (!proPickInputs.length) {
+    if (!proPickInputs.length || !proPickCacheKey) {
       setProPickResults({})
       setProPickExcludedCount(0)
       setProPickLoading(false)
@@ -933,8 +946,21 @@ export function Pitchline({
       setProPickProgress({ done: 0, total: 0 })
       return
     }
+
+    const cached = readProPickCache(proPickCacheKey, proPickInputs.length)
+    if (cached) {
+      setProPickResults(cached.results)
+      setProPickExcludedCount(cached.excludedCount)
+      setProPickLoading(false)
+      setProPickError(null)
+      setProPickProgress({ done: proPickInputs.length, total: proPickInputs.length })
+      return
+    }
+
     const controller = new AbortController()
     let active = true
+    const accumulatedResults: Record<string, MarketProbabilities> = {}
+    let accumulatedExcludedCount = 0
     setProPickResults({})
     setProPickExcludedCount(0)
     setProPickLoading(true)
@@ -945,14 +971,21 @@ export function Pitchline({
         const batch = proPickInputs.slice(index, index + 12)
         const batchResult = await loadProPickMarkets({ data: { fixtures: batch }, signal: controller.signal })
         if (!active) return
-        setProPickResults((current) => {
-          const next = { ...current }
-          for (const result of batchResult.results) next[result.fixtureId] = result.probabilities
-          return next
-        })
-        setProPickExcludedCount((current) => current + batchResult.excludedCount)
+        for (const result of batchResult.results) {
+          accumulatedResults[result.fixtureId] = result.probabilities
+        }
+        accumulatedExcludedCount += batchResult.excludedCount
+        setProPickResults({ ...accumulatedResults })
+        setProPickExcludedCount(accumulatedExcludedCount)
         setProPickProgress({ done: Math.min(index + batch.length, proPickInputs.length), total: proPickInputs.length })
       }
+
+      if (!active || controller.signal.aborted) return
+      writeProPickCache(proPickCacheKey, {
+        savedAt: Date.now(),
+        results: accumulatedResults,
+        excludedCount: accumulatedExcludedCount,
+      }, proPickInputs.length)
     }
     run().then(() => {
       if (active) setProPickLoading(false)
@@ -965,7 +998,7 @@ export function Pitchline({
       active = false
       controller.abort()
     }
-  }, [proPickInputs])
+  }, [proPickInputs, proPickCacheKey])
 
   const handicap = report ? splitHandicap(report.scores, spread) : null
   const totals = report ? splitTotal(report.scores, totalLine) : null
@@ -1018,8 +1051,10 @@ export function Pitchline({
     if (pickLeague !== "all" && pick.fixture.league !== pickLeague) return false
     return true
   })
-  const hotPicks = visiblePicks.filter((pick) => pick.share >= PICK_LINE)
-  const shownPicks = hotPicks.length ? hotPicks : visiblePicks.slice(0, 5)
+  const proPickMode = isPro && engineMode === "pro"
+  const pickThreshold = proPickMode ? proPickThreshold / 100 : PICK_LINE
+  const hotPicks = visiblePicks.filter((pick) => pick.share >= pickThreshold)
+  const shownPicks = proPickMode ? hotPicks : hotPicks.length ? hotPicks : visiblePicks.slice(0, 5)
 
   function toggleSort(next: SortKey) {
     if (sortKey === next) {
@@ -1091,7 +1126,7 @@ export function Pitchline({
               </p>
             </div>
             <p className="text-sm text-muted tabular-nums">
-              {hotPicks.length ? `${hotPicks.length} selected` : "No standout picks"}
+              {hotPicks.length ? `${hotPicks.length} selected` : proPickMode ? `None at ${proPickThreshold}%+` : "No standout picks"}
             </p>
           </div>
 
@@ -1141,6 +1176,30 @@ export function Pitchline({
               onChange={(event) => setEdgePct(Number(event.target.value))}
             />
             <p className="mt-1 text-xs text-muted">Each competition keeps its own starting setting.</p>
+            {proPickMode ? (
+              <div className="mt-5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <label htmlFor="pro-picks-threshold" className="text-sm font-medium">
+                    Minimum pick probability
+                  </label>
+                  <span className="font-display text-xl tabular-nums">{proPickThreshold}%</span>
+                </div>
+                <input
+                  id="pro-picks-threshold"
+                  className="edge mt-2"
+                  type="range"
+                  min={50}
+                  max={95}
+                  step={1}
+                  value={proPickThreshold}
+                  onChange={(event) => setProPickThreshold(Number(event.target.value))}
+                />
+                <div className="mt-1 flex justify-between text-xs text-muted">
+                  <span>More picks · 50%</span>
+                  <span>Stricter · 95%</span>
+                </div>
+              </div>
+            ) : null}
             {!(isPro && engineMode === "pro") ? (
               <div className="mt-5">
                 <ModelBar
@@ -1213,7 +1272,7 @@ export function Pitchline({
             </section>
           ) : shownPicks.length === 0 ? (
             <section className="panel">
-              <p className="text-sm">Nothing stands out in the current selection.</p>
+              <p className="text-sm">{proPickMode ? `No picks meet the ${proPickThreshold}% minimum. Lower the filter to see more selections.` : "Nothing stands out in the current selection."}</p>
             </section>
           ) : (
             <div className="space-y-2">

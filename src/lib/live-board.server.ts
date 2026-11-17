@@ -3,6 +3,7 @@ import { LEAGUES, TEAMS, formRate, isCup, snapshotBoard, type Board, type Fixtur
 import { getEspnJson } from "@/lib/espn/transport.server"
 import { getUpcomingInternationalFixtures, type InternationalFixture } from "@/lib/international/fixtures.server"
 import { INTERNATIONAL_COMPETITIONS } from "@/lib/international/competitions"
+import { estimateHomeAdvantage } from "@/lib/home-advantage"
 
 const TTL_MS = 15 * 60 * 1000
 
@@ -100,11 +101,14 @@ type LoadedLeague = {
   season: string
   fixturesSource: "live" | "snapshot"
   fixturesUpdatedAt: string
+  homeAdvantagePct: number
   names: { raw: string; team: Team }[]
 }
 
 let cache: { at: number; ttl: number; board: Board } | null = null
 let inflight: Promise<Board> | null = null
+const homeAdvantageCache = new Map<string, { at: number; value: number }>()
+const HOME_ADVANTAGE_CACHE_MS = 6 * 60 * 60 * 1000
 
 function norm(value: string): string {
   return value
@@ -360,6 +364,52 @@ function weekendLabel(dates: Date[], tz: string): string {
   return `${part(first, { day: "numeric", month: "short" })}–${part(last, { day: "numeric", month: "short" })}`
 }
 
+function recentMonthKeys(count = 3): string[] {
+  const now = new Date()
+  return Array.from({ length: count }, (_, offset) => {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1))
+    return String(date.getUTCFullYear()) + String(date.getUTCMonth() + 1).padStart(2, "0")
+  })
+}
+
+async function getRecentHomeAdvantagePct(slug: string): Promise<number> {
+  const months = recentMonthKeys(3)
+  const cacheKey = slug + ":" + months[0]
+  const cached = homeAdvantageCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < HOME_ADVANTAGE_CACHE_MS) return cached.value
+
+  const boards = await Promise.all(
+    months.map((month) =>
+      getJson(`https://site.api.espn.com/apis/site/v2/sports/soccer/${slug}/scoreboard?dates=${month}&limit=500`),
+    ),
+  )
+  const scores: { homeGoals: number; awayGoals: number }[] = []
+  const seen = new Set<string>()
+  for (const board of boards) {
+    for (const event of (board?.events as Record<string, unknown>[] | undefined) ?? []) {
+      const id = String(event.id ?? "")
+      if (!id || seen.has(id) || !isFinal(event)) continue
+      const competition = (event.competitions as Record<string, unknown>[] | undefined)?.[0]
+      const sides = (competition?.competitors as Record<string, unknown>[] | undefined) ?? []
+      const home = sides.find((side) => side.homeAway === "home")
+      const away = sides.find((side) => side.homeAway === "away")
+      const homeGoals = scoreNum(home?.score)
+      const awayGoals = scoreNum(away?.score)
+      if (homeGoals === null || awayGoals === null) continue
+      seen.add(id)
+      scores.push({ homeGoals, awayGoals })
+    }
+  }
+
+  const value = Math.round(estimateHomeAdvantage(scores) * 100)
+  homeAdvantageCache.set(cacheKey, { at: Date.now(), value })
+  if (homeAdvantageCache.size > 120) {
+    const firstKey = homeAdvantageCache.keys().next().value
+    if (firstKey) homeAdvantageCache.delete(firstKey)
+  }
+  return value
+}
+
 async function getJson(url: string): Promise<Record<string, unknown> | null> {
   return getEspnJson(url)
 }
@@ -484,9 +534,12 @@ async function loadLeague(
     (iso): iso is string => typeof iso === "string",
   )
   const days = cup || calendar.length === 0 ? await cupDays(source.slug, firstBoard) : await domesticDays(source.slug, calendar)
-  const boards = await Promise.all(
-    days.map((day) => getJson(`https://site.api.espn.com/apis/site/v2/sports/soccer/${source.slug}/scoreboard?dates=${day}`)),
-  )
+  const [boards, homeAdvantagePct] = await Promise.all([
+    Promise.all(
+      days.map((day) => getJson(`https://site.api.espn.com/apis/site/v2/sports/soccer/${source.slug}/scoreboard?dates=${day}`)),
+    ),
+    getRecentHomeAdvantagePct(source.slug),
+  ])
   const fixtures: { time: number; fixture: Fixture }[] = []
   const seen = new Set<string>()
   for (const board of boards) {
@@ -537,6 +590,7 @@ async function loadLeague(
     season,
     fixturesSource: ordered.length ? "live" : "snapshot",
     fixturesUpdatedAt: ordered.length ? new Date().toISOString() : saved.leagueStatus[league].fixturesUpdatedAt,
+    homeAdvantagePct,
     names,
   }
 }
@@ -564,6 +618,7 @@ export async function mergeInternationalFixtures(board: Board, international: In
           fixtureCount: 0,
           updatedAt: new Date().toISOString(),
           fixturesUpdatedAt: new Date().toISOString(),
+          homeAdvantagePct: 100,
         },
       },
     }
@@ -675,6 +730,7 @@ export async function mergeInternationalFixtures(board: Board, international: In
         fixtureCount: internationalFixtures.length,
         updatedAt: now,
         fixturesUpdatedAt: now,
+        homeAdvantagePct: 100,
       },
     },
   }
@@ -696,7 +752,7 @@ async function buildBoard(): Promise<Board> {
   cupLeagues.forEach((league, index) => loaded.set(league.id, cupLoaded[index] ?? null))
   const liveCount = [...loaded.values()].filter(Boolean).length
   if (liveCount === 0) {
-    const international = await getUpcomingInternationalFixtures(14).catch(() => null)
+    const international = await getUpcomingInternationalFixtures(30).catch(() => null)
     return international ? mergeInternationalFixtures(saved, international.fixtures) : saved
   }
 
@@ -729,6 +785,7 @@ async function buildBoard(): Promise<Board> {
           fixtureCount: result.fixtures.length,
           updatedAt,
           fixturesUpdatedAt: result.fixturesUpdatedAt,
+          homeAdvantagePct: result.homeAdvantagePct,
         }
       : saved.leagueStatus[league.id]
   }
@@ -750,7 +807,7 @@ async function buildBoard(): Promise<Board> {
     weekends,
     leagueStatus,
   }
-  const international = await getUpcomingInternationalFixtures(14).catch(() => null)
+  const international = await getUpcomingInternationalFixtures(30).catch(() => null)
   return international ? mergeInternationalFixtures(baseBoard, international.fixtures) : baseBoard
 }
 

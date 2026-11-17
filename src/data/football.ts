@@ -345,6 +345,8 @@ export type LeagueFeedStatus = {
   fixtureCount: number
   updatedAt: string
   fixturesUpdatedAt: string
+  /** Empirical home-edge default derived from recent completed league results. */
+  homeAdvantagePct?: number
 }
 
 export type Board = {

@@ -7,7 +7,6 @@ import { ArrowLeftRight, ChevronDown, Minus, Pause, Play, Plus, RotateCcw, Spark
 import {
   LEAGUES,
   formRate,
-  isCup,
   leagueName,
   leagueShort,
   shapePair,
@@ -17,14 +16,12 @@ import {
   type RateSample,
   type Team,
 } from "@/data/football"
-import { loadBoard, loadForm, loadProSimulation, type FormResult } from "@/lib/board"
+import { loadBoard, loadForm, loadProPickMarkets, loadProSimulation, type FormResult, type ProPickFixtureInput } from "@/lib/board"
+import { homeAdvantageForLeague } from "@/lib/home-advantage"
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
-import { PRO_SIM_RUNS } from "@/lib/pro-sim-config"
 import type { ProReport } from "@/lib/pro-sim"
 import type { ProPlayerData, ProTeamSquad } from "@/lib/pro-player-data"
 import {
-  DIXON_RHO,
-  SIMS,
   analyticalSplit,
   fairDecimal,
   formatLine,
@@ -38,6 +35,7 @@ import {
   splitHandicap,
   splitTotal,
   totalLabels,
+  type MarketProbabilities,
   type ModelKind,
   type Report,
   type TapeEvent,
@@ -74,6 +72,10 @@ type MarketPick = {
   share: number
 }
 
+function fixtureHomeEdge(league: LeagueId, board: Board): number {
+  return homeAdvantageForLeague(league, board.leagueStatus[league]?.homeAdvantagePct)
+}
+
 function readDesk(): Partial<DeskState> | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -101,86 +103,46 @@ function Crest({ team, large = false }: { team: Team; large?: boolean }) {
   )
 }
 
-function playerImpactText(value: number): string {
-  const delta = (value - 1) * 100
-  return (delta > 0 ? "+" : "") + delta.toFixed(1) + "%"
-}
-
 function ProSquadSummary({ squad }: { squad: ProTeamSquad }) {
   return (
     <div className="rounded-lg border border-border bg-background p-3">
       <p className="text-sm font-semibold">{squad.teamName}</p>
-      <p className="mt-1 text-xs text-muted">
-        EA attribute matches · {squad.ratedPlayerCount}/{squad.squadCount} ESPN roster players · {(squad.factors.coverage * 100).toFixed(0)}%
-      </p>
       {squad.topPlayers.length ? (
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
           {squad.topPlayers.map((player) => (
             <span key={player.id} className="text-xs text-muted">
-              {player.name} · {player.position} · {player.overall.toFixed(0)} OVR
+              {player.name} · {player.position} · {player.overall.toFixed(0)}
             </span>
           ))}
         </div>
-      ) : null}
-      {squad.dataUpdatedAt ? (
-        <p className="mt-2 text-xs text-muted">
-          EA ratings snapshot · {new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(new Date(squad.dataUpdatedAt))}
-        </p>
-      ) : null}
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div>
-          <p className="text-xs text-muted">Attack index</p>
-          <p className="mt-1 font-display text-xl tabular-nums">{squad.attackIndex.toFixed(1)}</p>
-          <p className="text-xs text-muted">Impact {playerImpactText(squad.factors.attackMultiplier)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted">Creativity index</p>
-          <p className="mt-1 font-display text-xl tabular-nums">{squad.creativityIndex.toFixed(1)}</p>
-          <p className="text-xs text-muted">Impact {playerImpactText(squad.factors.creativityMultiplier)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted">Defence index</p>
-          <p className="mt-1 font-display text-xl tabular-nums">{squad.defenceIndex.toFixed(1)}</p>
-          <p className="text-xs text-muted">Conceding {playerImpactText(squad.factors.defenceMultiplier)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted">Squad depth</p>
-          <p className="mt-1 font-display text-xl tabular-nums">{squad.factors.squadDepth.toFixed(1)}</p>
-          <p className="text-xs text-muted">Rotation quality</p>
-        </div>
-      </div>
+      ) : (
+        <p className="mt-2 text-xs text-muted">Squad details unavailable</p>
+      )}
     </div>
   )
 }
 
 function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
   const statusLabel: Record<ProPlayerData["status"], string> = {
-    available: "EA rating adjustments applied",
-    partial: "EA player coverage is insufficient",
-    team_not_found: "ESPN team mapping unavailable",
-    roster_unavailable: "ESPN current roster unavailable",
-    provider_error: "ESPN / EA player data temporarily unavailable",
+    available: "Squad profile ready",
+    partial: "Limited squad information",
+    team_not_found: "Team profile unavailable",
+    roster_unavailable: "Squad information unavailable",
+    provider_error: "Player information temporarily unavailable",
   }
   return (
-    <section className="mt-5 border-t border-border pt-4" aria-label="Player and squad intelligence">
+    <section className="mt-5 border-t border-border pt-4" aria-label="Squad insights">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-display text-xl">Player & squad intelligence</h3>
+        <h3 className="font-display text-xl">Squad insights</h3>
         <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium">
           {statusLabel[data.status]}
         </span>
       </div>
-      <p className="mt-2 text-sm text-muted">{data.note}</p>
-      <p className="mt-1 text-xs text-muted">Sources: ESPN current rosters + {data.provider} · Position-aware indices use EA overall ratings and individual attributes. These are base player-quality estimates, not live form, confirmed lineups, injuries or real-world match statistics.</p>
       {data.home || data.away ? (
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {data.home ? <ProSquadSummary squad={data.home} /> : null}
           {data.away ? <ProSquadSummary squad={data.away} /> : null}
         </div>
-      ) : null}
-      {data.adjustmentsApplied ? (
-        <p className="mt-3 text-xs text-muted">
-          Both clubs' EA player-quality indices are incorporated into the Pro match simulation. Pitchline calculates the indices from EA attributes; the adjustment is not an EA prediction or match-engine output.
-        </p>
       ) : null}
     </section>
   )
@@ -192,23 +154,6 @@ function barWidth(share: number): string {
 
 function exactPct(share: number): string {
   return `${(share * 100).toFixed(1)}%`
-}
-
-function feedTimestamp(iso: string): string {
-  const date = new Date(iso)
-  if (!Number.isFinite(date.getTime())) return "timestamp unavailable"
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Europe/London",
-  }).format(date)
-}
-
-function edgeCopy(pct: number): string {
-  const delta = pct - 100
-  if (delta === 0) return "Even pitch"
-  const sign = delta > 0 ? "+" : "−"
-  return `${sign}${Math.abs(delta)}% home scoring`
 }
 
 function TeamSelect({
@@ -583,11 +528,6 @@ function MatchTape({
   )
 }
 
-function weightLabel(league: LeagueId, weight: number): string {
-  const body = weight.toFixed(2)
-  return league === "ch" ? `${body} estimate` : body
-}
-
 function formSide(name: string, sample: RateSample | null, take: number): string {
   if (!sample) return `${name} stays on the season rate`
   const count = sample.played < take ? `${sample.played} on the feed` : `${sample.played} matches`
@@ -635,20 +575,20 @@ function ModelBar({
       onPick: (id) => onForm(id as FormWindow),
     },
     {
-      label: "Draws",
+      label: "Simulation",
       value: model,
       options: [
-        { id: "plain", label: "Independent" },
-        { id: "dixon", label: "Dixon–Coles" },
+        { id: "plain", label: "Standard" },
+        { id: "dixon", label: "Adjusted" },
       ],
       onPick: (id) => onModel(id as ModelKind),
     },
     {
-      label: "Leagues",
+      label: "Team strength",
       value: level ? "on" : "off",
       options: [
-        { id: "off", label: "Raw" },
-        { id: "on", label: "UEFA scale" },
+        { id: "off", label: "Base" },
+        { id: "on", label: "Adjusted" },
       ],
       onPick: (id) => onLevel(id === "on"),
     },
@@ -683,8 +623,12 @@ function ModelBar({
   )
 }
 
-function marketsFor(home: Team, away: Team, edge: number, fixture: Fixture, model: ModelKind): MarketPick[] {
-  const probabilities = simulate(home, away, edge, 0, model).probabilities
+function marketsFromProbabilities(
+  home: Team,
+  away: Team,
+  fixture: Fixture,
+  probabilities: MarketProbabilities,
+): MarketPick[] {
   const rows: { kind: PickKind; label: string; share: number }[] = [
     { kind: "result", label: `${home.name} to win`, share: probabilities.home },
     { kind: "result", label: "Draw", share: probabilities.draw },
@@ -697,6 +641,10 @@ function marketsFor(home: Team, away: Team, edge: number, fixture: Fixture, mode
     { kind: "btts", label: "Not both to score", share: 1 - probabilities.btts },
   ]
   return rows.map((row) => ({ key: `${fixture.id}:${row.label}`, fixture, label: row.label, kind: row.kind, share: row.share }))
+}
+
+function marketsFor(home: Team, away: Team, edge: number, fixture: Fixture, model: ModelKind): MarketPick[] {
+  return marketsFromProbabilities(home, away, fixture, simulate(home, away, edge, 0, model).probabilities)
 }
 
 export function Pitchline({
@@ -718,7 +666,9 @@ export function Pitchline({
   const [league, setLeague] = useState<LeagueId>(initialLeague)
   const [homeId, setHomeId] = useState(firstInitialFixture?.homeId ?? firstInitialTeam?.id ?? "eng-ars")
   const [awayId, setAwayId] = useState(firstInitialFixture?.awayId ?? initial.teams.find((team) => team.league === initialLeague && team.id !== firstInitialTeam?.id)?.id ?? "eng-liv")
-  const [edgePct, setEdgePct] = useState(initialLeague === "int" ? 100 : 118)
+  const [edgePct, setEdgePct] = useState(
+    initialView === "picks" ? 100 : initialLeague === "int" ? 100 : initial.leagueStatus[initialLeague]?.homeAdvantagePct ?? 110,
+  )
   const [roll, setRoll] = useState(0)
   const [spread, setSpread] = useState(-0.5)
   const [totalLine, setTotalLine] = useState(2.5)
@@ -732,6 +682,10 @@ export function Pitchline({
   const [proReport, setProReport] = useState<ProReport | null>(null)
   const [proLoading, setProLoading] = useState(false)
   const [proError, setProError] = useState<string | null>(null)
+  const [proPickResults, setProPickResults] = useState<Record<string, MarketProbabilities>>({})
+  const [proPickLoading, setProPickLoading] = useState(false)
+  const [proPickError, setProPickError] = useState<string | null>(null)
+  const [proPickProgress, setProPickProgress] = useState({ done: 0, total: 0 })
   const view = initialView
   const [pickKind, setPickKind] = useState<PickKind | "all">("all")
   const [pickLeague, setPickLeague] = useState<LeagueId | "all">("all")
@@ -799,7 +753,9 @@ export function Pitchline({
       if (saved.league && LEAGUES.some((item) => item.id === saved.league)) setLeague(saved.league)
       if (known(saved.homeId)) setHomeId(saved.homeId!)
       if (known(saved.awayId)) setAwayId(saved.awayId!)
-      if (typeof saved.edgePct === "number") setEdgePct(Math.min(140, Math.max(85, Math.round(saved.edgePct))))
+      if (initialView !== "picks" && typeof saved.edgePct === "number") {
+        setEdgePct(Math.min(140, Math.max(85, Math.round(saved.edgePct))))
+      }
       if (typeof saved.spread === "number") setSpread(roundHalf(saved.spread))
       if (typeof saved.totalLine === "number") setTotalLine(roundHalf(saved.totalLine))
       if (saved.model === "plain" || saved.model === "dixon") setModel(saved.model)
@@ -842,7 +798,6 @@ export function Pitchline({
   const away = teamBy(awayId) ?? board.teams.find((team) => team.league === league && team.id !== home.id) ?? board.teams.find((team) => team.id !== home.id) ?? board.teams[0]
   const edge = edgePct / 100
   const same = home.id === away.id
-  const selectedFixture = board.fixtures.find((fixture) => fixture.homeId === home.id && fixture.awayId === away.id)
 
   useEffect(() => {
     if (formWindow === "season") {
@@ -933,6 +888,74 @@ export function Pitchline({
 
   const report = isPro && engineMode === "pro" && view === "desk" ? proReport : classicReport
 
+  const proPickInputs = useMemo<ProPickFixtureInput[]>(() => {
+    if (view !== "picks" || !isPro || engineMode !== "pro") return []
+    const byId = new Map(board.teams.map((team) => [team.id, team]))
+    const inputs: ProPickFixtureInput[] = []
+    for (const fixture of board.fixtures) {
+      const homeTeam = byId.get(fixture.homeId)
+      const awayTeam = byId.get(fixture.awayId)
+      if (!homeTeam || !awayTeam || homeTeam.id === awayTeam.id) continue
+      if (fixture.league === "int" && !hasInternationalPickHistory(homeTeam.formMatches, awayTeam.formMatches)) continue
+      const shaped = shapePair(homeTeam, awayTeam, board.teams, level, null, null)
+      inputs.push({
+        fixtureId: fixture.id,
+        home: {
+          id: shaped.home.id, name: shaped.home.name, attack: shaped.home.attack, defense: shaped.home.defense,
+          league: shaped.home.league, rateLeague: shaped.home.rateLeague,
+          espnId: homeTeam.espnId ?? shaped.home.espnId, feedSlug: homeTeam.feedSlug ?? shaped.home.feedSlug,
+        },
+        away: {
+          id: shaped.away.id, name: shaped.away.name, attack: shaped.away.attack, defense: shaped.away.defense,
+          league: shaped.away.league, rateLeague: shaped.away.rateLeague,
+          espnId: awayTeam.espnId ?? shaped.away.espnId, feedSlug: awayTeam.feedSlug ?? shaped.away.feedSlug,
+        },
+        edge: fixtureHomeEdge(fixture.league, board) * (edgePct / 100),
+      })
+    }
+    return inputs
+  }, [view, isPro, engineMode, board.teams, board.fixtures, board.leagueStatus, level, edgePct])
+
+  useEffect(() => {
+    if (!proPickInputs.length) {
+      setProPickResults({})
+      setProPickLoading(false)
+      setProPickError(null)
+      setProPickProgress({ done: 0, total: 0 })
+      return
+    }
+    const controller = new AbortController()
+    let active = true
+    setProPickResults({})
+    setProPickLoading(true)
+    setProPickError(null)
+    setProPickProgress({ done: 0, total: proPickInputs.length })
+    const run = async () => {
+      for (let index = 0; index < proPickInputs.length; index += 12) {
+        const batch = proPickInputs.slice(index, index + 12)
+        const results = await loadProPickMarkets({ data: { fixtures: batch }, signal: controller.signal })
+        if (!active) return
+        setProPickResults((current) => {
+          const next = { ...current }
+          for (const result of results) next[result.fixtureId] = result.probabilities
+          return next
+        })
+        setProPickProgress({ done: Math.min(index + batch.length, proPickInputs.length), total: proPickInputs.length })
+      }
+    }
+    run().then(() => {
+      if (active) setProPickLoading(false)
+    }).catch((error: unknown) => {
+      if (!active || controller.signal.aborted) return
+      setProPickError(error instanceof Error ? error.message : "Pro Best Picks could not be calculated.")
+      setProPickLoading(false)
+    })
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [proPickInputs])
+
   const handicap = report ? splitHandicap(report.scores, spread) : null
   const totals = report ? splitTotal(report.scores, totalLine) : null
 
@@ -960,21 +983,24 @@ export function Pitchline({
     if (view !== "picks") return []
     const byId = new Map(board.teams.map((team) => [team.id, team]))
     const ranked: MarketPick[] = []
+    const usePro = isPro && engineMode === "pro"
     for (const fixture of board.fixtures) {
       const homeTeam = byId.get(fixture.homeId)
       const awayTeam = byId.get(fixture.awayId)
       if (!homeTeam || !awayTeam || homeTeam.id === awayTeam.id) continue
-      // Do not surface probabilities based on the neutral placeholder ratings.
-      // International Best Picks require at least three prior games per team.
-      if (fixture.league === "int" &&
-        !hasInternationalPickHistory(homeTeam.formMatches, awayTeam.formMatches)) continue
-      const shapedFixture = shapePair(homeTeam, awayTeam, board.teams, level, null, null)
-      const fixtureEdge = fixture.league === "int" ? 1 : edge
-      ranked.push(...marketsFor(shapedFixture.home, shapedFixture.away, fixtureEdge, fixture, model))
+      if (fixture.league === "int" && !hasInternationalPickHistory(homeTeam.formMatches, awayTeam.formMatches)) continue
+      const shaped = shapePair(homeTeam, awayTeam, board.teams, level, null, null)
+      if (usePro) {
+        const probabilities = proPickResults[fixture.id]
+        if (probabilities) ranked.push(...marketsFromProbabilities(shaped.home, shaped.away, fixture, probabilities))
+      } else {
+        const fixtureEdge = fixtureHomeEdge(fixture.league, board) * (edgePct / 100)
+        ranked.push(...marketsFor(shaped.home, shaped.away, fixtureEdge, fixture, model))
+      }
     }
     ranked.sort((a, b) => b.share - a.share || a.label.localeCompare(b.label))
     return ranked
-  }, [view, board.fixtures, board.teams, edge, model, level])
+  }, [view, board.fixtures, board.teams, board.leagueStatus, edgePct, model, level, isPro, engineMode, proPickResults])
 
   const visiblePicks = picks.filter((pick) => {
     if (pickKind !== "all" && pick.kind !== pickKind) return false
@@ -995,6 +1021,7 @@ export function Pitchline({
 
   function loadFixture(homeNext: string, awayNext: string, leagueNext: LeagueId) {
     setLeague(leagueNext)
+    setEdgePct(leagueNext === "int" ? 100 : board.leagueStatus[leagueNext]?.homeAdvantagePct ?? 110)
     setHomeId(homeNext)
     setAwayId(awayNext)
   }
@@ -1005,7 +1032,7 @@ export function Pitchline({
       league: pick.fixture.league,
       homeId: pick.fixture.homeId,
       awayId: pick.fixture.awayId,
-      edgePct,
+      edgePct: Math.round(fixtureHomeEdge(pick.fixture.league, board) * edgePct),
       spread,
       totalLine,
       model,
@@ -1041,7 +1068,7 @@ export function Pitchline({
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-4 pt-4 pb-16 sm:px-6">
-      {showHeader ? <SiteHeader subtitle={league === "int" ? "International match simulator" : `Football match simulator · ${board.season}`} /> : null}
+      {showHeader ? <SiteHeader /> : null}
 
       {view === "picks" ? (
         <section className="mb-6" aria-label="Best picks">
@@ -1049,20 +1076,47 @@ export function Pitchline({
             <div>
               <h2 className="font-display text-2xl tracking-tight">Best upcoming picks</h2>
               <p className="mt-1 max-w-xl text-sm text-muted">
-                Markets with model-assigned probability of at least 80%. Club picks use season rates; national-team picks require at least three previous matches in that competition and use neutral home edge. International ratings are still exploratory, not independently calibrated.
+                The strongest upcoming selections across available competitions.
               </p>
             </div>
             <p className="text-sm text-muted tabular-nums">
-              {hotPicks.length ? `${hotPicks.length} clear 80%` : "None at 80%"}
+              {hotPicks.length ? `${hotPicks.length} selected` : "No standout picks"}
             </p>
           </div>
 
           <div className="panel mb-4">
+            {isPro ? (
+              <div className="mb-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">Simulation engine</p>
+                  <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium">Pro access</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Choose Best Picks engine">
+                  <button
+                    type="button"
+                    aria-pressed={engineMode === "pro"}
+                    onClick={() => setEngineMode("pro")}
+                    className={`press flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium ${engineMode === "pro" ? "bg-primary text-primary-foreground" : "border border-border bg-background"}`}
+                  >
+                    <Sparkles className="size-4" />
+                    Pro Engine
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={engineMode === "classic"}
+                    onClick={() => setEngineMode("classic")}
+                    className={`press min-h-11 rounded-lg px-3 text-sm font-medium ${engineMode === "classic" ? "bg-primary text-primary-foreground" : "border border-border bg-background"}`}
+                  >
+                    Classic
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="flex items-baseline justify-between gap-3">
               <label htmlFor="picks-edge" className="text-sm font-medium">
-                Home edge
+                Home advantage adjustment
               </label>
-              <span className="font-display text-xl tabular-nums">{edgeCopy(edgePct)}</span>
+              <span className="font-display text-xl tabular-nums">{edgePct}%</span>
             </div>
             <input
               id="picks-edge"
@@ -1075,19 +1129,19 @@ export function Pitchline({
               suppressHydrationWarning
               onChange={(event) => setEdgePct(Number(event.target.value))}
             />
-            <div className="mt-5">
-              <ModelBar
-                model={model}
-                formWindow={formWindow}
-                level={level}
-                onModel={setModel}
-                onForm={setFormWindow}
-                onLevel={setLevel}
-              />
-              <p className="mt-3 text-xs text-muted">
-                Last 5 and last 10 use recency-weighted completed matches on the open match only. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) applies to both. The UEFA association proxy is for cross-league club comparisons, not national teams.
-              </p>
-            </div>
+            <p className="mt-1 text-xs text-muted">Each competition keeps its own starting setting.</p>
+            {!(isPro && engineMode === "pro") ? (
+              <div className="mt-5">
+                <ModelBar
+                  model={model}
+                  formWindow={formWindow}
+                  level={level}
+                  onModel={setModel}
+                  onForm={setFormWindow}
+                  onLevel={setLevel}
+                />
+              </div>
+            ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
               {(
                 [
@@ -1131,16 +1185,24 @@ export function Pitchline({
             </label>
           </div>
 
-          {shownPicks.length === 0 ? (
+          {isPro && engineMode === "pro" && proPickLoading ? (
+            <section className="panel" aria-live="polite">
+              <p className="text-sm font-medium">Calculating Pro picks…</p>
+              <p className="mt-1 text-sm text-muted">{proPickProgress.done} of {proPickProgress.total} matches ready</p>
+            </section>
+          ) : isPro && engineMode === "pro" && proPickError ? (
+            <section className="panel" role="alert">
+              <p className="text-sm font-medium">Pro picks are temporarily unavailable</p>
+              <p className="mt-1 text-sm text-muted">{proPickError}</p>
+            </section>
+          ) : shownPicks.length === 0 ? (
             <section className="panel">
-              <p className="text-sm">
-                No picks currently qualify for this selection. International matches without at least three previous results per team are deliberately withheld from Best Picks.
-              </p>
+              <p className="text-sm">Nothing stands out in the current selection.</p>
             </section>
           ) : (
             <div className="space-y-2">
               {!hotPicks.length ? (
-                <p className="mb-2 text-sm text-muted">Nothing clears 80% here. Closest calls:</p>
+                <p className="mb-2 text-sm text-muted">Closest calls:</p>
               ) : null}
               {shownPicks.map((pick) => {
                 const homeTeam = teamBy(pick.fixture.homeId)
@@ -1183,7 +1245,10 @@ export function Pitchline({
               type="button"
               role="tab"
               aria-selected={selected}
-              onClick={() => setLeague(item.id)}
+              onClick={() => {
+                setLeague(item.id)
+                setEdgePct(item.id === "int" ? 100 : board.leagueStatus[item.id]?.homeAdvantagePct ?? 110)
+              }}
               className={`press h-11 shrink-0 rounded-lg px-4 text-sm font-medium ${
                 selected ? "bg-primary text-primary-foreground" : "border border-border bg-card text-foreground"
               }`}
@@ -1197,18 +1262,18 @@ export function Pitchline({
       <section className="mb-6" aria-label="Matchweek">
         <div className="mb-3 flex items-baseline justify-between gap-3">
           <h2 className="font-display text-2xl tracking-tight">Up next</h2>
-          <p className="text-sm text-muted">{board.weekends[league]} · refreshes on its own</p>
+          <p className="text-sm text-muted">{board.weekends[league]}</p>
         </div>
         <div className="rail -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
           {fixtures.length === 0 ? (
-            <p className="text-sm text-muted">No fixtures in this window. The board below is still live.</p>
+            <p className="text-sm text-muted">No upcoming fixtures.</p>
           ) : null}
           {fixtures.map((fixture) => {
             const homeTeam = teamBy(fixture.homeId)
             const awayTeam = teamBy(fixture.awayId)
             if (!homeTeam || !awayTeam) return null
             const shapedFixture = shapePair(homeTeam, awayTeam, board.teams, level, null, null)
-            const split = analyticalSplit(shapedFixture.home, shapedFixture.away, edge, model)
+            const split = analyticalSplit(shapedFixture.home, shapedFixture.away, fixtureHomeEdge(fixture.league, board), model)
             const active = homeTeam.id === home.id && awayTeam.id === away.id
             return (
               <button
@@ -1250,7 +1315,7 @@ export function Pitchline({
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="font-display text-2xl tracking-tight">Predict the match</h2>
-            <p className="mt-1 text-sm text-muted">Home and away can come from any league.</p>
+
           </div>
         </div>
 
@@ -1259,7 +1324,7 @@ export function Pitchline({
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold">Simulation engine</p>
-                <p className="mt-1 text-xs text-muted">Pro Engine is your default. You can switch to the classic model whenever you prefer.</p>
+                <p className="mt-1 text-xs text-muted">Choose the experience you prefer.</p>
               </div>
               <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium">Pro access</span>
             </div>
@@ -1279,7 +1344,7 @@ export function Pitchline({
                 onClick={() => setEngineMode("classic")}
                 className={`press min-h-11 rounded-lg px-3 text-sm font-medium ${engineMode === "classic" ? "bg-primary text-primary-foreground" : "border border-border bg-background"}`}
               >
-                Classic Monte Carlo
+                Classic
               </button>
             </div>
           </div>
@@ -1318,9 +1383,9 @@ export function Pitchline({
         <div className="mt-5">
           <div className="flex items-baseline justify-between gap-3">
             <label htmlFor="home-edge" className="text-sm font-medium">
-              Home edge
+              Home advantage
             </label>
-            <span className="font-display text-xl tabular-nums">{edgeCopy(edgePct)}</span>
+            <span className="font-display text-xl tabular-nums">{edgePct}%</span>
           </div>
           <input
             id="home-edge"
@@ -1344,14 +1409,9 @@ export function Pitchline({
           <div className="mt-5 rounded-xl border border-border p-3">
             <div className="flex items-center gap-2">
               <Sparkles className="size-4 text-primary" />
-              <p className="text-sm font-semibold">Phase-of-play simulation · 2,500 matches</p>
+              <p className="text-sm font-semibold">Pro Engine active</p>
             </div>
-            <p className="mt-2 text-sm text-muted">
-              Possessions move through build-up, progression, chance creation and finishing. The model adjusts for the score, late-game urgency and fatigue.
-            </p>
-            <p className="mt-2 text-xs text-muted">
-              Team-level rates remain the baseline. ESPN supplies the current roster; Pitchline matches those players to EA FC 27 base attributes. Adjustments require at least 12 matched players and 60% roster coverage for both teams. EA ratings do not establish current form or matchday availability.
-            </p>
+            <p className="mt-2 text-sm text-muted">Enhanced match analysis is active.</p>
           </div>
         ) : (
           <div className="mt-5">
@@ -1364,12 +1424,7 @@ export function Pitchline({
               onForm={setFormWindow}
               onLevel={setLevel}
             />
-            <p className="mt-3 text-xs text-muted">
-              Independent Poisson is the default. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) lifts 0–0 and 1–1.{" "}
-              {league === "int"
-                ? "National-team scoring and conceding rates come from each team's previous completed fixtures in the same international competition. Teams without returned history use a neutral fallback."
-                : "The UEFA scale is a coarse association-level proxy for cross-league club comparisons, not a calibrated national-team strength measure."}
-            </p>
+
           </div>
         )}
 
@@ -1379,32 +1434,18 @@ export function Pitchline({
               ? "Reading recent matches…"
               : formNote === "missing"
                 ? league === "int"
-                  ? "No completed history returned for one or both teams. Competition-base rates stay on."
-                  : "Recent form needs the live tables. Season rates stay on."
+                  ? "Recent form is unavailable for this match."
+                  : "Recent form is unavailable for this match."
                 : formNote === "error"
                   ? league === "int"
-                    ? "International match history did not load. Competition-base rates stay on."
-                    : "Recent matches did not load. Season rates stay on."
+                    ? "Recent form is temporarily unavailable."
+                    : "Recent form is temporarily unavailable."
                   : `Last ${take}: ${formSide(home.short, desk.homeSample, take)}. ${formSide(away.short, desk.awaySample, take)}.`}
           </p>
         ) : null}
 
 
-        {league === "int" && home.competitionName !== away.competitionName ? (
-          <p className="mt-3 text-sm text-muted">
-            These teams' ratings come from different competition schedules ({home.competitionName} and {away.competitionName}). The simulator uses raw goals-for/goals-against rates without cross-competition calibration, so treat this comparison as exploratory.
-          </p>
-        ) : null}
 
-        {desk.homeLeague !== desk.awayLeague ? (
-          <p className="mt-3 text-sm text-muted">
-            {!level
-              ? `${leagueName(desk.homeLeague)} against ${leagueName(desk.awayLeague)}. League scale is off, so a goal a game counts the same in both.`
-              : desk.leveled
-                ? `${leagueName(desk.homeLeague)} ${weightLabel(desk.homeLeague, desk.homeWeight)} against ${leagueName(desk.awayLeague)} ${weightLabel(desk.awayLeague, desk.awayWeight)}. Attack is multiplied by that weight. Defense is divided by it.`
-                : `${leagueName(desk.homeLeague)} and ${leagueName(desk.awayLeague)} both sit at ${desk.homeWeight.toFixed(2)}, so the scale cancels.`}
-          </p>
-        ) : null}
 
         <div className="mt-5 flex flex-wrap gap-2">
           <button
@@ -1414,7 +1455,7 @@ export function Pitchline({
             disabled={same || running}
           >
             <RotateCcw className="size-4" />
-            {running ? "Simulating…" : isPro && engineMode === "pro" ? `Run ${PRO_SIM_RUNS.toLocaleString("en-GB")} again` : `Run ${SIMS.toLocaleString("en-GB")} again`}
+            {running ? "Simulating…" : "Run again"}
           </button>
           {!(isPro && engineMode === "pro") ? (
             <button
@@ -1436,8 +1477,8 @@ export function Pitchline({
         </section>
       ) : isPro && engineMode === "pro" && proLoading ? (
         <section className="panel mb-4" aria-live="polite">
-          <p className="text-sm font-medium">Running the Pro phase-of-play simulation…</p>
-          <p className="mt-1 text-sm text-muted">Simulating 2,500 matches as possession sequences.</p>
+          <p className="text-sm font-medium">Running Pro simulation…</p>
+          <p className="mt-1 text-sm text-muted">Please wait while your results are prepared.</p>
         </section>
       ) : isPro && engineMode === "pro" && proError ? (
         <section className="panel mb-4" role="alert">
@@ -1520,18 +1561,6 @@ export function Pitchline({
                     <dt className="text-xs text-muted">Shots on target</dt>
                     <dd className="mt-1 font-medium tabular-nums">{proReport.details.shotsOnTargetHome.toFixed(1)}–{proReport.details.shotsOnTargetAway.toFixed(1)}</dd>
                   </div>
-                  <div>
-                    <dt className="text-xs text-muted">Build-up success</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.buildUpSuccessHomePct.toFixed(1)}%–{proReport.details.buildUpSuccessAwayPct.toFixed(1)}%</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted">Progression success</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.progressionSuccessHomePct.toFixed(1)}%–{proReport.details.progressionSuccessAwayPct.toFixed(1)}%</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted">Chance creation</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.chanceCreationHomePct.toFixed(1)}%–{proReport.details.chanceCreationAwayPct.toFixed(1)}%</dd>
-                  </div>
               </dl>
             ) : null}
             {isPro && engineMode === "pro" && proReport?.playerData ? <ProPlayerDataPanel data={proReport.playerData} /> : null}
@@ -1558,7 +1587,7 @@ export function Pitchline({
           <div className="mb-4 grid gap-4 lg:grid-cols-2">
             <section className="panel">
               <h2 className="font-display text-2xl tracking-tight">Scorelines</h2>
-              <p className="mt-1 mb-4 text-sm text-muted">Share of the {report.n.toLocaleString("en-GB")} simulated matches. The ring marks the mode inside 0–4.</p>
+              <p className="mt-1 mb-4 text-sm text-muted">The most frequent scorelines.</p>
               <ScoreMatrix report={report} />
               <ol className="mt-4 space-y-1">
                 {report.top.map((line) => (
@@ -1781,19 +1810,9 @@ export function Pitchline({
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="font-display text-2xl tracking-tight">{leagueName(league)} board</h2>
-            <p className="mt-1 text-sm text-muted">
-              {isCup(league)
-                ? "European clubs take their domestic scoring into the tie. Sides from leagues we don't carry are rated on their European games, pulled toward average when the sample is short. Index ranks net goals inside this competition. "
-                : "Attack is goals scored per match this season, defense is goals conceded. Lower defense is tighter. Index ranks net goals inside this league. "}
-              {leagueStatus.standings === "live"
-                ? `Standings: live (${leagueStatus.teamCount} clubs), refreshed ${feedTimestamp(leagueStatus.updatedAt)}.`
-                : `Standings: saved snapshot from ${feedTimestamp(leagueStatus.updatedAt)}; live feed unavailable for this competition.`}
-              {leagueStatus.fixtures === "snapshot"
-                ? ` Fixtures are using saved fallback data from ${feedTimestamp(leagueStatus.fixturesUpdatedAt)}.`
-                : ` Fixtures are from the live feed, refreshed ${feedTimestamp(leagueStatus.fixturesUpdatedAt)}.`}
-            </p>
+            <p className="mt-1 text-sm text-muted">Competition overview</p>
           </div>
-          <p className="text-sm text-muted">Tap a club for home. Away sets the other side.</p>
+          <p className="text-sm text-muted">Select a club to set your match.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-full text-left text-sm">
@@ -1843,10 +1862,8 @@ export function Pitchline({
                         <span className="min-w-0 truncate">
                           <span className="block truncate">{row.team.name}</span>
                           {league === "int" ? (
-                            <span className="block truncate text-xs font-normal text-muted" title={row.team.ratingSource}>
-                              {row.team.competitionName} · {(row.team.formMatches ?? 0) > 0
-                                ? row.team.formMatches + " previous matches"
-                                : "No history · neutral rates"}
+                            <span className="block truncate text-xs font-normal text-muted">
+                              {row.team.competitionName}
                             </span>
                           ) : null}
                         </span>
@@ -1883,32 +1900,6 @@ export function Pitchline({
         </>
       )}
 
-      <footer className="px-1 text-sm text-muted">
-        <p>
-          {isPro && engineMode === "pro" ? (
-            "The Pro phase-of-play engine simulates build-up, progression, chance creation and finishing across 2,500 possession-sequence matches. It incorporates score-state urgency and fatigue. Where approved player data covers both current squads, derived squad-wide indices adjust attacking, creativity, defensive and late-game depth effects; otherwise it uses team-level inputs. It does not require matchday lineups. Treat it as experimental until historical out-of-sample testing confirms an improvement."
-          ) : (
-            <>
-              Expected goals equal a side’s attack times the opponent’s defense, scaled to a league average of 1.35, then
-              moved by the home edge.{" "}
-              {model === "dixon"
-                ? `Dixon–Coles (ρ = ${DIXON_RHO.toFixed(2)}) ties the low scorelines, then each of the ${SIMS.toLocaleString("en-GB")} matches is drawn from that table.`
-                : `Each of the ${SIMS.toLocaleString("en-GB")} matches draws the two goal totals independently from those rates.`}{" "}
-              {formWindow !== "season"
-                ? league === "int"
-                  ? "Last 5 and last 10 reweight completed matches from the same international competition on the open match only. "
-                  : "Last 5 and last 10 replace the season rates on the open match only. "
-                : ""}
-              {level ? "The UEFA scale is on for clubs rated from different leagues. " : ""}
-              {league === "int"
-                ? `National-team ratings use previous completed matches from the same competition schedule. Team rows show the number of historical matches returned. Teams without history use a neutral 1.35 goals-for and 1.35 goals-against fallback; those fallback-only teams are excluded from international Best Picks. Refreshed ${feedTimestamp(leagueStatus.updatedAt)}.`
-                : leagueStatus.standings === "live"
-                  ? `Ratings are this season’s scoring, refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}), not a betting line.`
-                  : `This competition is using saved ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}
-            </>
-          )}
-        </p>
-      </footer>
     </main>
   )
 }

@@ -87,13 +87,13 @@ export default async function InternationalPage({
   return (
     <div>
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
-        <SiteHeader subtitle="International match simulator" />
+        <SiteHeader />
         <section className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">National teams</p>
             <h1 className="mt-2 font-display text-4xl tracking-tight">International football</h1>
             <p className="mt-2 max-w-2xl text-sm text-muted">
-              AFCON, Nations League, World Cup and continental qualifiers, and other major national-team competitions. Upcoming fixtures use the same Pitchline simulator as club matches.
+              International fixtures and match insights.
             </p>
           </div>
           <form action="/international" method="get" className="flex items-end gap-2">
@@ -114,8 +114,8 @@ export default async function InternationalPage({
       {fixtureResult === null ? (
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <section className="panel">
-            <h2 className="font-display text-2xl">International feed unavailable</h2>
-            <p className="mt-2 text-sm text-muted">ESPN's national-team scoreboard could not be reached. The club match desk and Best Picks remain available.</p>
+            <h2 className="font-display text-2xl">International fixtures are temporarily unavailable</h2>
+            <p className="mt-2 text-sm text-muted">Please try again shortly.</p>
           </section>
         </div>
       ) : null}
@@ -128,7 +128,7 @@ export default async function InternationalPage({
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <section className="panel">
             <h2 className="font-display text-2xl">No major international fixtures on this date</h2>
-            <p className="mt-2 text-sm text-muted">Try another date. When a national-team fixture is available, Pitchline will load its match simulator here.</p>
+            <p className="mt-2 text-sm text-muted">Try another date.</p>
           </section>
         </div>
       ) : null}
@@ -137,7 +137,7 @@ export default async function InternationalPage({
         <section className="mx-auto mt-6 max-w-6xl px-4 sm:px-6" aria-label="International results">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="font-display text-2xl tracking-tight">Played / in progress</h2>
-            <p className="text-xs text-muted">Results and kick-off times in West Africa Time</p>
+            <p className="text-xs text-muted">West Africa Time</p>
           </div>
           <div className="space-y-2">
             {nonUpcomingFixtures.map((fixture) => (
@@ -156,16 +156,12 @@ export default async function InternationalPage({
               </article>
             ))}
           </div>
-          <p className="mt-3 text-xs text-muted">
-            Past matches are shown as results, not simulated with today's ratings. This prevents future match results from leaking into historical predictions.
-          </p>
+           
         </section>
       ) : null}
 
       {fixtureResult?.partial ? (
-        <p className="mx-auto mt-5 max-w-6xl px-4 text-xs text-muted sm:px-6">
-          Some competition feeds did not respond; the fixtures shown may be incomplete.
-        </p>
+        <p className="mx-auto mt-5 max-w-6xl px-4 text-xs text-muted sm:px-6">Fixture coverage may vary.</p>
       ) : null}
     </div>
   )

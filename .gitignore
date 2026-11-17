@@ -6,3 +6,6 @@ node_modules/
 
 # Locally downloaded EA FC 27 player ratings (never commit raw dataset)
 /data/ea-fc27/
+
+# Vercel deployment metadata and generated output must never be committed.
+.vercel/

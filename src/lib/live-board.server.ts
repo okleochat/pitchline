@@ -412,8 +412,6 @@ async function getRecentHomeAdvantagePct(slug: string): Promise<number> {
 
 async function getJson(url: string): Promise<Record<string, unknown> | null> {
   return getEspnJson(url)
-}async function getJson(url: string): Promise<Record<string, unknown> | null> {
-  return getEspnJson(url)
 }
 
 function asSide(team: Record<string, unknown> | undefined): LiveSide | null {

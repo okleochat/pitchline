@@ -149,8 +149,8 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
   // the requested day falls inside that window; this avoids a second set of
   // scoreboard calls on the International page and Best Picks.
   const today = dateInLagos()
-  const upcoming = upcomingCache.get(today + ":14")
-  const upcomingEnd = addDays(today, 14)
+  const upcoming = upcomingCache.get(today + ":30")
+  const upcomingEnd = addDays(today, 30)
   // Today's scoreboard may already contain live and completed matches. The
   // shared upcoming cache intentionally contains only future pre-kickoff
   // fixtures, so only reuse it for strictly future dates.
@@ -261,8 +261,8 @@ async function fetchCompetitionMonths(months: string[], source: CompetitionSourc
  * ESPN's site API no longer accepts the older hyphenated day-range form.
  * Month queries plus local filtering feed both Best Picks and the match desk.
  */
-export async function getUpcomingInternationalFixtures(days = 14): Promise<InternationalFixtureResponse> {
-  const safeDays = Math.max(1, Math.min(21, Math.floor(days)))
+export async function getUpcomingInternationalFixtures(days = 30): Promise<InternationalFixtureResponse> {
+  const safeDays = Math.max(1, Math.min(45, Math.floor(days)))
   const startDate = dateInLagos()
   const endDate = addDays(startDate, safeDays)
   const cacheKey = startDate + ":" + safeDays

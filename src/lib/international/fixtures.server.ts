@@ -145,7 +145,7 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
   const cached = responseCache.get(date)
   if (cached && cached.expiresAt > Date.now()) return cached.value
 
-  // Reuse the 14-day batch already fetched by the shared club board whenever
+  // Reuse the 30-day batch already fetched by the shared match board whenever
   // the requested day falls inside that window; this avoids a second set of
   // scoreboard calls on the International page and Best Picks.
   const today = dateInLagos()

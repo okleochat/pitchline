@@ -1189,6 +1189,11 @@ export function Pitchline({
             </label>
           </div>
 
+          {isPro && engineMode === "pro" && !proPickLoading && proPickExcludedCount > 0 ? (
+            <p className="mb-3 text-xs text-muted" role="status">
+              {proPickExcludedCount} fixtures were excluded because both teams did not meet the Pro squad-data requirements.
+            </p>
+          ) : null}
           {isPro && engineMode === "pro" && proPickLoading ? (
             <section className="panel" aria-live="polite">
               <p className="text-sm font-medium">Calculating Pro picks…</p>
@@ -1201,11 +1206,7 @@ export function Pitchline({
             </section>
           ) : shownPicks.length === 0 ? (
             <section className="panel">
-              <p className="text-sm">
-                {isPro && engineMode === "pro" && proPickExcludedCount > 0
-                  ? `${proPickExcludedCount} fixtures were withheld because both teams did not meet the Pro squad-data requirements.`
-                  : "Nothing stands out in the current selection."}
-              </p>
+              <p className="text-sm">Nothing stands out in the current selection.</p>
             </section>
           ) : (
             <div className="space-y-2">

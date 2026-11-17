@@ -115,7 +115,10 @@ test("ESPN roster names match EA identities through strict normalized name keys"
   }, [candidate])
   assert.equal(match?.id, "ea-1001")
   assert.equal(normalisePlayerName("Kylian Mbappé"), "kylian mbappe")
-  assert.equal(playerNameShardId("Kylian Mbappé"), "ky")
+  assert.equal(playerNameShardId("Kylian Mbappé"), "kyli")
+  assert.equal(playerNameShardId("Mason Mount"), "maso")
+  assert.equal(playerNameShardId("é"), "e___")
+  assert.equal(playerNameShardId(""), "____")
 })
 
 test("ambiguous same-name EA records are not guessed", () => {

@@ -114,8 +114,8 @@ class SyncEaFc27Tests(unittest.TestCase):
             sync.normalise_player(ea_player(3, "Women's Club", "Women's Football")),
         ]
         documents = sync.firestore_player_shards(players, "2026-11-17T00:00:00Z")
-        self.assertIn("te", documents)
-        shard = documents["te"]
+        self.assertIn("test", documents)
+        shard = documents["test"]
         self.assertEqual(shard["playerCount"], 2)
         self.assertEqual(shard["database"], "EA SPORTS FC 27")
         self.assertEqual({player["id"] for player in shard["players"]}, {"1", "2"})
@@ -127,10 +127,20 @@ class SyncEaFc27Tests(unittest.TestCase):
             "ea_fc27_players_20261117T052300Z",
         )
 
-    def test_shard_ids_use_first_two_normalized_name_characters(self):
-        self.assertEqual(sync.player_shard_id("kylian mbappe"), "ky")
-        self.assertEqual(sync.player_shard_id("é"), "e_")
-        self.assertEqual(sync.player_shard_id(""), "__")
+    def test_shard_ids_use_first_four_normalized_name_characters(self):
+        self.assertEqual(sync.player_shard_id("kylian mbappe"), "kyli")
+        self.assertEqual(sync.player_shard_id("é"), "e___")
+        self.assertEqual(sync.player_shard_id(""), "____")
+
+
+    def test_common_two_character_prefix_is_split_into_smaller_shards(self):
+        players = [
+            sync.normalise_player({**ea_player(20, "Club A"), "firstName": "Marco", "lastName": "Silva"}),
+            sync.normalise_player({**ea_player(21, "Club B"), "firstName": "Martin", "lastName": "Odegaard"}),
+            sync.normalise_player({**ea_player(22, "Club C"), "firstName": "Mason", "lastName": "Mount"}),
+        ]
+        documents = sync.firestore_player_shards(players, "2026-11-17T00:00:00Z")
+        self.assertEqual(set(documents), {"marc", "mart", "maso"})
 
     def test_players_without_a_club_can_still_be_indexed_by_name(self):
         raw = ea_player(4, "")
@@ -138,7 +148,7 @@ class SyncEaFc27Tests(unittest.TestCase):
         player = sync.normalise_player(raw)
         self.assertIsNotNone(player)
         self.assertEqual(player["club"], "")
-        self.assertEqual(sync.player_shard_id(player["nameKeys"][0]), "te")
+        self.assertEqual(sync.player_shard_id(player["nameKeys"][0]), "test")
 
     def test_bad_or_unidentified_records_are_ignored(self):
         self.assertIsNone(sync.normalise_player({}))

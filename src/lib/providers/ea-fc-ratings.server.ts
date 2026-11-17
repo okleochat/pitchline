@@ -3,6 +3,7 @@ import "server-only"
 import type { LeagueId } from "@/data/football"
 import { getEspnJson } from "@/lib/espn/transport.server"
 import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
+import { normalizeEspnRoster } from "@/lib/providers/espn-roster"
 import {
   deriveSquadFactors,
   matchEaPlayerByName,
@@ -23,7 +24,6 @@ type CacheEntry = { expiresAt: number; value: unknown }
 
 const ESPN_SITE_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 const ROSTER_CACHE_MS = 12 * 60 * 60 * 1000
-const ROSTER_EMPTY_CACHE_MS = 60 * 1000
 const EA_SHARD_CACHE_MS = 12 * 60 * 60 * 1000
 const EMPTY_CACHE_MS = 15 * 60 * 1000
 const memoryCache = new Map<string, CacheEntry>()
@@ -102,15 +102,13 @@ function cacheSet(key: string, value: unknown, ttl: number): void {
   }
 }
 
-async function cached<T>(
-  key: string,
-  ttl: number,
-  load: () => Promise<T>,
-  emptyTtl = EMPTY_CACHE_MS,
-  persistEmpty = true,
-): Promise<T> {
+async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
   const existing = cacheGet<T>(key)
-  if (existing.hit) return existing.value as T
+  if (existing.hit && Array.isArray(existing.value) && existing.value.length > 0) {
+    return existing.value as T
+  }
+  if (existing.hit) memoryCache.delete(key)
+
   const pending = inFlight.get(key)
   if (pending) return pending as Promise<T>
 
@@ -122,27 +120,28 @@ async function cached<T>(
         .doc(documentId)
         .get()
       const stored = doc.data()
-      if (stored && stored.cacheKey === key && typeof stored.expiresAt === "number") {
-        if (stored.expiresAt > Date.now() && stored.value !== null && stored.value !== undefined) {
+
+      if (stored?.cacheKey === key) {
+        if (
+          stored.expiresAt > Date.now() &&
+          Array.isArray(stored.value) &&
+          stored.value.length > 0
+        ) {
           cacheSet(key, stored.value, stored.expiresAt - Date.now())
           return stored.value as T
         }
-        // Negative roster cache entries created by older code must not keep a
-        // transient ESPN failure alive after the provider has recovered.
+
+        // Delete every old null/empty/corrupt roster entry. A failed ESPN
+        // response is never treated as a squad and is never cached.
         void doc.ref.delete().catch(() => {})
       }
     } catch {
-      // Fall through to ESPN; local caching still works if Firestore cache is unavailable.
+      // Try ESPN directly when Firestore's shared cache is unavailable.
     }
 
     const value = await load()
-    const isEmpty = value === null
-    const effectiveTtl = isEmpty ? emptyTtl : ttl
-    cacheSet(key, value, effectiveTtl)
-
-    // Empty ESPN responses are transient/ambiguous. Keep them only briefly in
-    // this process; never publish them as shared Firestore cache entries.
-    if (!isEmpty || persistEmpty) {
+    if (Array.isArray(value) && value.length > 0) {
+      cacheSet(key, value, ttl)
       try {
         await getFirebaseAdminFirestore()
           .collection("provider_api_cache")
@@ -150,13 +149,16 @@ async function cached<T>(
           .set({
             cacheKey: key,
             value,
-            expiresAt: Date.now() + effectiveTtl,
+            expiresAt: Date.now() + ttl,
             cachedAt: Date.now(),
           })
       } catch {
-        // A successful ESPN roster response remains usable without cache persistence.
+        // The fetched roster remains usable even if cache persistence fails.
       }
     }
+
+    // Critical: null and empty arrays are deliberately not placed in either
+    // memory or Firestore. The next request must try ESPN again.
     return value
   })().finally(() => {
     inFlight.delete(key)
@@ -191,100 +193,26 @@ function athleteName(value: unknown): string | null {
   return [first, last].filter(Boolean).join(" ") || null
 }
 
-function isRosterAthlete(value: unknown): boolean {
-  return Boolean(athleteId(value) && athleteName(value))
-}
-
-function rosterEntries(payload: unknown): unknown[] {
-  const root = record(payload)
-  if (!root) return []
-
-  const result: unknown[] = []
-  const seen = new Set<string>()
-  const visit = (value: unknown, depth: number) => {
-    if (depth > 6 || value === null || value === undefined) return
-    if (Array.isArray(value)) {
-      value.forEach((item) => visit(item, depth + 1))
-      return
-    }
-    const item = record(value)
-    if (!item) return
-    if (isRosterAthlete(item)) {
-      const id = athleteId(item)
-      if (id && !seen.has(id)) {
-        seen.add(id)
-        result.push(item)
-      }
-      return
-    }
-    for (const key of ["athletes", "players", "items", "roster", "entries", "groups"]) {
-      if (item[key] !== undefined) visit(item[key], depth + 1)
-    }
-  }
-
-  visit(root.athletes ?? root.players ?? root.roster ?? root, 0)
-  return result
-}
-
-function normalizeRosterEntry(value: unknown): Dict | null {
-  const athlete = athleteRecord(value)
-  if (!athlete) return null
-  const wrapper = record(value)
-  const id = athleteId(value)
-  const name = athleteName(value)
-  if (!id || !name) return null
-
-  const rawPosition = athlete.position ?? wrapper?.position
-  const position = record(rawPosition)
-  const rawNationality = athlete.nationality ?? athlete.citizenship ?? wrapper?.nationality
-  const nationality = record(rawNationality)
-
-  return {
-    athlete: {
-      id,
-      fullName: name,
-      firstName: stringValue(athlete.firstName ?? athlete.first_name) ?? "",
-      lastName: stringValue(athlete.lastName ?? athlete.last_name) ?? "",
-      position: stringValue(
-        position?.abbreviation ?? position?.shortDisplayName ??
-        position?.displayName ?? position?.name ?? rawPosition,
-      ),
-      nationality: stringValue(
-        nationality?.displayName ?? nationality?.name ?? nationality?.abbreviation ?? rawNationality,
-      ),
-      jersey: athlete.jersey ?? athlete.number ?? athlete.jerseyNumber ??
-        athlete.jersey_number ?? wrapper?.jersey ?? wrapper?.number ?? null,
-    },
-  }
-}
-
 async function currentRoster(slug: string, teamId: string): Promise<unknown[] | null> {
-  const key = "espn-ea-ratings-roster:v1:" + slug + ":" + teamId
-  return cached(
-    key,
-    ROSTER_CACHE_MS,
-    async () => {
-      const url = ESPN_SITE_BASE + "/" + slug + "/teams/" + teamId + "/roster?limit=500"
-      const fetchRoster = async (): Promise<unknown[] | null> => {
-        const payload = await getEspnJson(url)
-        if (!payload) return null
-        const players = rosterEntries(payload)
-          .map(normalizeRosterEntry)
-          .filter((player): player is Dict => player !== null)
-        return players.length ? players : null
-      }
+  const key = "espn-ea-ratings-roster:v2:" + slug + ":" + teamId
+  return cached(key, ROSTER_CACHE_MS, async () => {
+    // Use ESPN's standard grouped-roster response without requesting an
+    // unnecessarily high limit.
+    const url = ESPN_SITE_BASE + "/" + slug + "/teams/" + teamId + "/roster"
+    const payload = await getEspnJson(url)
+    if (!payload) return null
 
-      const firstAttempt = await fetchRoster()
-      if (firstAttempt?.length) return firstAttempt
-
-      // ESPN can intermittently return a timeout, error or empty payload for
-      // one club while other clubs remain healthy. Retry before marking it empty.
-      await new Promise((resolve) => setTimeout(resolve, 250))
-      return fetchRoster()
-    },
-    ROSTER_EMPTY_CACHE_MS,
-    false,
-  )
+    const players = normalizeEspnRoster(payload)
+    if (!players.length) {
+      console.warn("[Pitchline EA FC] ESPN roster response contained no usable players", {
+        league: slug,
+        teamId,
+        responseKeys: Object.keys(payload).slice(0, 12),
+      })
+      return null
+    }
+    return players
+  })
 }
 
 function rosterPosition(value: unknown): unknown {

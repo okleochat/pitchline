@@ -19,11 +19,9 @@ import {
 import { loadBoard, loadForm, loadProPickMarkets, loadProSimulation, type FormResult, type ProPickFixtureInput } from "@/lib/board"
 import { homeAdvantageForLeague } from "@/lib/home-advantage"
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
-import { PRO_SIM_RUNS } from "@/lib/pro-sim-config"
 import type { ProReport } from "@/lib/pro-sim"
 import type { ProPlayerData, ProTeamSquad } from "@/lib/pro-player-data"
 import {
-  SIMS,
   analyticalSplit,
   fairDecimal,
   formatLine,
@@ -755,7 +753,7 @@ export function Pitchline({
       if (saved.league && LEAGUES.some((item) => item.id === saved.league)) setLeague(saved.league)
       if (known(saved.homeId)) setHomeId(saved.homeId!)
       if (known(saved.awayId)) setAwayId(saved.awayId!)
-      if (initialView !== "picks" && saved.league === initialLeague && typeof saved.edgePct === "number") {
+      if (initialView !== "picks" && typeof saved.edgePct === "number") {
         setEdgePct(Math.min(140, Math.max(85, Math.round(saved.edgePct))))
       }
       if (typeof saved.spread === "number") setSpread(roundHalf(saved.spread))

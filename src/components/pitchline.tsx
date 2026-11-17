@@ -160,16 +160,6 @@ function exactPct(share: number): string {
   return `${(share * 100).toFixed(1)}%`
 }
 
-function feedTimestamp(iso: string): string {
-  const date = new Date(iso)
-  if (!Number.isFinite(date.getTime())) return "timestamp unavailable"
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Europe/London",
-  }).format(date)
-}
-
 function edgeCopy(pct: number): string {
   const delta = pct - 100
   if (delta === 0) return "Even pitch"
@@ -1103,20 +1093,47 @@ export function Pitchline({
             <div>
               <h2 className="font-display text-2xl tracking-tight">Best upcoming picks</h2>
               <p className="mt-1 max-w-xl text-sm text-muted">
-                Markets with model-assigned probability of at least 80%. Club picks use season rates; national-team picks require at least three previous matches in that competition and use neutral home edge. International ratings are still exploratory, not independently calibrated.
+                The strongest upcoming selections across available competitions.
               </p>
             </div>
             <p className="text-sm text-muted tabular-nums">
-              {hotPicks.length ? `${hotPicks.length} clear 80%` : "None at 80%"}
+              {hotPicks.length ? `${hotPicks.length} selected` : "No standout picks"}
             </p>
           </div>
 
           <div className="panel mb-4">
+            {isPro ? (
+              <div className="mb-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">Simulation engine</p>
+                  <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium">Pro access</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Choose Best Picks engine">
+                  <button
+                    type="button"
+                    aria-pressed={engineMode === "pro"}
+                    onClick={() => setEngineMode("pro")}
+                    className={`press flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium ${engineMode === "pro" ? "bg-primary text-primary-foreground" : "border border-border bg-background"}`}
+                  >
+                    <Sparkles className="size-4" />
+                    Pro Engine
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={engineMode === "classic"}
+                    onClick={() => setEngineMode("classic")}
+                    className={`press min-h-11 rounded-lg px-3 text-sm font-medium ${engineMode === "classic" ? "bg-primary text-primary-foreground" : "border border-border bg-background"}`}
+                  >
+                    Classic
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="flex items-baseline justify-between gap-3">
               <label htmlFor="picks-edge" className="text-sm font-medium">
-                Home edge
+                Home advantage adjustment
               </label>
-              <span className="font-display text-xl tabular-nums">{edgeCopy(edgePct)}</span>
+              <span className="font-display text-xl tabular-nums">{edgePct}%</span>
             </div>
             <input
               id="picks-edge"
@@ -1129,19 +1146,19 @@ export function Pitchline({
               suppressHydrationWarning
               onChange={(event) => setEdgePct(Number(event.target.value))}
             />
-            <div className="mt-5">
-              <ModelBar
-                model={model}
-                formWindow={formWindow}
-                level={level}
-                onModel={setModel}
-                onForm={setFormWindow}
-                onLevel={setLevel}
-              />
-              <p className="mt-3 text-xs text-muted">
-                Last 5 and last 10 use recency-weighted completed matches on the open match only. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) applies to both. The UEFA association proxy is for cross-league club comparisons, not national teams.
-              </p>
-            </div>
+            <p className="mt-1 text-xs text-muted">Each competition keeps its own starting setting.</p>
+            {!(isPro && engineMode === "pro") ? (
+              <div className="mt-5">
+                <ModelBar
+                  model={model}
+                  formWindow={formWindow}
+                  level={level}
+                  onModel={setModel}
+                  onForm={setFormWindow}
+                  onLevel={setLevel}
+                />
+              </div>
+            ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
               {(
                 [
@@ -1185,16 +1202,24 @@ export function Pitchline({
             </label>
           </div>
 
-          {shownPicks.length === 0 ? (
+          {isPro && engineMode === "pro" && proPickLoading ? (
+            <section className="panel" aria-live="polite">
+              <p className="text-sm font-medium">Calculating Pro picks…</p>
+              <p className="mt-1 text-sm text-muted">{proPickProgress.done} of {proPickProgress.total} matches ready</p>
+            </section>
+          ) : isPro && engineMode === "pro" && proPickError ? (
+            <section className="panel" role="alert">
+              <p className="text-sm font-medium">Pro picks are temporarily unavailable</p>
+              <p className="mt-1 text-sm text-muted">{proPickError}</p>
+            </section>
+          ) : shownPicks.length === 0 ? (
             <section className="panel">
-              <p className="text-sm">
-                No picks currently qualify for this selection. International matches without at least three previous results per team are deliberately withheld from Best Picks.
-              </p>
+              <p className="text-sm">Nothing stands out in the current selection.</p>
             </section>
           ) : (
             <div className="space-y-2">
               {!hotPicks.length ? (
-                <p className="mb-2 text-sm text-muted">Nothing clears 80% here. Closest calls:</p>
+                <p className="mb-2 text-sm text-muted">Closest calls:</p>
               ) : null}
               {shownPicks.map((pick) => {
                 const homeTeam = teamBy(pick.fixture.homeId)
@@ -1307,7 +1332,7 @@ export function Pitchline({
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="font-display text-2xl tracking-tight">Predict the match</h2>
-            <p className="mt-1 text-sm text-muted">Home and away can come from any league.</p>
+
           </div>
         </div>
 
@@ -1316,7 +1341,7 @@ export function Pitchline({
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold">Simulation engine</p>
-                <p className="mt-1 text-xs text-muted">Pro Engine is your default. You can switch to the classic model whenever you prefer.</p>
+                <p className="mt-1 text-xs text-muted">Choose the experience you prefer.</p>
               </div>
               <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium">Pro access</span>
             </div>
@@ -1401,14 +1426,9 @@ export function Pitchline({
           <div className="mt-5 rounded-xl border border-border p-3">
             <div className="flex items-center gap-2">
               <Sparkles className="size-4 text-primary" />
-              <p className="text-sm font-semibold">Phase-of-play simulation · 2,500 matches</p>
+              <p className="text-sm font-semibold">Pro Engine active</p>
             </div>
-            <p className="mt-2 text-sm text-muted">
-              Possessions move through build-up, progression, chance creation and finishing. The model adjusts for the score, late-game urgency and fatigue.
-            </p>
-            <p className="mt-2 text-xs text-muted">
-              Team-level rates remain the baseline. ESPN supplies the current roster; Pitchline matches those players to EA FC 27 base attributes. Adjustments require at least 12 matched players and 60% roster coverage for both teams. EA ratings do not establish current form or matchday availability.
-            </p>
+            <p className="mt-2 text-sm text-muted">Enhanced match analysis is active.</p>
           </div>
         ) : (
           <div className="mt-5">
@@ -1421,12 +1441,7 @@ export function Pitchline({
               onForm={setFormWindow}
               onLevel={setLevel}
             />
-            <p className="mt-3 text-xs text-muted">
-              Independent Poisson is the default. Dixon–Coles (ρ = {DIXON_RHO.toFixed(2)}) lifts 0–0 and 1–1.{" "}
-              {league === "int"
-                ? "National-team scoring and conceding rates come from each team's previous completed fixtures in the same international competition. Teams without returned history use a neutral fallback."
-                : "The UEFA scale is a coarse association-level proxy for cross-league club comparisons, not a calibrated national-team strength measure."}
-            </p>
+
           </div>
         )}
 
@@ -1447,21 +1462,7 @@ export function Pitchline({
         ) : null}
 
 
-        {league === "int" && home.competitionName !== away.competitionName ? (
-          <p className="mt-3 text-sm text-muted">
-            These teams' ratings come from different competition schedules ({home.competitionName} and {away.competitionName}). The simulator uses raw goals-for/goals-against rates without cross-competition calibration, so treat this comparison as exploratory.
-          </p>
-        ) : null}
 
-        {desk.homeLeague !== desk.awayLeague ? (
-          <p className="mt-3 text-sm text-muted">
-            {!level
-              ? `${leagueName(desk.homeLeague)} against ${leagueName(desk.awayLeague)}. League scale is off, so a goal a game counts the same in both.`
-              : desk.leveled
-                ? `${leagueName(desk.homeLeague)} ${weightLabel(desk.homeLeague, desk.homeWeight)} against ${leagueName(desk.awayLeague)} ${weightLabel(desk.awayLeague, desk.awayWeight)}. Attack is multiplied by that weight. Defense is divided by it.`
-                : `${leagueName(desk.homeLeague)} and ${leagueName(desk.awayLeague)} both sit at ${desk.homeWeight.toFixed(2)}, so the scale cancels.`}
-          </p>
-        ) : null}
 
         <div className="mt-5 flex flex-wrap gap-2">
           <button
@@ -1838,19 +1839,9 @@ export function Pitchline({
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="font-display text-2xl tracking-tight">{leagueName(league)} board</h2>
-            <p className="mt-1 text-sm text-muted">
-              {isCup(league)
-                ? "European clubs take their domestic scoring into the tie. Sides from leagues we don't carry are rated on their European games, pulled toward average when the sample is short. Index ranks net goals inside this competition. "
-                : "Attack is goals scored per match this season, defense is goals conceded. Lower defense is tighter. Index ranks net goals inside this league. "}
-              {leagueStatus.standings === "live"
-                ? `Standings: live (${leagueStatus.teamCount} clubs), refreshed ${feedTimestamp(leagueStatus.updatedAt)}.`
-                : `Standings: saved snapshot from ${feedTimestamp(leagueStatus.updatedAt)}; live feed unavailable for this competition.`}
-              {leagueStatus.fixtures === "snapshot"
-                ? ` Fixtures are using saved fallback data from ${feedTimestamp(leagueStatus.fixturesUpdatedAt)}.`
-                : ` Fixtures are from the live feed, refreshed ${feedTimestamp(leagueStatus.fixturesUpdatedAt)}.`}
-            </p>
+            <p className="mt-1 text-sm text-muted">Competition overview</p>
           </div>
-          <p className="text-sm text-muted">Tap a club for home. Away sets the other side.</p>
+          <p className="text-sm text-muted">Select a club to set your match.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-full text-left text-sm">
@@ -1900,10 +1891,8 @@ export function Pitchline({
                         <span className="min-w-0 truncate">
                           <span className="block truncate">{row.team.name}</span>
                           {league === "int" ? (
-                            <span className="block truncate text-xs font-normal text-muted" title={row.team.ratingSource}>
-                              {row.team.competitionName} · {(row.team.formMatches ?? 0) > 0
-                                ? row.team.formMatches + " previous matches"
-                                : "No history · neutral rates"}
+                            <span className="block truncate text-xs font-normal text-muted">
+                              {row.team.competitionName}
                             </span>
                           ) : null}
                         </span>
@@ -1940,32 +1929,6 @@ export function Pitchline({
         </>
       )}
 
-      <footer className="px-1 text-sm text-muted">
-        <p>
-          {isPro && engineMode === "pro" ? (
-            "The Pro phase-of-play engine simulates build-up, progression, chance creation and finishing across 2,500 possession-sequence matches. It incorporates score-state urgency and fatigue. Where approved player data covers both current squads, derived squad-wide indices adjust attacking, creativity, defensive and late-game depth effects; otherwise it uses team-level inputs. It does not require matchday lineups. Treat it as experimental until historical out-of-sample testing confirms an improvement."
-          ) : (
-            <>
-              Expected goals equal a side’s attack times the opponent’s defense, scaled to a league average of 1.35, then
-              moved by the home edge.{" "}
-              {model === "dixon"
-                ? `Dixon–Coles (ρ = ${DIXON_RHO.toFixed(2)}) ties the low scorelines, then each of the ${SIMS.toLocaleString("en-GB")} matches is drawn from that table.`
-                : `Each of the ${SIMS.toLocaleString("en-GB")} matches draws the two goal totals independently from those rates.`}{" "}
-              {formWindow !== "season"
-                ? league === "int"
-                  ? "Last 5 and last 10 reweight completed matches from the same international competition on the open match only. "
-                  : "Last 5 and last 10 replace the season rates on the open match only. "
-                : ""}
-              {level ? "The UEFA scale is on for clubs rated from different leagues. " : ""}
-              {league === "int"
-                ? `National-team ratings use previous completed matches from the same competition schedule. Team rows show the number of historical matches returned. Teams without history use a neutral 1.35 goals-for and 1.35 goals-against fallback; those fallback-only teams are excluded from international Best Picks. Refreshed ${feedTimestamp(leagueStatus.updatedAt)}.`
-                : leagueStatus.standings === "live"
-                  ? `Ratings are this season’s scoring, refreshed from this competition’s table (${feedTimestamp(leagueStatus.updatedAt)}), not a betting line.`
-                  : `This competition is using saved ratings from ${feedTimestamp(leagueStatus.updatedAt)}. Not a betting line.`}
-            </>
-          )}
-        </p>
-      </footer>
     </main>
   )
 }

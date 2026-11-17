@@ -1,5 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { hasEligibleProPickSquadData } from "./pro-pick-eligibility.ts"
+import type { ProPlayerData, ProTeamSquad } from "./pro-player-data.ts"
 import {
   deriveEaPlayerScores,
   deriveSquadFactors,
@@ -211,4 +213,58 @@ test("incomplete EA coverage leaves the squad neutral", () => {
   assert.equal(derived.factors.attackMultiplier, 1)
   assert.equal(derived.factors.creativityMultiplier, 1)
   assert.equal(derived.factors.defenceMultiplier, 1)
+})
+
+
+function eligibleTestSquad(teamName: string, ratedPlayers = 18, squadCount = 22): ProTeamSquad {
+  return {
+    teamName,
+    squadCount,
+    ratedPlayerCount: ratedPlayers,
+    attackIndex: 70,
+    creativityIndex: 68,
+    defenceIndex: 66,
+    factors: {
+      attackMultiplier: 1.02,
+      creativityMultiplier: 1.02,
+      defenceMultiplier: 0.99,
+      squadDepth: 60,
+      ratedPlayers,
+      squadCount,
+      coverage: squadCount > 0 ? ratedPlayers / squadCount : 0,
+      applied: ratedPlayers >= 12 && squadCount >= 12 && ratedPlayers / squadCount >= 0.6,
+    },
+    topPlayers: [],
+    dataUpdatedAt: null,
+  }
+}
+
+function eligibleTestData(home = eligibleTestSquad("Home"), away = eligibleTestSquad("Away")): ProPlayerData {
+  return {
+    provider: "EA SPORTS FC 27",
+    status: "available",
+    note: "",
+    home,
+    away,
+    adjustmentsApplied: Boolean(home.factors.applied && away.factors.applied),
+  }
+}
+
+test("Pro Best Picks require sufficient rated squad data for both teams", () => {
+  assert.equal(hasEligibleProPickSquadData(eligibleTestData()), true)
+  assert.equal(
+    hasEligibleProPickSquadData(eligibleTestData(eligibleTestSquad("Home"), eligibleTestSquad("Away", 8, 22))),
+    false,
+  )
+  assert.equal(
+    hasEligibleProPickSquadData(eligibleTestData(eligibleTestSquad("Home", 11, 22), eligibleTestSquad("Away"))),
+    false,
+  )
+})
+
+test("Pro Best Picks exclude unavailable, partial and one-sided squad data", () => {
+  const valid = eligibleTestData()
+  assert.equal(hasEligibleProPickSquadData({ ...valid, status: "partial", adjustmentsApplied: false }), false)
+  assert.equal(hasEligibleProPickSquadData({ ...valid, status: "roster_unavailable", adjustmentsApplied: false }), false)
+  assert.equal(hasEligibleProPickSquadData({ ...valid, away: null }), false)
 })

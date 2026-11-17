@@ -11,10 +11,10 @@ const LINKS = [
   { href: "/", label: "Match desk" },
   { href: "/picks", label: "Best picks" },
   { href: "/international", label: "International" },
-  { href: "/methodology", label: "Methodology" },
+  { href: "/disclaimer", label: "Disclaimer" },
 ]
 
-export function SiteHeader({ subtitle = "Football intelligence" }: { subtitle?: string }) {
+export function SiteHeader(_props: { subtitle?: string } = {}) {
   const pathname = usePathname()
   const session = useFirebaseSession()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -42,12 +42,12 @@ export function SiteHeader({ subtitle = "Football intelligence" }: { subtitle?: 
             <Image src="/pitchline-mark.svg" width={44} height={44} alt="" priority className="size-10 shrink-0" />
             <span className="min-w-0">
               <span className="block font-display text-[1.8rem] leading-none tracking-tight">Pitchline</span>
-              <span className="mt-1 block truncate text-xs text-muted sm:text-sm">{subtitle}</span>
+              <span className="mt-1 block truncate text-xs text-muted sm:text-sm">See the game before it unfolds.</span>
             </span>
           </Link>
 
           <p className="hidden max-w-xs text-right text-sm text-muted lg:block">
-            Evidence-led match probabilities, form and football data.
+            Matchday insight, made clearer.
           </p>
 
           <button

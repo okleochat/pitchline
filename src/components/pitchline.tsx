@@ -700,6 +700,7 @@ export function Pitchline({
   const [priceText, setPriceText] = useState("")
   const tapeRef = useRef<HTMLElement>(null)
   const runTimer = useRef<number | null>(null)
+  const lastBoardPullAt = useRef(0)
 
   useEffect(() => {
     setBoard(initial)
@@ -717,12 +718,18 @@ export function Pitchline({
     if (initialLeague === "int") return
     let stop = false
     const pull = () => {
+      // Avoid an immediate duplicate request when the refreshed board changes
+      // board.updatedAt and this effect is re-created.
+      if (Date.now() - lastBoardPullAt.current < 30_000) return
+      lastBoardPullAt.current = Date.now()
       loadBoard()
         .then((next) => {
           if (!stop) setBoard(next)
         })
         .catch(() => {})
     }
+    // Refresh in the background after the snapshot has already rendered.
+    pull()
     const timer = window.setInterval(pull, 15 * 60 * 1000)
     const onVisible = () => {
       if (document.visibilityState !== "visible") return

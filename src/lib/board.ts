@@ -1,5 +1,6 @@
 import type { Board } from "@/data/football"
 import type { ProReport, ProTeam } from "@/lib/pro-sim"
+import type { MarketProbabilities } from "@/lib/sim"
 
 export type FormGame = { gf: number; ga: number }
 export type FormResult = {
@@ -49,4 +50,40 @@ export async function loadProSimulation(input: {
     throw new Error("The Pro simulation could not be completed.")
   }
   return (await response.json()) as ProReport
+}
+
+export type ProPickFixtureInput = {
+  fixtureId: string
+  home: ProTeam
+  away: ProTeam
+  edge: number
+}
+
+export async function loadProPickMarkets(input: {
+  data: { fixtures: ProPickFixtureInput[] }
+  signal?: AbortSignal
+}): Promise<{ fixtureId: string; probabilities: MarketProbabilities }[]> {
+  const response = await fetch("/api/pro/picks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input.data),
+    cache: "no-store",
+    credentials: "same-origin",
+    signal: input.signal,
+  })
+  if (!response.ok) {
+    const result = (await response.json().catch(() => ({}))) as { error?: string }
+    if (response.status === 401 || result.error === "authentication_required") {
+      throw new Error("Sign in to use Pro Best Picks.")
+    }
+    if (response.status === 403 || result.error === "pro_required") {
+      throw new Error("An active Pro subscription is required.")
+    }
+    if (response.status === 503) {
+      throw new Error("Pitchline could not verify your Pro subscription. Try again shortly.")
+    }
+    throw new Error("Pro Best Picks could not be calculated.")
+  }
+  const result = (await response.json()) as { results?: { fixtureId: string; probabilities: MarketProbabilities }[] }
+  return Array.isArray(result.results) ? result.results : []
 }

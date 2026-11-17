@@ -1561,8 +1561,6 @@ export function Pitchline({
                     <dt className="text-xs text-muted">Shots on target</dt>
                     <dd className="mt-1 font-medium tabular-nums">{proReport.details.shotsOnTargetHome.toFixed(1)}–{proReport.details.shotsOnTargetAway.toFixed(1)}</dd>
                   </div>
-                  <div>
-
               </dl>
             ) : null}
             {isPro && engineMode === "pro" && proReport?.playerData ? <ProPlayerDataPanel data={proReport.playerData} /> : null}

@@ -52,7 +52,7 @@ export default function DisclaimerPage() {
             Club names, competition names, badges, trademarks and other third-party marks belong to their respective owners. Their appearance on Pitchline does not imply sponsorship, endorsement or affiliation.
           </p>
           <p className="mt-2 text-sm leading-6 text-muted">
-            Pitchline is an independent product and is not affiliated with or endorsed by EA SPORTS, ESPN, FIFA, UEFA, CAF or any football club or governing body.
+            Pitchline is an independent product and is not affiliated with or endorsed by any football club, league, governing body, broadcaster, game publisher or data provider referenced on the service.
           </p>
         </section>
 

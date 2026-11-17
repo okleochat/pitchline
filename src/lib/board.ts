@@ -62,7 +62,10 @@ export type ProPickFixtureInput = {
 export async function loadProPickMarkets(input: {
   data: { fixtures: ProPickFixtureInput[] }
   signal?: AbortSignal
-}): Promise<{ fixtureId: string; probabilities: MarketProbabilities }[]> {
+}): Promise<{
+  results: { fixtureId: string; probabilities: MarketProbabilities }[]
+  excludedCount: number
+}> {
   const response = await fetch("/api/pro/picks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -84,6 +87,14 @@ export async function loadProPickMarkets(input: {
     }
     throw new Error("Pro Best Picks could not be calculated.")
   }
-  const result = (await response.json()) as { results?: { fixtureId: string; probabilities: MarketProbabilities }[] }
-  return Array.isArray(result.results) ? result.results : []
+  const result = (await response.json()) as {
+    results?: { fixtureId: string; probabilities: MarketProbabilities }[]
+    excludedCount?: number
+  }
+  return {
+    results: Array.isArray(result.results) ? result.results : [],
+    excludedCount: Number.isSafeInteger(result.excludedCount) && (result.excludedCount ?? 0) > 0
+      ? result.excludedCount as number
+      : 0,
+  }
 }

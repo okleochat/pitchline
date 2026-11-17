@@ -1032,7 +1032,7 @@ export function Pitchline({
       league: pick.fixture.league,
       homeId: pick.fixture.homeId,
       awayId: pick.fixture.awayId,
-      edgePct: Math.round(fixtureHomeEdge(pick.fixture.league, board) * 100),
+      edgePct: Math.round(fixtureHomeEdge(pick.fixture.league, board) * edgePct),
       spread,
       totalLine,
       model,

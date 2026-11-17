@@ -683,6 +683,7 @@ export function Pitchline({
   const [proLoading, setProLoading] = useState(false)
   const [proError, setProError] = useState<string | null>(null)
   const [proPickResults, setProPickResults] = useState<Record<string, MarketProbabilities>>({})
+  const [proPickExcludedCount, setProPickExcludedCount] = useState(0)
   const [proPickLoading, setProPickLoading] = useState(false)
   const [proPickError, setProPickError] = useState<string | null>(null)
   const [proPickProgress, setProPickProgress] = useState({ done: 0, total: 0 })
@@ -919,6 +920,7 @@ export function Pitchline({
   useEffect(() => {
     if (!proPickInputs.length) {
       setProPickResults({})
+      setProPickExcludedCount(0)
       setProPickLoading(false)
       setProPickError(null)
       setProPickProgress({ done: 0, total: 0 })
@@ -927,19 +929,21 @@ export function Pitchline({
     const controller = new AbortController()
     let active = true
     setProPickResults({})
+    setProPickExcludedCount(0)
     setProPickLoading(true)
     setProPickError(null)
     setProPickProgress({ done: 0, total: proPickInputs.length })
     const run = async () => {
       for (let index = 0; index < proPickInputs.length; index += 12) {
         const batch = proPickInputs.slice(index, index + 12)
-        const results = await loadProPickMarkets({ data: { fixtures: batch }, signal: controller.signal })
+        const batchResult = await loadProPickMarkets({ data: { fixtures: batch }, signal: controller.signal })
         if (!active) return
         setProPickResults((current) => {
           const next = { ...current }
-          for (const result of results) next[result.fixtureId] = result.probabilities
+          for (const result of batchResult.results) next[result.fixtureId] = result.probabilities
           return next
         })
+        setProPickExcludedCount((current) => current + batchResult.excludedCount)
         setProPickProgress({ done: Math.min(index + batch.length, proPickInputs.length), total: proPickInputs.length })
       }
     }
@@ -1185,6 +1189,11 @@ export function Pitchline({
             </label>
           </div>
 
+          {isPro && engineMode === "pro" && !proPickLoading && proPickExcludedCount > 0 ? (
+            <p className="mb-3 text-xs text-muted" role="status">
+              {proPickExcludedCount} fixtures were excluded because both teams did not meet the Pro squad-data requirements.
+            </p>
+          ) : null}
           {isPro && engineMode === "pro" && proPickLoading ? (
             <section className="panel" aria-live="polite">
               <p className="text-sm font-medium">Calculating Pro picks…</p>

@@ -23,6 +23,7 @@ type CacheEntry = { expiresAt: number; value: unknown }
 
 const ESPN_SITE_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 const ROSTER_CACHE_MS = 12 * 60 * 60 * 1000
+const ROSTER_EMPTY_CACHE_MS = 60 * 1000
 const EA_SHARD_CACHE_MS = 12 * 60 * 60 * 1000
 const EMPTY_CACHE_MS = 15 * 60 * 1000
 const memoryCache = new Map<string, CacheEntry>()
@@ -32,6 +33,7 @@ const eaShardInFlight = new Map<string, Promise<EaShardDocument | null>>()
 const EA_COLLECTION_CACHE_MS = 5 * 60 * 1000
 const LEGACY_EA_SHARD_COLLECTION = "ea_fc27_player_shards"
 let eaCollectionNameCache: { name: string; expiresAt: number } | null = null
+let lastKnownActiveEaCollectionName: string | null = null
 
 const LEAGUE_SLUGS: Partial<Record<LeagueId, string>> = {
   eng: "eng.1",
@@ -100,7 +102,13 @@ function cacheSet(key: string, value: unknown, ttl: number): void {
   }
 }
 
-async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Promise<T> {
+async function cached<T>(
+  key: string,
+  ttl: number,
+  load: () => Promise<T>,
+  emptyTtl = EMPTY_CACHE_MS,
+  persistEmpty = true,
+): Promise<T> {
   const existing = cacheGet<T>(key)
   if (existing.hit) return existing.value as T
   const pending = inFlight.get(key)
@@ -115,10 +123,12 @@ async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Prom
         .get()
       const stored = doc.data()
       if (stored && stored.cacheKey === key && typeof stored.expiresAt === "number") {
-        if (stored.expiresAt > Date.now()) {
+        if (stored.expiresAt > Date.now() && stored.value !== null && stored.value !== undefined) {
           cacheSet(key, stored.value, stored.expiresAt - Date.now())
           return stored.value as T
         }
+        // Negative roster cache entries created by older code must not keep a
+        // transient ESPN failure alive after the provider has recovered.
         void doc.ref.delete().catch(() => {})
       }
     } catch {
@@ -126,20 +136,26 @@ async function cached<T>(key: string, ttl: number, load: () => Promise<T>): Prom
     }
 
     const value = await load()
-    const effectiveTtl = value === null ? EMPTY_CACHE_MS : ttl
+    const isEmpty = value === null
+    const effectiveTtl = isEmpty ? emptyTtl : ttl
     cacheSet(key, value, effectiveTtl)
-    try {
-      await getFirebaseAdminFirestore()
-        .collection("provider_api_cache")
-        .doc(documentId)
-        .set({
-          cacheKey: key,
-          value,
-          expiresAt: Date.now() + effectiveTtl,
-          cachedAt: Date.now(),
-        })
-    } catch {
-      // A successful ESPN roster response remains usable without cache persistence.
+
+    // Empty ESPN responses are transient/ambiguous. Keep them only briefly in
+    // this process; never publish them as shared Firestore cache entries.
+    if (!isEmpty || persistEmpty) {
+      try {
+        await getFirebaseAdminFirestore()
+          .collection("provider_api_cache")
+          .doc(documentId)
+          .set({
+            cacheKey: key,
+            value,
+            expiresAt: Date.now() + effectiveTtl,
+            cachedAt: Date.now(),
+          })
+      } catch {
+        // A successful ESPN roster response remains usable without cache persistence.
+      }
     }
     return value
   })().finally(() => {
@@ -244,15 +260,31 @@ function normalizeRosterEntry(value: unknown): Dict | null {
 
 async function currentRoster(slug: string, teamId: string): Promise<unknown[] | null> {
   const key = "espn-ea-ratings-roster:v1:" + slug + ":" + teamId
-  return cached(key, ROSTER_CACHE_MS, async () => {
-    const url = ESPN_SITE_BASE + "/" + slug + "/teams/" + teamId + "/roster?limit=500"
-    const payload = await getEspnJson(url)
-    if (!payload) return null
-    const players = rosterEntries(payload)
-      .map(normalizeRosterEntry)
-      .filter((player): player is Dict => player !== null)
-    return players.length ? players : null
-  })
+  return cached(
+    key,
+    ROSTER_CACHE_MS,
+    async () => {
+      const url = ESPN_SITE_BASE + "/" + slug + "/teams/" + teamId + "/roster?limit=500"
+      const fetchRoster = async (): Promise<unknown[] | null> => {
+        const payload = await getEspnJson(url)
+        if (!payload) return null
+        const players = rosterEntries(payload)
+          .map(normalizeRosterEntry)
+          .filter((player): player is Dict => player !== null)
+        return players.length ? players : null
+      }
+
+      const firstAttempt = await fetchRoster()
+      if (firstAttempt?.length) return firstAttempt
+
+      // ESPN can intermittently return a timeout, error or empty payload for
+      // one club while other clubs remain healthy. Retry before marking it empty.
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      return fetchRoster()
+    },
+    ROSTER_EMPTY_CACHE_MS,
+    false,
+  )
 }
 
 function rosterPosition(value: unknown): unknown {
@@ -308,19 +340,33 @@ async function activeEaShardCollection(): Promise<string> {
     return eaCollectionNameCache.name
   }
 
-  let collectionName = LEGACY_EA_SHARD_COLLECTION
+  let collectionName: string
   try {
     const metadata = await getFirebaseAdminFirestore()
       .collection("ea_fc27_meta")
       .doc("current")
       .get()
-    const candidate = stringValue(record(metadata.data())?.activeCollection)
-    if (candidate && /^ea_fc27_players_[a-zA-Z0-9_]+$/.test(candidate)) {
+
+    if (!metadata.exists) {
+      // Preserve the pre-metadata collection only for installations that have
+      // not yet published an active collection pointer.
+      collectionName = LEGACY_EA_SHARD_COLLECTION
+    } else {
+      const candidate = stringValue(record(metadata.data())?.activeCollection)
+      if (!candidate || !/^ea_fc27_players_[a-zA-Z0-9_]+$/.test(candidate)) {
+        throw new Error("EA FC active collection pointer is missing or invalid")
+      }
       collectionName = candidate
+      lastKnownActiveEaCollectionName = candidate
     }
   } catch {
-    // A temporary metadata read failure falls back to the legacy collection.
-    // The last complete snapshot remains available during migration.
+    // Reuse only a collection that this process previously verified from the
+    // metadata pointer. Never silently switch to an old/empty legacy dataset.
+    if (!lastKnownActiveEaCollectionName) {
+      throw new Error("EA FC active collection metadata is temporarily unavailable")
+    }
+    collectionName = lastKnownActiveEaCollectionName
+    console.warn("[Pitchline EA FC] Reusing the last verified player collection after a metadata read failure")
   }
 
   eaCollectionNameCache = {

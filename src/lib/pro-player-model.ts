@@ -7,6 +7,9 @@ import type {
 
 type Dict = Record<string, unknown>
 
+export const MIN_SQUAD_RATED_PLAYERS = 12
+export const MIN_SQUAD_RATING_COVERAGE = 0.6
+
 function record(value: unknown): Dict | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Dict : null
 }
@@ -223,7 +226,8 @@ export function deriveSquadFactors(players: SquadPlayer[]): {
     ? depthPool.reduce((sum, score) => sum + score, 0) / depthPool.length
     : 50
 
-  const enoughData = squadCount >= 12 && ratedPlayers >= 12 && coverage >= 0.6
+  const enoughData = squadCount >= MIN_SQUAD_RATED_PLAYERS &&
+    ratedPlayers >= MIN_SQUAD_RATED_PLAYERS && coverage >= MIN_SQUAD_RATING_COVERAGE
   const shrink = enoughData ? Math.min(1, coverage) : 0
   const multiplier = (score: number, divisor: number, min: number, max: number) =>
     Math.min(max, Math.max(min, 1 + ((score - 50) / divisor) * shrink))

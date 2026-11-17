@@ -1,8 +1,8 @@
-import type { ProPlayerData, ProTeamSquad } from "@/lib/pro-player-data"
+import type { ProPlayerData, ProTeamSquad } from "./pro-player-data.ts"
 import {
   MIN_SQUAD_RATED_PLAYERS,
   MIN_SQUAD_RATING_COVERAGE,
-} from "@/lib/pro-player-model"
+} from "./pro-player-model.ts"
 
 /**
  * Pro Best Picks require the same two-sided squad threshold used by the

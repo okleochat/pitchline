@@ -18,6 +18,14 @@ test("home advantage returns a conservative prior when no usable data exists", (
   assert.equal(estimateHomeAdvantage([{ homeGoals: 2, awayGoals: 0 }]), 1.1)
 })
 
+
+test("home advantage remains within its calibrated bounds", () => {
+  const strongHome = Array.from({ length: 50 }, () => ({ homeGoals: 8, awayGoals: 1 }))
+  const strongAway = Array.from({ length: 50 }, () => ({ homeGoals: 1, awayGoals: 8 }))
+  assert.equal(estimateHomeAdvantage(strongHome), 1.3)
+  assert.equal(estimateHomeAdvantage(strongAway), 0.9)
+})
+
 test("international fixtures always use a neutral venue default", () => {
   assert.equal(homeAdvantageForLeague("int", 118), 1)
   assert.equal(homeAdvantageForLeague("eng", 116), 1.16)

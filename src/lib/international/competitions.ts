@@ -13,6 +13,7 @@ export const INTERNATIONAL_COMPETITIONS: readonly CompetitionSource[] = [
   { slug: "caf.nations_qual", name: "Africa Cup of Nations Qualifiers", confederation: "CAF" },
   { slug: "uefa.nations", name: "UEFA Nations League", confederation: "UEFA" },
   { slug: "fifa.world", name: "FIFA World Cup", confederation: "FIFA" },
+  { slug: "fifa.friendly", name: "International Friendlies", confederation: "FIFA" },
   { slug: "fifa.worldq.uefa", name: "World Cup Qualifiers — UEFA", confederation: "UEFA" },
   { slug: "fifa.worldq.caf", name: "World Cup Qualifiers — CAF", confederation: "CAF" },
   { slug: "fifa.worldq.afc", name: "World Cup Qualifiers — AFC", confederation: "AFC" },

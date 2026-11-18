@@ -383,7 +383,7 @@ export function SlipBuilder() {
                   type="button"
                   className="press inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"
                   onClick={() => void generateCode()}
-                  disabled={saving || creating || legs.length === 0 || !providerConfig || Boolean(providerNeedsKey)}
+                  disabled={saving || creating || legs.length === 0 || (!providerConfig && selectedBookmaker !== "sportybet") || Boolean(providerNeedsKey)}
                 >
                   {creating ? <LoaderCircle className="size-4 animate-spin" /> : null}
                   {creating ? "Checking markets and generating…" : "Generate " + (selectedProvider?.name ?? "SportyBet") + " code"}

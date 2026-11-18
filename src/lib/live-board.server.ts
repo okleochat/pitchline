@@ -853,7 +853,7 @@ export async function refreshLiveBoard(): Promise<Board> {
   await getFirebaseAdminFirestore()
     .collection("pitchlineData")
     .doc("liveBoard")
-    .set({ schemaVersion: 1, savedAt: Date.now(), board })
+    .set({ schemaVersion: 1, savedAt: Date.now(), board: JSON.parse(JSON.stringify(board)) as Board })
 
   cache = { at: Date.now(), ttl: BOARD_MEMORY_CACHE_MS, board }
   return board

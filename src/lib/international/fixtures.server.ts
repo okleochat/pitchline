@@ -46,7 +46,7 @@ function isInternationalResponse(value: unknown): value is InternationalFixtureR
     typeof item.competitionsChecked === "number" && Array.isArray(item.competitionsUnavailable)
 }
 
-function dateInLagos(iso: string): string {
+function fixtureDateInLagos(iso: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Africa/Lagos",
     year: "numeric",
@@ -242,7 +242,7 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
   const cached = responseCache.get(date)
   if (cached && cached.expiresAt > Date.now()) return cached.value
 
-  const today = dateInLagos(new Date().toISOString())
+  const today = dateInLagos()
   const persistedDate = await readPersistedDate(date, today)
   if (persistedDate) {
     responseCache.set(date, {
@@ -259,7 +259,7 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
     const result: InternationalFixtureResponse = {
       ...durableUpcoming,
       date,
-      fixtures: durableUpcoming.fixtures.filter((fixture) => dateInLagos(fixture.kickoff) === date),
+      fixtures: durableUpcoming.fixtures.filter((fixture) => fixtureDateInLagos(fixture.kickoff) === date),
     }
     responseCache.set(date, {
       expiresAt: Date.now() + OTHER_DATE_CACHE_TTL_MS,

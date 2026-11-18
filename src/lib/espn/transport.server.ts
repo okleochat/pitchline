@@ -66,6 +66,75 @@ function requestPath(url: string): string {
  * Shared server-side ESPN Site API transport used by the club board and the
  * international competition feed. The public API needs no key or auth header.
  */
+
+const ESPN_BATCH_MAX_CONCURRENT = 8
+let espnBatchInFlight = 0
+const espnBatchWaiters: Array<() => void> = []
+
+async function acquireEspnBatchSlot(): Promise<() => void> {
+  if (espnBatchInFlight < ESPN_BATCH_MAX_CONCURRENT) {
+    espnBatchInFlight += 1
+  } else {
+    await new Promise<void>((resolve) => espnBatchWaiters.push(resolve))
+    // A waiting request inherits the released slot; the count stays reserved.
+    return releaseEspnBatchSlot
+  }
+  return releaseEspnBatchSlot
+}
+
+function releaseEspnBatchSlot(): void {
+  const next = espnBatchWaiters.shift()
+  if (next) next()
+  else espnBatchInFlight = Math.max(0, espnBatchInFlight - 1)
+}
+
+/**
+ * Bounded-concurrency transport for independent ESPN scoreboard requests.
+ * It skips the global 200 ms start-time queue, but caps concurrency at eight.
+ * Transient failures fall back to the conservative retrying transport above.
+ */
+export async function getEspnJsonBatch(url: string): Promise<Record<string, unknown> | null> {
+  const path = requestPath(url)
+  const release = await acquireEspnBatchSlot()
+  let fallbackToPacedRequest = false
+  let value: Record<string, unknown> | null = null
+
+  try {
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(ESPN_REQUEST_TIMEOUT_MS),
+      headers: { accept: "application/json" },
+      cache: "no-store",
+    })
+
+    if (response.ok) {
+      try {
+        value = (await response.json()) as Record<string, unknown>
+      } catch {
+        console.warn("[Pitchline ESPN] Batch response contained invalid JSON; retrying with paced transport", { path })
+        fallbackToPacedRequest = true
+      }
+    } else if (retryableStatus(response.status)) {
+      console.warn("[Pitchline ESPN] Batch request received a transient response; retrying with paced transport", {
+        path,
+        status: response.status,
+      })
+      fallbackToPacedRequest = true
+    } else {
+      console.warn("[Pitchline ESPN] Batch request rejected", { path, status: response.status })
+    }
+  } catch (error) {
+    console.warn("[Pitchline ESPN] Batch request failed; retrying with paced transport", {
+      path,
+      reason: error instanceof Error ? error.name : "unknown",
+    })
+    fallbackToPacedRequest = true
+  } finally {
+    release()
+  }
+
+  return fallbackToPacedRequest ? getEspnJson(url) : value
+}
+
 export async function getEspnJson(url: string): Promise<Record<string, unknown> | null> {
   const path = requestPath(url)
 

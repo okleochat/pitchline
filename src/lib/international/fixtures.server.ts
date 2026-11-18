@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getEspnJson } from "@/lib/espn/transport.server"
+import { getEspnJsonBatch } from "@/lib/espn/transport.server"
 import { INTERNATIONAL_COMPETITIONS, type CompetitionSource } from "./competitions"
 import { canReuseUpcomingCache, monthKeysInRange } from "./date-windows"
 import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
@@ -368,7 +368,7 @@ async function fetchCompetitionMonth(month: string, source: CompetitionSource): 
   if (cached && cached.expiresAt > Date.now()) return cached.events
   if (cached) competitionMonthCache.delete(key)
 
-  const payload = await getEspnJson(
+  const payload = await getEspnJsonBatch(
     ESPN_SCOREBOARD + "/" + source.slug + "/scoreboard?dates=" + month + "&limit=500",
   )
   if (!payload) return null

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic"
 export async function GET() {
   try {
     const board = await getLiveBoard()
-    return NextResponse.json(board, { headers: { "Cache-Control": "no-store, max-age=0" } })
+    return NextResponse.json(board, { headers: { "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600" } })
   } catch {
     return NextResponse.json({ error: "board_unavailable" }, { status: 503 })
   }

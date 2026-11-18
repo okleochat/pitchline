@@ -4,8 +4,10 @@ import { getEspnJson } from "@/lib/espn/transport.server"
 import { getUpcomingInternationalFixtures, type InternationalFixture } from "@/lib/international/fixtures.server"
 import { INTERNATIONAL_COMPETITIONS } from "@/lib/international/competitions"
 import { estimateHomeAdvantage } from "@/lib/home-advantage"
+import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
 
 const TTL_MS = 15 * 60 * 1000
+const BOARD_MEMORY_CACHE_MS = 60 * 1000
 
 const SOURCES: Record<LeagueId, { slug: string; tz: string }> = {
   eng: { slug: "eng.1", tz: "Europe/London" },
@@ -811,15 +813,67 @@ async function buildBoard(): Promise<Board> {
   return international ? mergeInternationalFixtures(baseBoard, international.fixtures) : baseBoard
 }
 
+function storedBoard(value: unknown): Board | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const board = value as Partial<Board>
+  if (board.source !== "live" && board.source !== "snapshot") return null
+  if (typeof board.updatedAt !== "string" || !Array.isArray(board.teams) || !Array.isArray(board.fixtures)) return null
+  if (!board.weekends || typeof board.weekends !== "object" || !board.leagueStatus || typeof board.leagueStatus !== "object") return null
+  return board as Board
+}
+
+async function readStoredBoard(): Promise<Board | null> {
+  const snapshot = await getFirebaseAdminFirestore()
+    .collection("pitchlineData")
+    .doc("liveBoard")
+    .get()
+  return storedBoard(snapshot.data()?.board)
+}
+
+/** Called only by the protected daily refresh job. */
+export async function refreshLiveBoard(): Promise<Board> {
+  const board = await buildBoard()
+  const domesticLeagues = LEAGUES.filter((league) => league.id !== "int")
+  const liveLeagueCount = domesticLeagues.filter(
+    (league) => board.leagueStatus[league.id]?.standings === "live",
+  ).length
+  const minimumLiveLeagues = Math.max(5, Math.ceil(domesticLeagues.length * 0.45))
+  const minimumTeams = Math.max(
+    80,
+    Math.floor(TEAMS.filter((team) => team.league !== "int").length * 0.45),
+  )
+
+  // Never replace a good database snapshot with an incomplete ESPN outage.
+  if (board.source !== "live" || liveLeagueCount < minimumLiveLeagues || board.teams.length < minimumTeams) {
+    throw new Error(
+      `ESPN board refresh coverage too low (live leagues ${liveLeagueCount}/${domesticLeagues.length}; teams ${board.teams.length}/${minimumTeams}).`,
+    )
+  }
+
+  await getFirebaseAdminFirestore()
+    .collection("pitchlineData")
+    .doc("liveBoard")
+    .set({ schemaVersion: 1, savedAt: Date.now(), board: JSON.parse(JSON.stringify(board)) as Board })
+
+  cache = { at: Date.now(), ttl: BOARD_MEMORY_CACHE_MS, board }
+  return board
+}
+
+/** Read the latest centrally stored board; never make ESPN calls for a page view. */
 export function getLiveBoard(): Promise<Board> {
   if (cache && Date.now() - cache.at < cache.ttl) return Promise.resolve(cache.board)
   if (!inflight) {
-    inflight = buildBoard()
-      .then((board) => {
-        cache = { at: Date.now(), ttl: board.source === "live" ? TTL_MS : 60 * 1000, board }
+    inflight = readStoredBoard()
+      .then((saved) => {
+        const board = saved ?? snapshotBoard()
+        cache = { at: Date.now(), ttl: BOARD_MEMORY_CACHE_MS, board }
         return board
       })
-      .catch(() => cache?.board ?? snapshotBoard())
+      .catch(() => {
+        const board = cache?.board ?? snapshotBoard()
+        cache = { at: Date.now(), ttl: 15 * 1000, board }
+        return board
+      })
       .finally(() => {
         inflight = null
       })

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { requireProUser } from "@/lib/firebase/server-session"
-import { simulatePro, type ProTeam } from "@/lib/pro-sim"
+import { type ProTeam } from "@/lib/pro-sim"
+import { runProEngine } from "@/lib/pro-engine"
 import { getProPlayerData } from "@/lib/providers/ea-fc-ratings.server"
 import type { LeagueId } from "@/data/football"
 
@@ -33,73 +34,4 @@ function teamInput(value: unknown): ProTeam | null {
   const defense = typeof item.defense === "number" ? item.defense : Number.NaN
   if (!id || id.length > 100 || !name || name.length > 100) return null
   if (!Number.isFinite(attack) || attack < 0 || attack > 6) return null
-  if (!Number.isFinite(defense) || defense < 0 || defense > 6) return null
-  const league = leagueValue(item.league)
-  if (!league) return null
-  const rateLeague = leagueValue(item.rateLeague)
-  const espnId = typeof item.espnId === "string" && /^\d{1,12}$/.test(item.espnId) ? item.espnId : undefined
-  const feedSlug = typeof item.feedSlug === "string" && /^[a-z0-9.-]{1,50}$/.test(item.feedSlug) ? item.feedSlug : undefined
-  return {
-    id, name, attack, defense, league,
-    ...(rateLeague ? { rateLeague } : {}),
-    ...(espnId ? { espnId } : {}),
-    ...(feedSlug ? { feedSlug } : {}),
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    await requireProUser()
-  } catch (error) {
-    const code = error instanceof Error ? error.message : ""
-    if (code === "AUTH_REQUIRED") {
-      return NextResponse.json({ error: "authentication_required" }, { status: 401 })
-    }
-    if (code === "PRO_REQUIRED") {
-      return NextResponse.json({ error: "pro_required" }, { status: 403 })
-    }
-    return NextResponse.json({ error: "subscription_verification_unavailable" }, { status: 503 })
-  }
-
-  let body: Dict | null = null
-  try {
-    body = record(await request.json())
-  } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 })
-  }
-
-  const home = teamInput(body?.home)
-  const away = teamInput(body?.away)
-  const edge = typeof body?.edge === "number" ? body.edge : Number.NaN
-  const roll = typeof body?.roll === "number" ? body.roll : Number.NaN
-  if (!home || !away || home.id === away.id) {
-    return NextResponse.json({ error: "invalid_teams" }, { status: 400 })
-  }
-  if (!Number.isFinite(edge) || edge < 0.7 || edge > 1.6) {
-    return NextResponse.json({ error: "invalid_home_edge" }, { status: 400 })
-  }
-  if (!Number.isSafeInteger(roll) || roll < 0 || roll > 1_000_000) {
-    return NextResponse.json({ error: "invalid_simulation_seed" }, { status: 400 })
-  }
-
-  try {
-    const playerData = await getProPlayerData({
-      home: {
-        id: home.id, name: home.name, league: home.league, rateLeague: home.rateLeague,
-        espnId: home.espnId, feedSlug: home.feedSlug,
-      },
-      away: {
-        id: away.id, name: away.name, league: away.league, rateLeague: away.rateLeague,
-        espnId: away.espnId, feedSlug: away.feedSlug,
-      },
-    })
-    const homeFactors = playerData.adjustmentsApplied ? playerData.home?.factors : undefined
-    const awayFactors = playerData.adjustmentsApplied ? playerData.away?.factors : undefined
-    const report = simulatePro(home, away, edge, roll, homeFactors, awayFactors)
-    return NextResponse.json({ ...report, playerData }, {
-      headers: { "Cache-Control": "private, no-store" },
-    })
-  } catch {
-    return NextResponse.json({ error: "pro_simulation_failed" }, { status: 500 })
-  }
-}
+  if (!Number.isFinite(defense) ¶»§q«^

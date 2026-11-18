@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getLiveBoard } from "@/lib/live-board.server"
 import { sportsApiProCapabilities } from "@/lib/providers/sportsapipro.server"
-import { firebaseAdminCredentialMode } from "@/lib/firebase/admin"
+import { firebaseAdminCredentialMode, getFirebaseAdminFirestore } from "@/lib/firebase/admin"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -28,35 +28,7 @@ export async function GET() {
 
   const adminCredentialMode = firebaseAdminCredentialMode()
   const providers = sportsApiProCapabilities()
-  const health = board.source === "snapshot"
-    ? "degraded"
-    : snapshotFallbacks > 0
-      ? "partial"
-      : "ok"
-
-  return NextResponse.json({
-    status: health,
-    checkedAt: new Date().toISOString(),
-    board: {
-      source: board.source,
-      updatedAt: board.updatedAt,
-      competitions: statuses.length,
-      liveStandings,
-      liveFixtures,
-      competitionsWithSnapshotFallbacks: snapshotFallbacks,
-      oldestFeedAgeMs: Math.max(0, Date.now() - oldestFeedTimestamp),
-    },
-    firebase: {
-      webConfigured: webFirebaseConfigured,
-      adminCredentialMode,
-      adminPermissionCheck: "not_performed",
-      subscriptionRecords: "server-managed",
-    },
-    footballProviders: {
-      sportsApiPro: providers,
-    },
-  }, {
-    status: health === "degraded" ? 503 : 200,
-    headers: { "Cache-Control": "no-store, max-age=0" },
-  })
-}
+  let eaFc27Snapshot: {
+    available: boolean
+    syncedAt: string | null
+    playerCoun¶»§q«^

@@ -1,10 +1,11 @@
 import { Pitchline } from "@/components/pitchline"
-import { getLiveBoard } from "@/lib/live-board.server"
+import { snapshotBoard } from "@/data/football"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
-export default async function PicksPage() {
-  const board = await getLiveBoard()
-  return <Pitchline initial={board} initialView="picks" />
+export default function PicksPage() {
+  // Match the homepage: render immediately from the bundled board. Pitchline
+  // refreshes the shared live board in the browser after the first paint.
+  return <Pitchline initial={snapshotBoard()} initialView="picks" />
 }

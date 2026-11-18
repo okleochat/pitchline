@@ -843,11 +843,8 @@ async function readStoredBoard(): Promise<Board | null> {
 export async function getBoardSnapshot(): Promise<Board> {
   try {
     const saved = await readStoredBoard()
-    if (saved?.source === "live" && (
-      saved.fixtures.length === 0 ||
-      saved.fixtures.some((fixture) =>
-        typeof fixture.kickoffAt === "string" && Number.isFinite(Date.parse(fixture.kickoffAt))
-      )
+    if (saved?.source === "live" && saved.fixtures.every((fixture) =>
+      typeof fixture.kickoffAt === "string" && Number.isFinite(Date.parse(fixture.kickoffAt))
     )) return saved
   } catch (error) {
     console.warn("[pitchline/board] Saved snapshot unavailable; rebuilding live board", {

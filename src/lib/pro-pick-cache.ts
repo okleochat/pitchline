@@ -72,7 +72,11 @@ export function clearProPickCache(
   storage: ProPickCacheStorage | null = browserStorage(),
 ): void {
   memoryCache.delete(key)
-  try { storage?.removeItem(key) } catch {}
+  try {
+    storage?.removeItem(key)
+  } catch {
+    // Browser storage can be disabled or unavailable.
+  }
 }
 
 export function readProPickCache(

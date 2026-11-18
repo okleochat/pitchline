@@ -126,6 +126,30 @@ function ProSquadSummary({ squad }: { squad: ProTeamSquad }) {
   )
 }
 
+function ProPlayerDataLoadingPanel() {
+  return (
+    <section className="mt-5 border-t border-border pt-4" aria-label="Squad insights" aria-live="polite" aria-busy="true">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-display text-xl">Squad insights</h3>
+        <span className="inline-flex items-center gap-2 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted">
+          <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+          Loading squad data
+        </span>
+      </div>
+      <p className="mt-2 text-xs text-muted">Loading the saved EA FC player snapshot and current team rosters.</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {[0, 1].map((item) => (
+          <div key={item} className="rounded-lg border border-border bg-background p-3">
+            <div className="h-3 w-28 animate-pulse rounded bg-sunken" />
+            <div className="mt-3 h-3 w-full animate-pulse rounded bg-sunken" />
+            <div className="mt-2 h-3 w-2/3 animate-pulse rounded bg-sunken" />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
   const statusLabel: Record<ProPlayerData["status"], string> = {
     available: "Squad profile ready",
@@ -1793,6 +1817,7 @@ export function Pitchline({
             <p className="text-sm font-medium">Loading Pro Engine…</p>
           </div>
           <p className="mt-1 text-sm text-muted">Preparing squad data and match simulation.</p>
+          <ProPlayerDataLoadingPanel />
         </section>
       ) : isPro && engineMode === "pro" && proError ? (
         <section className="panel mb-4" role="alert">

@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { requireProUser } from "@/lib/firebase/server-session"
-import { simulatePro, type ProTeam } from "@/lib/pro-sim"
+import { type ProTeam } from "@/lib/pro-sim"
+import { runProEngine } from "@/lib/pro-engine"
 import { getProPlayerData } from "@/lib/providers/ea-fc-ratings.server"
-import { hasEligibleProPickSquadData } from "@/lib/pro-pick-eligibility"
 import type { LeagueId } from "@/data/football"
 
 export const runtime = "nodejs"
@@ -68,8 +68,11 @@ function fixtureInput(value: unknown): PickFixtureInput | null {
 }
 
 type ProPickSimulationResult =
-  | { fixtureId: string; probabilities: ReturnType<typeof simulatePro>["probabilities"] }
-  | { fixtureId: string; excluded: true }
+  | {
+      fixtureId: string
+      probabilities: ReturnType<typeof runProEngine>["probabilities"]
+      retryable?: true
+    }
   | { fixtureId: string; retryable: true }
 
 async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulationResult> {
@@ -84,25 +87,48 @@ async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulatio
     },
   })
 
-  if (playerData.status === "provider_error" || playerData.status === "roster_unavailable") {
-    return { fixtureId: fixture.fixtureId, retryable: true }
+  // Match Desk and Best Picks always use the same Pro simulation path.
+  // Squad-provider failures remain visible as Pro results and are retryable.
+  const retryable = playerData.status === "provider_error" || playerData.status === "roster_unavailable"
+  const report = runProEngine({
+    home: fixture.home,
+    away: fixture.away,
+    edge: fixture.edge,
+    roll: 0,
+    playerData,
+  })
+  return {
+    fixtureId: fixture.fixtureId,
+    probabilities: report.probabilities,
+    ...(retryable ? { retryable: true as const } : {}),
   }
+}
 
-  if (!hasEligibleProPickSquadData(playerData)) {
-    return { fixtureId: fixture.fixtureId, excluded: true }
-  }
-
-  // Eligibility guarantees that both rated squads were incorporated. Do not
-  // emit a Classic/team-only fallback when the Pro engine is selected.
-  const report = simulatePro(
-    fixture.home,
-    fixture.away,
-    fixture.edge,
-    0,
-    playerData.home?.factors,
-    playerData.away?.factors,
-  )
-  return { fixtureId: fixture.fixtureId, probabilities: report.probabilities }
+async function simulateFixturesBounded(
+  fixtures: PickFixtureInput[],
+  concurrency = 6,
+): Promise<ProPickSimulationResult[]> {
+  const results = new Array<ProPickSimulationResult>(fixtures.length)
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(concurrency, fixtures.length) }, async () => {
+    while (true) {
+      const index = cursor
+      cursor += 1
+      if (index >= fixtures.length) return
+      const fixture = fixtures[index]
+      try {
+        results[index] = await simulatePick(fixture)
+      } catch (error) {
+        console.warn("[Pitchline Pro Picks] Fixture calculation failed; keeping other results", {
+          fixtureId: fixture.fixtureId,
+          message: error instanceof Error ? error.message : "unknown error",
+        })
+        results[index] = { fixtureId: fixture.fixtureId, retryable: true }
+      }
+    }
+  })
+  await Promise.all(workers)
+  return results
 }
 
 export async function POST(request: NextRequest) {
@@ -132,17 +158,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_fixture" }, { status: 400 })
   }
 
-  const simulations = await Promise.all((fixtures as PickFixtureInput[]).map(async (fixture) => {
-    try {
-      return await simulatePick(fixture)
-    } catch (error) {
-      console.warn("[Pitchline Pro Picks] Fixture calculation failed; keeping other results", {
-        fixtureId: fixture.fixtureId,
-        message: error instanceof Error ? error.message : "unknown error",
-      })
-      return { fixtureId: fixture.fixtureId, retryable: true } as const
-    }
-  }))
+  const simulations = await simulateFixturesBounded(fixtures as PickFixtureInput[])
   const results = simulations.flatMap((item) =>
     "probabilities" in item ? [item] : [],
   )

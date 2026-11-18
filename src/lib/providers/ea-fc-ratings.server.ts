@@ -25,11 +25,14 @@ type CacheEntry = { expiresAt: number; value: unknown }
 const ESPN_SITE_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 const ROSTER_CACHE_MS = 12 * 60 * 60 * 1000
 const EA_SHARD_CACHE_MS = 12 * 60 * 60 * 1000
+const SQUAD_SNAPSHOT_CACHE_MS = 12 * 60 * 60 * 1000
 const EMPTY_CACHE_MS = 15 * 60 * 1000
 const memoryCache = new Map<string, CacheEntry>()
 const inFlight = new Map<string, Promise<unknown>>()
 const eaShardCache = new Map<string, CacheEntry>()
 const eaShardInFlight = new Map<string, Promise<EaShardDocument | null>>()
+const squadSnapshotCache = new Map<string, CacheEntry>()
+const squadSnapshotInFlight = new Map<string, Promise<ProTeamSquad | null>>()
 const EA_COLLECTION_CACHE_MS = 5 * 60 * 1000
 const LEGACY_EA_SHARD_COLLECTION = "ea_fc27_player_shards"
 let eaCollectionNameCache: { name: string; expiresAt: number } | null = null
@@ -500,6 +503,101 @@ async function findEaMatches(
   return { matches, syncedAt }
 }
 
+function validProTeamSquadSnapshot(value: unknown): value is ProTeamSquad {
+  const item = record(value)
+  const factors = record(item?.factors)
+  if (!item || !factors) return false
+  const numericFields = [
+    item.squadCount, item.ratedPlayerCount, item.attackIndex, item.creativityIndex,
+    item.defenceIndex, factors.attackMultiplier, factors.creativityMultiplier,
+    factors.defenceMultiplier, factors.squadDepth, factors.ratedPlayers,
+    factors.squadCount, factors.coverage,
+  ]
+  if (!numericFields.every((field) => typeof field === "number" && Number.isFinite(field))) return false
+  if (typeof item.teamName !== "string" || !item.teamName || typeof factors.applied !== "boolean") return false
+  if (!Array.isArray(item.topPlayers)) return false
+  if (item.dataUpdatedAt !== null && typeof item.dataUpdatedAt !== "string") return false
+  return item.topPlayers.every((player) => {
+    const candidate = record(player)
+    return Boolean(candidate) &&
+      typeof candidate?.id === "string" &&
+      typeof candidate?.name === "string" &&
+      typeof candidate?.position === "string" &&
+      typeof candidate?.overall === "number" &&
+      Number.isFinite(candidate.overall)
+  })
+}
+
+/**
+ * Persist the fully prepared ESPN + EA squad once per team and active EA
+ * snapshot version. Later Match Desk and Best Picks requests reuse this final
+ * Firestore team document instead of rebuilding it from hundreds of shards.
+ */
+async function getTeamSquadSnapshot(
+  team: PlayerTeamContext,
+  slug: string,
+  collectionName: string,
+): Promise<ProTeamSquad | null> {
+  const espnId = team.espnId
+  if (!espnId) return null
+
+  const cacheKey = "espn-ea-squad:v1:" + collectionName + ":" + slug + ":" + espnId
+  const inMemory = squadSnapshotCache.get(cacheKey)
+  if (inMemory && inMemory.expiresAt > Date.now() && validProTeamSquadSnapshot(inMemory.value)) {
+    return inMemory.value
+  }
+  if (inMemory) squadSnapshotCache.delete(cacheKey)
+
+  const pending = squadSnapshotInFlight.get(cacheKey)
+  if (pending) return pending
+
+  const task = (async () => {
+    const firestore = getFirebaseAdminFirestore()
+    const documentId = cacheKey.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 900)
+    const reference = firestore.collection("provider_api_cache").doc(documentId)
+
+    try {
+      const snapshot = await reference.get()
+      const saved = record(snapshot.data())
+      const expiresAt = typeof saved?.expiresAt === "number" ? saved.expiresAt : 0
+      if (
+        saved?.cacheKey === cacheKey &&
+        expiresAt > Date.now() &&
+        validProTeamSquadSnapshot(saved.value)
+      ) {
+        squadSnapshotCache.set(cacheKey, { value: saved.value, expiresAt })
+        return saved.value
+      }
+    } catch {
+      // Continue against the active EA ratings snapshot when cache is unavailable.
+    }
+
+    const roster = await currentRoster(slug, espnId)
+    if (!roster?.length) return null
+
+    const eaMatches = await findEaMatches(roster)
+    const squad = buildSquad(team, roster, eaMatches.matches, eaMatches.syncedAt)
+    const savedAt = Date.now()
+    const expiresAt = savedAt + SQUAD_SNAPSHOT_CACHE_MS
+
+    squadSnapshotCache.set(cacheKey, { value: squad, expiresAt })
+    if (squadSnapshotCache.size > 1200) {
+      const first = squadSnapshotCache.keys().next().value
+      if (first) squadSnapshotCache.delete(first)
+    }
+
+    try {
+      await reference.set({ cacheKey, value: squad, savedAt, expiresAt })
+    } catch {
+      // The current request can still use the prepared in-memory result.
+    }
+    return squad
+  })().finally(() => squadSnapshotInFlight.delete(cacheKey))
+
+  squadSnapshotInFlight.set(cacheKey, task)
+  return task
+}
+
 function buildSquad(
   team: PlayerTeamContext,
   roster: unknown[],
@@ -604,14 +702,15 @@ export async function getProPlayerData(input: {
   }
 
   try {
-    const [homeRoster, awayRoster] = await Promise.all([
-      currentRoster(homeSlug, input.home.espnId),
-      currentRoster(awaySlug, input.away.espnId),
+    const collectionName = await activeEaShardCollection()
+    const [home, away] = await Promise.all([
+      getTeamSquadSnapshot(input.home, homeSlug, collectionName),
+      getTeamSquadSnapshot(input.away, awaySlug, collectionName),
     ])
-    if (!homeRoster?.length || !awayRoster?.length) {
+    if (!home || !away) {
       const missing = [
-        ...(!homeRoster?.length ? [input.home.name] : []),
-        ...(!awayRoster?.length ? [input.away.name] : []),
+        ...(!home ? [input.home.name] : []),
+        ...(!away ? [input.away.name] : []),
       ]
       return result(
         "roster_unavailable",
@@ -620,12 +719,6 @@ export async function getProPlayerData(input: {
       )
     }
 
-    const [homeEa, awayEa] = await Promise.all([
-      findEaMatches(homeRoster),
-      findEaMatches(awayRoster),
-    ])
-    const home = buildSquad(input.home, homeRoster, homeEa.matches, homeEa.syncedAt)
-    const away = buildSquad(input.away, awayRoster, awayEa.matches, awayEa.syncedAt)
     const bothApplied = home.factors.applied && away.factors.applied
 
     const coverageText = [

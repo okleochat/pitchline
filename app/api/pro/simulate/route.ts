@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { requireProUser } from "@/lib/firebase/server-session"
-import { simulatePro, type ProTeam } from "@/lib/pro-sim"
+import { type ProTeam } from "@/lib/pro-sim"
+import { runProEngine } from "@/lib/pro-engine"
 import { getProPlayerData } from "@/lib/providers/ea-fc-ratings.server"
 import type { LeagueId } from "@/data/football"
 
@@ -93,9 +94,7 @@ export async function POST(request: NextRequest) {
         espnId: away.espnId, feedSlug: away.feedSlug,
       },
     })
-    const homeFactors = playerData.adjustmentsApplied ? playerData.home?.factors : undefined
-    const awayFactors = playerData.adjustmentsApplied ? playerData.away?.factors : undefined
-    const report = simulatePro(home, away, edge, roll, homeFactors, awayFactors)
+    const report = runProEngine({ home, away, edge, roll, playerData })
     return NextResponse.json({ ...report, playerData }, {
       headers: { "Cache-Control": "private, no-store" },
     })

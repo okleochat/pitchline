@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getLiveBoard } from "@/lib/live-board.server"
 import { sportsApiProCapabilities } from "@/lib/providers/sportsapipro.server"
-import { firebaseAdminCredentialMode } from "@/lib/firebase/admin"
+import { firebaseAdminCredentialMode, getFirebaseAdminFirestore } from "@/lib/firebase/admin"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -28,9 +28,52 @@ export async function GET() {
 
   const adminCredentialMode = firebaseAdminCredentialMode()
   const providers = sportsApiProCapabilities()
+  let eaFc27Snapshot: {
+    available: boolean
+    syncedAt: string | null
+    playerCount: number | null
+    shardCount: number | null
+    ageMs: number | null
+  } = {
+    available: false,
+    syncedAt: null,
+    playerCount: null,
+    shardCount: null,
+    ageMs: null,
+  }
+
+  try {
+    const metadataSnapshot = await getFirebaseAdminFirestore()
+      .collection("ea_fc27_meta")
+      .doc("current")
+      .get()
+    const metadata = metadataSnapshot.data()
+    const activeCollection = typeof metadata?.activeCollection === "string"
+      ? metadata.activeCollection
+      : ""
+    if (metadataSnapshot.exists && /^ea_fc27_players_[a-zA-Z0-9_]+$/.test(activeCollection)) {
+      const sample = await getFirebaseAdminFirestore()
+        .collection(activeCollection)
+        .limit(1)
+        .get()
+      const syncedAt = typeof metadata?.syncedAt === "string" ? metadata.syncedAt : null
+      eaFc27Snapshot = {
+        available: !sample.empty,
+        syncedAt,
+        playerCount: typeof metadata?.playerCount === "number" ? metadata.playerCount : null,
+        shardCount: typeof metadata?.shardCount === "number" ? metadata.shardCount : null,
+        ageMs: syncedAt && Number.isFinite(Date.parse(syncedAt))
+          ? Math.max(0, Date.now() - Date.parse(syncedAt))
+          : null,
+      }
+    }
+  } catch {
+    // Health output reports the EA snapshot as unavailable without exposing credentials.
+  }
+
   const health = board.source === "snapshot"
     ? "degraded"
-    : snapshotFallbacks > 0
+    : snapshotFallbacks > 0 || !eaFc27Snapshot.available
       ? "partial"
       : "ok"
 
@@ -49,6 +92,7 @@ export async function GET() {
     firebase: {
       webConfigured: webFirebaseConfigured,
       adminCredentialMode,
+      eaFc27Snapshot,
       adminPermissionCheck: "not_performed",
       subscriptionRecords: "server-managed",
     },

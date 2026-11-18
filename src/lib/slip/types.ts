@@ -1,6 +1,6 @@
 import type { LeagueId } from "@/data/football"
 
-export const MAX_SLIP_LEGS = 12
+export const MAX_SLIP_LEGS = 50
 
 export type SlipKind = "result" | "goals" | "btts"
 

@@ -100,13 +100,18 @@ test("refuses an inactive or missing market outcome", () => {
 test("validates a slip and rejects multiple selections from the same fixture", () => {
   const first = normalizeSlipLegs([baseLeg])
   assert.equal(first?.length, 1)
-  assert.equal(normalizeSlipLegs([
-    baseLeg,
-    { ...baseLeg, label: "Draw", key: baseLeg.fixtureId + ":Draw" },
-  ]), null)
-  assert.equal(normalizeSlipLegs(Array.from({ length: 13 }, (_, index) => ({
+  assert.equal(normalizeSlipLegs(Array.from({ length: 50 }, (_, index) => ({
+    ...baseLeg,
+    fixtureId: "fixture-" + index,
+    key: "fixture-" + index + ":" + baseLeg.label,
+  })))?.length, 50)
+  assert.equal(normalizeSlipLegs(Array.from({ length: 51 }, (_, index) => ({
     ...baseLeg,
     fixtureId: "fixture-" + index,
     key: "fixture-" + index + ":" + baseLeg.label,
   }))), null)
+  assert.equal(normalizeSlipLegs([
+    baseLeg,
+    { ...baseLeg, label: "Draw", key: baseLeg.fixtureId + ":Draw" },
+  ]), null)
 })

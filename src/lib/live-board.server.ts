@@ -835,6 +835,22 @@ async function readStoredBoard(): Promise<Board | null> {
   return storedBoard(data?.board)
 }
 
+/**
+ * Read the last persisted board without contacting ESPN. Best Picks uses this
+ * on the server for its first render, falling back to the bundled snapshot.
+ */
+export async function getBoardSnapshot(): Promise<Board> {
+  try {
+    const saved = await readStoredBoard()
+    if (saved?.source === "live") return saved
+  } catch (error) {
+    console.warn("[pitchline/board] Saved snapshot unavailable; using bundled board", {
+      message: error instanceof Error ? error.message : "unknown error",
+    })
+  }
+  return snapshotBoard()
+}
+
 /** Called only by the protected daily refresh job. */
 export async function refreshLiveBoard(): Promise<Board> {
   if (!hasFirebaseAdminCredentials()) {

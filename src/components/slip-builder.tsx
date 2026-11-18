@@ -17,7 +17,9 @@ type BookingResult = {
   shareCode: string
   shareURL: string
   expiresAt: string | null
-  combinedOdds: number
+  combinedOdds: number | null
+  bookmakerName?: string
+  creditsCharged?: number
   legs: Array<{
     key: string
     homeTeam: string
@@ -37,13 +39,21 @@ function money(value: number): string {
 }
 
 function messageFor(error: string, fallback: string): string {
-  if (error === "selection_unavailable" || error === "SELECTIONS_UNAVAILABLE") {
-    return "At least one selection is no longer available at SportyBet. Review the details below, remove or replace that pick, and try again."
+  if (error === "selection_unavailable" || error === "SELECTIONS_UNAVAILABLE" || error === "MANAGED_SELECTIONS_UNAVAILABLE") {
+    return "At least one selection could not be matched to a current bookmaker market. Review the details below, remove or replace that pick, and try again."
+  }
+  if (error === "MANAGED_API_KEY_REQUIRED") {
+    return "Add MANAGE_BET_CODES_API_KEY to Pitchline's Vercel Production environment to enable this bookmaker. The provider charges two credits for each successfully generated code."
+  }
+  if (error === "MANAGED_BOOK_NOT_VERIFIED") {
+    return "The bookmaker did not verify every selection in the new slip. No booking code has been presented as successful."
   }
   if (error === "authentication_required") return "Sign in to use My Slip."
   if (error === "pro_required") return "An active Pro subscription is required."
   if (error === "slip_unavailable" || error === "slip_save_failed") return "Pitchline could not save your slip. Please try again."
-  if (error === "SPORTYBET_UNAVAILABLE" || error === "bookmaker_unavailable") return "SportyBet is temporarily unavailable. Your Pitchline slip is still saved."
+  if (error === "SPORTYBET_UNAVAILABLE" || error === "bookmaker_unavailable" || error === "MANAGED_BOOKMAKER_UNAVAILABLE") {
+    return "The bookmaker service is temporarily unavailable. Your Pitchline slip is still saved."
+  }
   return fallback
 }
 
@@ -59,6 +69,16 @@ export function SlipBuilder() {
   const [booking, setBooking] = useState<BookingResult | null>(null)
   const [stakeText, setStakeText] = useState("1000")
   const [copied, setCopied] = useState(false)
+  const [selectedBookmaker, setSelectedBookmaker] = useState("sportybet")
+  const [providerConfig, setProviderConfig] = useState<{
+    providers: { key: string; name: string; integration: "native" | "managed"; requiresApiKey: boolean }[]
+    manageBetCodesConfigured: boolean
+    managedCreditsPerCode: number
+    apiKeyUrl: string
+    docsUrl: string
+    manualOnly: { name: string; reason: string }[]
+  } | null>(null)
+  const [selectionsCopied, setSelectionsCopied] = useState(false)
 
   useEffect(() => {
     if (session.loading) return
@@ -93,13 +113,35 @@ export function SlipBuilder() {
     return () => controller.abort()
   }, [session.loading, session.user?.uid, isPro])
 
+  useEffect(() => {
+    if (session.loading || !isPro || !session.user?.uid) return
+    const controller = new AbortController()
+    fetch("/api/pro/slip/bookmakers", {
+      cache: "no-store",
+      credentials: "same-origin",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as typeof providerConfig & { error?: string }
+        if (!response.ok) throw new Error(payload.error ?? "bookmaker_list_unavailable")
+        if (!controller.signal.aborted && payload) setProviderConfig(payload)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [session.loading, session.user?.uid, isPro])
+
+  const selectedProvider = providerConfig?.providers.find((provider) => provider.key === selectedBookmaker)
+  const providerNeedsKey = selectedProvider?.integration === "managed" && !providerConfig?.manageBetCodesConfigured
+
   const currentOdds = useMemo(
     () => new Map((booking?.legs ?? []).map((leg) => [leg.key, leg.odds])),
     [booking],
   )
   const stake = Number(stakeText)
   const validStake = Number.isFinite(stake) && stake >= 10 && stake <= 100_000_000
-  const potentialReturn = booking && validStake ? stake * booking.combinedOdds : null
+  const potentialReturn = booking && booking.combinedOdds !== null && validStake
+    ? stake * booking.combinedOdds
+    : null
 
   async function save(next: SlipLeg[]) {
     const previous = legs
@@ -140,11 +182,19 @@ export function SlipBuilder() {
     setBooking(null)
     setCopied(false)
     try {
-      const response = await fetch("/api/pro/slip/sportybet", {
-        method: "POST",
-        cache: "no-store",
-        credentials: "same-origin",
-      })
+      const nativeProvider = selectedBookmaker === "sportybet"
+      const response = await fetch(
+        nativeProvider ? "/api/pro/slip/sportybet" : "/api/pro/slip/bookmaker",
+        {
+          method: "POST",
+          ...(nativeProvider ? {} : {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ bookmaker: selectedBookmaker }),
+          }),
+          cache: "no-store",
+          credentials: "same-origin",
+        },
+      )
       const payload = await response.json().catch(() => ({})) as BookingResult & {
         error?: string
         message?: string
@@ -154,12 +204,12 @@ export function SlipBuilder() {
         setDetails(Array.isArray(payload.details) ? payload.details : [])
         throw new Error(payload.error ?? payload.message ?? "bookmaker_unavailable")
       }
-      if (!payload.shareCode || !payload.combinedOdds || !Array.isArray(payload.legs)) {
+      if (!payload.shareCode || !Array.isArray(payload.legs) || typeof payload.combinedOdds !== "number") {
         throw new Error("bookmaker_unavailable")
       }
       setBooking(payload)
     } catch (cause) {
-      setError(messageFor(cause instanceof Error ? cause.message : "", "Pitchline could not generate a SportyBet code. Your slip remains saved."))
+      setError(messageFor(cause instanceof Error ? cause.message : "", "Pitchline could not generate the bookmaker code. Your slip remains saved."))
     } finally {
       setCreating(false)
     }
@@ -175,6 +225,21 @@ export function SlipBuilder() {
     }
   }
 
+  async function copySelections() {
+    if (!legs.length) return
+    const text = legs.map((leg, index) =>
+      (index + 1) + ". " + leg.homeTeam + " vs " + leg.awayTeam + "\n" +
+      leg.competitionName + " · " + leg.when + "\n" +
+      leg.label + " · Pitchline confidence " + (leg.probability * 100).toFixed(1) + "%"
+    ).join("\n\n")
+    try {
+      await navigator.clipboard.writeText("Pitchline selections\n\n" + text)
+      setSelectionsCopied(true)
+    } catch {
+      setError("Clipboard access is unavailable. Please copy the selections manually.")
+    }
+  }
+
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-4 pt-4 pb-16 sm:px-6">
       <SiteHeader />
@@ -183,7 +248,7 @@ export function SlipBuilder() {
           <div>
             <p className="text-xs font-semibold tracking-wide text-muted uppercase">Pro workspace</p>
             <h1 className="mt-1 font-display text-3xl tracking-tight">My Slip</h1>
-            <p className="mt-1 text-sm text-muted">Your selected Best Picks, ready to transfer to SportyBet.</p>
+            <p className="mt-1 text-sm text-muted">Your selected Best Picks, ready to transfer to a bookmaker.</p>
           </div>
           <Link href="/picks" className="press inline-flex h-11 items-center rounded-lg border border-border px-3 text-sm font-medium">
             Back to Best Picks
@@ -217,7 +282,7 @@ export function SlipBuilder() {
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="font-display text-xl">Accumulator</h2>
-                  <p className="mt-1 text-xs text-muted">{legs.length} of 12 selections · one selection per match</p>
+                  <p className="mt-1 text-xs text-muted">{legs.length} of 50 selections · one selection per match</p>
                 </div>
                 {legs.length ? (
                   <button
@@ -251,7 +316,7 @@ export function SlipBuilder() {
                             <p className="mt-1 text-xs text-muted">{leg.competitionName} · {leg.when}</p>
                             <p className="mt-2 text-sm">{leg.label}</p>
                             <p className="mt-1 text-xs text-muted tabular-nums">Pitchline confidence {(leg.probability * 100).toFixed(1)}% · fair price {((1 / leg.probability)).toFixed(2)}</p>
-                            {odds ? <p className="mt-1 text-xs font-medium tabular-nums">SportyBet price: {odds.toFixed(2)}</p> : null}
+                            {odds ? <p className="mt-1 text-xs font-medium tabular-nums">{booking?.bookmakerName ?? "Bookmaker"} price: {odds.toFixed(2)}</p> : null}
                           </div>
                           <button
                             type="button"
@@ -281,24 +346,52 @@ export function SlipBuilder() {
               <section className="panel mb-4">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h2 className="font-display text-xl">SportyBet booking code</h2>
-                    <p className="mt-1 text-xs text-muted">Pitchline checks every match and market against SportyBet before requesting a code.</p>
+                    <h2 className="font-display text-xl">Booking code</h2>
+                    <p className="mt-1 text-xs text-muted">Pitchline checks every match and market before requesting a code.</p>
                   </div>
                   <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium">Nigeria</span>
                 </div>
+                <label htmlFor="slip-bookmaker" className="mb-3 block text-sm font-medium">
+                  Bookmaker
+                  <select
+                    id="slip-bookmaker"
+                    value={selectedBookmaker}
+                    onChange={(event) => {
+                      setSelectedBookmaker(event.target.value)
+                      setBooking(null)
+                      setError(null)
+                      setCopied(false)
+                    }}
+                    className="mt-2 h-11 w-full rounded-lg border border-border bg-card px-3 text-base"
+                  >
+                    {(providerConfig?.providers ?? [
+                      { key: "sportybet", name: "SportyBet", integration: "native" as const, requiresApiKey: false },
+                    ]).map((provider) => (
+                      <option key={provider.key} value={provider.key}>{provider.name}</option>
+                    ))}
+                  </select>
+                </label>
+                {providerNeedsKey ? (
+                  <p className="mb-3 rounded-lg bg-sunken p-3 text-xs text-muted">
+                    This bookmaker uses Manage Bet Codes, a third-party service. Add MANAGE_BET_CODES_API_KEY to Pitchline&apos;s Vercel Production environment before generating. Each successful code costs {providerConfig?.managedCreditsPerCode ?? 2} API credits.{" "}
+                    <a href={providerConfig?.apiKeyUrl ?? "https://managebetcodes.app/dashboard/api"} target="_blank" rel="noreferrer" className="underline">Get API key</a>
+                    {" · "}
+                    <a href={providerConfig?.docsUrl ?? "https://managebetcodes.app/docs"} target="_blank" rel="noreferrer" className="underline">API details</a>
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   className="press inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"
                   onClick={() => void generateCode()}
-                  disabled={saving || creating || legs.length === 0}
+                  disabled={saving || creating || legs.length === 0 || (!providerConfig && selectedBookmaker !== "sportybet") || Boolean(providerNeedsKey)}
                 >
                   {creating ? <LoaderCircle className="size-4 animate-spin" /> : null}
-                  {creating ? "Checking markets and generating…" : "Generate SportyBet code"}
+                  {creating ? "Checking markets and generating…" : "Generate " + (selectedProvider?.name ?? "SportyBet") + " code"}
                 </button>
 
                 {booking ? (
                   <div className="mt-4 rounded-xl border border-border bg-background p-4">
-                    <p className="text-xs font-semibold tracking-wide text-muted uppercase">Booking code created</p>
+                    <p className="text-xs font-semibold tracking-wide text-muted uppercase">{booking.bookmakerName ?? selectedProvider?.name ?? "Booking"} code created</p>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                       <p className="font-display text-3xl tracking-widest tabular-nums">{booking.shareCode}</p>
                       <button
@@ -313,7 +406,7 @@ export function SlipBuilder() {
                     <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-3">
                       <div>
                         <p className="text-xs text-muted">Combined odds</p>
-                        <p className="mt-1 font-display text-2xl tabular-nums">{booking.combinedOdds.toFixed(2)}</p>
+                        <p className="mt-1 font-display text-2xl tabular-nums">{booking.combinedOdds === null ? "—" : booking.combinedOdds.toFixed(2)}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted">Potential return</p>
@@ -340,18 +433,45 @@ export function SlipBuilder() {
                       rel="noreferrer"
                       className="press mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-border px-4 text-sm font-medium"
                     >
-                      Open SportyBet <ExternalLink className="size-4" />
+                      Open {booking.bookmakerName ?? selectedProvider?.name ?? "bookmaker"} <ExternalLink className="size-4" />
                     </a>
-                    <p className="mt-3 text-xs text-muted">The code only transfers a reserved slip. It does not place a bet. Confirm the live odds and stake on SportyBet.</p>
+                    {booking.creditsCharged ? <p className="mt-3 text-xs text-muted">Third-party API credits used: {booking.creditsCharged}</p> : null}
+                    <p className="mt-3 text-xs text-muted">The code only transfers a reserved slip. It does not place a bet. Load it at the bookmaker and confirm all selections, current odds and stake before placing.</p>
                   </div>
                 ) : null}
+              </section>
+            ) : null}
+            {legs.length ? (
+              <section className="panel mb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold">Other bookmakers</h2>
+                    <p className="mt-1 text-xs text-muted">Automatic booking codes are not currently verified for Betway, BetPawa, SportPesa, BC.Game or Hollywoodbets. Copy the picks to rebuild manually.</p>
+                    {providerConfig?.manualOnly?.length ? (
+                      <ul className="mt-2 space-y-1 text-xs text-muted">
+                        {providerConfig.manualOnly.map((item) => (
+                          <li key={item.name}><span className="font-medium">{item.name}:</span> {item.reason}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className="press inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-border px-3 text-xs font-medium"
+                    onClick={() => void copySelections()}
+                    disabled={saving || creating}
+                  >
+                    {selectionsCopied ? <Check className="size-3.5" /> : <ClipboardCopy className="size-3.5" />}
+                    {selectionsCopied ? "Copied" : "Copy selections"}
+                  </button>
+                </div>
               </section>
             ) : null}
           </>
         )}
 
         <p className="mt-5 text-xs text-muted">
-          SportyBet integration uses its website interface, not an official public developer API. Bookmaker markets can change or become unavailable; Pitchline will not silently replace a selection.
+          SportyBet uses its regional website interface, not an official public developer API. Other code targets use the optional Manage Bet Codes API and cost two credits per generated code. Bookmaker markets can change or become unavailable; Pitchline will not silently replace a selection.
         </p>
       </div>
     </main>

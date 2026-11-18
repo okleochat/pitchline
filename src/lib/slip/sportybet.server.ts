@@ -162,8 +162,8 @@ export type SportyBetBookingResult = {
 
 /** Creates a shareable slip reservation only. The endpoint never places or stakes a wager. */
 export async function createSportyBetBooking(legs: SlipLeg[]): Promise<SportyBetBookingResult> {
-  if (!legs.length || legs.length > 12) {
-    throw new SportyBetBookingError("INVALID_SLIP", "Add between one and twelve selections first.", 400)
+  if (!legs.length || legs.length > 50) {
+    throw new SportyBetBookingError("INVALID_SLIP", "Add between one and fifty selections first.", 400)
   }
 
   const events = await upcomingEvents()

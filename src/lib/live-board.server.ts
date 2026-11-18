@@ -4,7 +4,7 @@ import { getEspnJson } from "@/lib/espn/transport.server"
 import { getUpcomingInternationalFixtures, type InternationalFixture } from "@/lib/international/fixtures.server"
 import { INTERNATIONAL_COMPETITIONS } from "@/lib/international/competitions"
 import { estimateHomeAdvantage } from "@/lib/home-advantage"
-import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
+import { getFirebaseAdminFirestore, hasFirebaseAdminCredentials } from "@/lib/firebase/admin"
 
 const TTL_MS = 15 * 60 * 1000
 const BOARD_MEMORY_CACHE_MS = 60 * 1000
@@ -823,6 +823,7 @@ function storedBoard(value: unknown): Board | null {
 }
 
 async function readStoredBoard(): Promise<Board | null> {
+  if (!hasFirebaseAdminCredentials()) return null
   const snapshot = await getFirebaseAdminFirestore()
     .collection("pitchlineData")
     .doc("liveBoard")
@@ -836,6 +837,9 @@ async function readStoredBoard(): Promise<Board | null> {
 
 /** Called only by the protected daily refresh job. */
 export async function refreshLiveBoard(): Promise<Board> {
+  if (!hasFirebaseAdminCredentials()) {
+    throw new Error("Firebase Admin credentials are not available to the Production runtime.")
+  }
   const board = await buildBoard()
   const domesticLeagues = LEAGUES.filter((league) => league.id !== "int")
   const liveLeagueCount = domesticLeagues.filter(

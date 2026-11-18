@@ -104,7 +104,9 @@ export function readProPickCache(
     memoryCache.set(key, parsed)
     return parsed
   } catch {
-    try { storage.removeItem(key) } catch {}
+    try { storage.removeItem(key) } catch {
+      // Browser storage cleanup is best-effort.
+    }
     return null
   }
 }

@@ -229,12 +229,6 @@ function mapEvent(value: unknown, source: CompetitionSource): InternationalFixtu
   }
 }
 
-async function fetchCompetition(date: string, source: CompetitionSource) {
-  const compactDate = date.replaceAll("-", "")
-  const url = ESPN_SCOREBOARD + "/" + source.slug + "/scoreboard?dates=" + compactDate
-  return getEspnJson(url)
-}
-
 /** Load senior international tournament and qualifier fixtures from ESPN. */
 export async function getInternationalFixtures(date: string): Promise<InternationalFixtureResponse> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date + "T00:00:00Z"))) {

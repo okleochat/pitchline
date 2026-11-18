@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { simulatePro, type ProTeam } from "./pro-sim.ts"
-import { runProEngine } from "./pro-engine.ts"
+import { hasEligibleProPickSquadData, runProEngine } from "./pro-engine.ts"
 import type { ProPlayerData, ProTeamSquad } from "./pro-player-data.ts"
 
 const home: ProTeam = {
@@ -60,4 +60,46 @@ test("Best Picks still returns a Pro result when squad ratings are unavailable, 
   const direct = simulatePro(home, away, 1.1, 0)
   assert.deepEqual(shared.probabilities, direct.probabilities)
   assert.equal(shared.details.playerAdjustmentsApplied, false)
+})
+
+
+function squadAtCoverage(teamName: string, squadCount: number, ratedPlayerCount: number): ProTeamSquad {
+  const base = squad(teamName)
+  const coverage = squadCount > 0 ? ratedPlayerCount / squadCount : 0
+  const applied = squadCount >= 12 && ratedPlayerCount >= 12 && coverage >= 0.6
+  return {
+    ...base,
+    squadCount,
+    ratedPlayerCount,
+    factors: {
+      ...base.factors,
+      squadCount,
+      ratedPlayers: ratedPlayerCount,
+      coverage,
+      applied,
+    },
+  }
+}
+
+test("Pro Best Picks accepts a fixture when both squads meet the 60% and 12-player thresholds", () => {
+  const data = playerData(squadAtCoverage("Barcelona", 24, 16), squadAtCoverage("Villarreal", 25, 15))
+  assert.equal(hasEligibleProPickSquadData(data), true)
+})
+
+test("Pro Best Picks rejects a fixture when either team is below 60% coverage", () => {
+  const homePasses = squadAtCoverage("Barcelona", 24, 16)
+  const awayFails = squadAtCoverage("Villarreal", 24, 14)
+  assert.equal(hasEligibleProPickSquadData(playerData(homePasses, awayFails)), false)
+  assert.equal(hasEligibleProPickSquadData(playerData(awayFails, homePasses)), false)
+})
+
+test("Pro Best Picks rejects a squad with fewer than 12 rated players even when its ratio is above 60%", () => {
+  const homePasses = squadAtCoverage("Barcelona", 24, 16)
+  const awayHasTooFewPlayers = squadAtCoverage("Villarreal", 11, 10)
+  assert.equal(hasEligibleProPickSquadData(playerData(homePasses, awayHasTooFewPlayers)), false)
+})
+
+test("Pro Best Picks rejects missing squad profiles", () => {
+  assert.equal(hasEligibleProPickSquadData(playerData(squad("Barcelona"), null)), false)
+  assert.equal(hasEligibleProPickSquadData(playerData(null, squad("Villarreal"))), false)
 })

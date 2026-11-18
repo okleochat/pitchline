@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { requireProUser } from "@/lib/firebase/server-session"
 import { type ProTeam } from "@/lib/pro-sim"
-import { runProEngine } from "@/lib/pro-engine"
+import { hasEligibleProPickSquadData, runProEngine } from "@/lib/pro-engine"
 import { getProPlayerData } from "@/lib/providers/ea-fc-ratings.server"
 import type { LeagueId } from "@/data/football"
 
@@ -71,9 +71,9 @@ type ProPickSimulationResult =
   | {
       fixtureId: string
       probabilities: ReturnType<typeof runProEngine>["probabilities"]
-      retryable?: true
     }
   | { fixtureId: string; retryable: true }
+  | { fixtureId: string; excluded: true }
 
 async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulationResult> {
   const playerData = await getProPlayerData({
@@ -87,9 +87,17 @@ async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulatio
     },
   })
 
-  // Match Desk and Best Picks always use the same Pro simulation path.
-  // Squad-provider failures remain visible as Pro results and are retryable.
+  // Temporary ESPN/Firestore failures are retried and never shown as picks.
   const retryable = playerData.status === "provider_error" || playerData.status === "roster_unavailable"
+  if (retryable) return { fixtureId: fixture.fixtureId, retryable: true }
+
+  // Best Picks is intentionally stricter than the interactive Match Desk:
+  // neither side may appear unless both independently clear the full squad
+  // data gate (minimum 12 rated players and at least 60% roster coverage).
+  if (!hasEligibleProPickSquadData(playerData)) {
+    return { fixtureId: fixture.fixtureId, excluded: true }
+  }
+
   const report = runProEngine({
     home: fixture.home,
     away: fixture.away,
@@ -97,11 +105,7 @@ async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulatio
     roll: 0,
     playerData,
   })
-  return {
-    fixtureId: fixture.fixtureId,
-    probabilities: report.probabilities,
-    ...(retryable ? { retryable: true as const } : {}),
-  }
+  return { fixtureId: fixture.fixtureId, probabilities: report.probabilities }
 }
 
 async function simulateFixturesBounded(

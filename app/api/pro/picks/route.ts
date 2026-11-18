@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { requireProUser } from "@/lib/firebase/server-session"
 import { type ProTeam } from "@/lib/pro-sim"
 import { runProEngine } from "@/lib/pro-engine"
+import { hasEligibleProPickSquadData } from "@/lib/pro-pick-eligibility"
 import { getProPlayerData } from "@/lib/providers/ea-fc-ratings.server"
 import type { LeagueId } from "@/data/football"
 
@@ -71,8 +72,8 @@ type ProPickSimulationResult =
   | {
       fixtureId: string
       probabilities: ReturnType<typeof runProEngine>["probabilities"]
-      retryable?: true
     }
+  | { fixtureId: string; excluded: true; exclusionReason: "squad_coverage" }
   | { fixtureId: string; retryable: true }
 
 async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulationResult> {
@@ -87,9 +88,22 @@ async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulatio
     },
   })
 
-  // Match Desk and Best Picks always use the same Pro simulation path.
-  // Squad-provider failures remain visible as Pro results and are retryable.
+  // Transient ESPN failures are retried by the client; never turn them into
+  // neutral-baseline Pro picks or cache them as valid recommendations.
   const retryable = playerData.status === "provider_error" || playerData.status === "roster_unavailable"
+  if (retryable) return { fixtureId: fixture.fixtureId, retryable: true }
+
+  // Pro Best Picks require both teams to meet the same rated-squad threshold
+  // used by the player-adjustment model. The Match Desk keeps its neutral
+  // fallback, but partial or missing squad data is not a Best Pick.
+  if (!hasEligibleProPickSquadData(playerData)) {
+    return {
+      fixtureId: fixture.fixtureId,
+      excluded: true,
+      exclusionReason: "squad_coverage",
+    }
+  }
+
   const report = runProEngine({
     home: fixture.home,
     away: fixture.away,
@@ -100,7 +114,6 @@ async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulatio
   return {
     fixtureId: fixture.fixtureId,
     probabilities: report.probabilities,
-    ...(retryable ? { retryable: true as const } : {}),
   }
 }
 

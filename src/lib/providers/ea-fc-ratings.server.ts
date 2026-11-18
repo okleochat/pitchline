@@ -702,6 +702,128 @@ async function getTeamSquadSnapshot(
   // persisted and returned immediately on subsequent visits.
   return refresh()
 }
+/**
+ * Precompute final ESPN roster + EA FC profiles during the daily refresh so
+ * normal Match Desk requests only read a prepared team document. No roster
+ * matching or player-shard aggregation is needed in the user's request path.
+ */
+export async function precomputeProTeamSquadProfiles(
+  teams: PlayerTeamContext[],
+): Promise<{
+  total: number
+  prepared: number
+  alreadyCurrent: number
+  failed: number
+  skipped: number
+}> {
+  const collectionName = await activeEaShardCollection()
+  const unique = new Map<string, PlayerTeamContext>()
+  for (const team of teams) {
+    const slug = leagueSlug(team)
+    if (!team.espnId || !/^\d{1,12}$/.test(team.espnId) || !slug) continue
+    unique.set(slug + ":" + team.espnId, team)
+  }
+
+  const queue = [...unique.values()]
+  const stats = {
+    total: queue.length,
+    prepared: 0,
+    alreadyCurrent: 0,
+    failed: 0,
+    skipped: teams.length - queue.length,
+  }
+  let cursor = 0
+
+  const worker = async () => {
+    while (true) {
+      const index = cursor++
+      if (index >= queue.length) return
+      const team = queue[index]
+      const slug = leagueSlug(team)
+      const espnId = team.espnId
+      if (!slug || !espnId) {
+        stats.skipped += 1
+        continue
+      }
+
+      const cacheKey = "espn-ea-squad:v2:" + slug + ":" + espnId
+      const documentId = cacheKey.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 900)
+      const reference = getFirebaseAdminFirestore().collection("provider_api_cache").doc(documentId)
+
+      try {
+        const pending = squadSnapshotInFlight.get(cacheKey)
+        if (pending) {
+          const pendingSquad = await pending
+          if (pendingSquad) {
+            stats.alreadyCurrent += 1
+            continue
+          }
+        }
+
+        const storedSnapshot = await reference.get()
+        const stored = record(storedSnapshot.data())
+        const savedAt = typeof stored?.savedAt === "number" ? stored.savedAt : 0
+        const expiresAt = typeof stored?.expiresAt === "number" ? stored.expiresAt : 0
+        if (
+          stored?.cacheKey === cacheKey &&
+          stored.snapshotCollection === collectionName &&
+          expiresAt > Date.now() &&
+          validProTeamSquadSnapshot(stored.value)
+        ) {
+          squadSnapshotCache.set(cacheKey, {
+            value: stored.value,
+            savedAt,
+            expiresAt,
+            snapshotCollection: collectionName,
+          })
+          stats.alreadyCurrent += 1
+          continue
+        }
+
+        const task = (async () => {
+          const roster = await currentRoster(slug, espnId)
+          if (!roster?.length) return null
+
+          const eaMatches = await findEaMatches(roster)
+          const squad = buildSquad(team, roster, eaMatches.matches, eaMatches.syncedAt)
+          const preparedAt = Date.now()
+          const nextExpiry = preparedAt + SQUAD_SNAPSHOT_CACHE_MS
+          const entry: SquadSnapshotCacheEntry = {
+            value: squad,
+            savedAt: preparedAt,
+            expiresAt: nextExpiry,
+            snapshotCollection: collectionName,
+          }
+
+          squadSnapshotCache.set(cacheKey, entry)
+          await reference.set({
+            cacheKey,
+            value: squad,
+            snapshotCollection: collectionName,
+            savedAt: preparedAt,
+            expiresAt: nextExpiry,
+          })
+          return squad
+        })().finally(() => squadSnapshotInFlight.delete(cacheKey))
+
+        squadSnapshotInFlight.set(cacheKey, task)
+        const prepared = await task
+        if (prepared) stats.prepared += 1
+        else stats.failed += 1
+      } catch (error) {
+        stats.failed += 1
+        console.warn("[Pitchline EA FC] Scheduled team profile preparation failed", {
+          team: team.name,
+          message: error instanceof Error ? error.message : "unknown error",
+        })
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(16, queue.length) }, () => worker()))
+  return stats
+}
+
 function buildSquad(
   team: PlayerTeamContext,
   roster: unknown[],

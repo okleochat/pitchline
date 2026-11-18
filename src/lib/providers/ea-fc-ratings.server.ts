@@ -343,6 +343,114 @@ async function loadEaShard(shardId: string): Promise<EaShardDocument | null> {
   return task
 }
 
+/**
+ * Read the required EA name shards in Firestore batches. A normal club roster
+ * can reference hundreds of name shards; issuing one document.get() per shard
+ * creates unnecessary latency and connection fan-out on Team Insights.
+ */
+async function loadEaShards(shardIds: string[]): Promise<Array<EaShardDocument | null>> {
+  if (!shardIds.length) return []
+  const collectionName = await activeEaShardCollection()
+  const pendingById = new Map<string, Promise<EaShardDocument | null>>()
+  const immediateById = new Map<string, EaShardDocument | null>()
+  const missing: string[] = []
+
+  for (const shardId of shardIds) {
+    const cacheKey = collectionName + ":" + shardId
+    const cachedShard = eaShardCache.get(cacheKey)
+    if (cachedShard && cachedShard.expiresAt > Date.now()) {
+      immediateById.set(shardId, cachedShard.value as EaShardDocument | null)
+      continue
+    }
+    if (cachedShard) eaShardCache.delete(cacheKey)
+    const pending = eaShardInFlight.get(cacheKey)
+    if (pending) {
+      pendingById.set(shardId, pending)
+    } else {
+      missing.push(shardId)
+    }
+  }
+
+  if (missing.length) {
+    const firestore = await getFirebaseAdminFirestore()
+    const resolvers = new Map<string, (value: EaShardDocument | null) => void>()
+    const resolved = new Set<string>()
+
+    for (const shardId of missing) {
+      const cacheKey = collectionName + ":" + shardId
+      let resolvePending!: (value: EaShardDocument | null) => void
+      const pending = new Promise<EaShardDocument | null>((resolve) => {
+        resolvePending = resolve
+      })
+      resolvers.set(shardId, resolvePending)
+      pendingById.set(shardId, pending)
+      eaShardInFlight.set(cacheKey, pending)
+    }
+
+    const cacheSnapshot = (shardId: string, snapshot: {
+      exists: boolean
+      data(): unknown
+    }) => {
+      const cacheKey = collectionName + ":" + shardId
+      let value: EaShardDocument | null = null
+      let expiresAt = Date.now() + EMPTY_CACHE_MS
+      if (snapshot.exists) {
+        const document = record(snapshot.data())
+        if (document?.database === "EA SPORTS FC 27" && Array.isArray(document.players)) {
+          value = {
+            database: "EA SPORTS FC 27",
+            syncedAt: stringValue(document.syncedAt) ?? undefined,
+            players: document.players,
+          }
+          expiresAt = Date.now() + EA_SHARD_CACHE_MS
+        }
+      }
+      eaShardCache.set(cacheKey, { value, expiresAt })
+      resolved.add(shardId)
+      resolvers.get(shardId)?.(value)
+    }
+
+    try {
+      // Firestore getAll is much faster than opening a separate RPC for every
+      // player-name shard. Keep batches bounded for predictable request size.
+      for (let offset = 0; offset < missing.length; offset += 100) {
+        const batchIds = missing.slice(offset, offset + 100)
+        const refs = batchIds.map((id) => firestore.collection(collectionName).doc(id))
+        const snapshots = await firestore.getAll(...refs)
+        snapshots.forEach((snapshot, index) => cacheSnapshot(batchIds[index], snapshot))
+      }
+    } catch (error) {
+      console.warn("[Pitchline EA FC] Batched player-shard read failed; falling back to document reads", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      })
+      await Promise.all(missing.filter((id) => !resolved.has(id)).map(async (id) => {
+        try {
+          const snapshot = await firestore.collection(collectionName).doc(id).get()
+          cacheSnapshot(id, snapshot)
+        } catch {
+          cacheSnapshot(id, { exists: false, data: () => null })
+        }
+      }))
+    } finally {
+      for (const shardId of missing) {
+        const cacheKey = collectionName + ":" + shardId
+        if (!resolved.has(shardId)) {
+          eaShardCache.set(cacheKey, { value: null, expiresAt: Date.now() + EMPTY_CACHE_MS })
+          resolvers.get(shardId)?.(null)
+        }
+        eaShardInFlight.delete(cacheKey)
+      }
+    }
+  }
+
+  return Promise.all(shardIds.map((shardId) => {
+    if (immediateById.has(shardId)) {
+      return Promise.resolve(immediateById.get(shardId) ?? null)
+    }
+    return pendingById.get(shardId) ?? Promise.resolve(null)
+  }))
+}
+
 async function findEaMatches(
   roster: unknown[],
 ): Promise<{ matches: Map<string, Dict>; syncedAt: string | null }> {
@@ -359,7 +467,7 @@ async function findEaMatches(
   const shardIds = [...new Set(namedRoster.flatMap((item) =>
     item.names.map(playerNameShardId),
   ).filter(Boolean))]
-  const shards = await Promise.all(shardIds.map(loadEaShard))
+  const shards = await loadEaShards(shardIds)
   const shardPlayers = shards.flatMap((shard) => shard?.players ?? [])
   const uniqueById = new Map<string, Dict>()
   for (const value of shardPlayers) {

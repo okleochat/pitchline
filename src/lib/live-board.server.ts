@@ -835,6 +835,39 @@ async function readStoredBoard(): Promise<Board | null> {
   return storedBoard(data?.board)
 }
 
+function liveBoardCoverage(board: Board) {
+  const domesticLeagues = LEAGUES.filter((league) => league.id !== "int")
+  const liveLeagueCount = domesticLeagues.filter(
+    (league) => board.leagueStatus[league.id]?.standings === "live",
+  ).length
+  const minimumLiveLeagues = Math.max(5, Math.ceil(domesticLeagues.length * 0.45))
+  const minimumTeams = Math.max(
+    80,
+    Math.floor(TEAMS.filter((team) => team.league !== "int").length * 0.45),
+  )
+  return {
+    domesticLeagueCount: domesticLeagues.length,
+    liveLeagueCount,
+    minimumLiveLeagues,
+    minimumTeams,
+    enough: board.source === "live" &&
+      liveLeagueCount >= minimumLiveLeagues &&
+      board.teams.length >= minimumTeams,
+  }
+}
+
+async function persistLiveBoard(board: Board): Promise<void> {
+  if (!hasFirebaseAdminCredentials()) return
+  await getFirebaseAdminFirestore()
+    .collection("pitchlineData")
+    .doc("liveBoard")
+    .set({
+      schemaVersion: 1,
+      savedAt: Date.now(),
+      board: JSON.parse(JSON.stringify(board)) as Board,
+    })
+}
+
 /**
  * Read the last persisted board without contacting ESPN. Best Picks uses this
  * on the server for its first render, falling back to the bundled snapshot.
@@ -857,27 +890,16 @@ export async function refreshLiveBoard(): Promise<Board> {
     throw new Error("Firebase Admin credentials are not available to the Production runtime.")
   }
   const board = await buildBoard()
-  const domesticLeagues = LEAGUES.filter((league) => league.id !== "int")
-  const liveLeagueCount = domesticLeagues.filter(
-    (league) => board.leagueStatus[league.id]?.standings === "live",
-  ).length
-  const minimumLiveLeagues = Math.max(5, Math.ceil(domesticLeagues.length * 0.45))
-  const minimumTeams = Math.max(
-    80,
-    Math.floor(TEAMS.filter((team) => team.league !== "int").length * 0.45),
-  )
+  const coverage = liveBoardCoverage(board)
 
   // Never replace a good database snapshot with an incomplete ESPN outage.
-  if (board.source !== "live" || liveLeagueCount < minimumLiveLeagues || board.teams.length < minimumTeams) {
+  if (!coverage.enough) {
     throw new Error(
-      `ESPN board refresh coverage too low (live leagues ${liveLeagueCount}/${domesticLeagues.length}; teams ${board.teams.length}/${minimumTeams}).`,
+      `ESPN board refresh coverage too low (live leagues ${coverage.liveLeagueCount}/${coverage.domesticLeagueCount}; teams ${board.teams.length}/${coverage.minimumTeams}).`,
     )
   }
 
-  await getFirebaseAdminFirestore()
-    .collection("pitchlineData")
-    .doc("liveBoard")
-    .set({ schemaVersion: 1, savedAt: Date.now(), board: JSON.parse(JSON.stringify(board)) as Board })
+  await persistLiveBoard(board)
 
   cache = { at: Date.now(), ttl: BOARD_MEMORY_CACHE_MS, board }
   return board
@@ -911,6 +933,18 @@ export function getLiveBoard(): Promise<Board> {
       try {
         const live = await buildBoard()
         if (live.source === "live") {
+          // Self-populate the durable board snapshot whenever the app successfully
+          // rebuilds a sufficiently complete live board. This keeps Best Picks
+          // on a current Firestore snapshot even if the scheduled cron missed a run.
+          if (liveBoardCoverage(live).enough && hasFirebaseAdminCredentials()) {
+            try {
+              await persistLiveBoard(live)
+            } catch (error) {
+              console.warn("[pitchline/board] Could not persist refreshed live board", {
+                message: error instanceof Error ? error.message : "unknown error",
+              })
+            }
+          }
           cache = { at: Date.now(), ttl: TTL_MS, board: live }
           return live
         }

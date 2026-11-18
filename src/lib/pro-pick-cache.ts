@@ -55,6 +55,7 @@ function validEntry(
   if (!entry.results || typeof entry.results !== "object" || Array.isArray(entry.results)) return false
 
   const resultEntries = Object.entries(entry.results)
+  if (resultEntries.length === 0) return false
   if (resultEntries.length + (entry.excludedCount ?? 0) !== expectedFixtureCount) return false
 
   return resultEntries.every(([fixtureId, probabilities]) => {
@@ -64,6 +65,14 @@ function validEntry(
       typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1,
     )
   })
+}
+
+export function clearProPickCache(
+  key: string,
+  storage: ProPickCacheStorage | null = browserStorage(),
+): void {
+  memoryCache.delete(key)
+  try { storage?.removeItem(key) } catch {}
 }
 
 export function readProPickCache(

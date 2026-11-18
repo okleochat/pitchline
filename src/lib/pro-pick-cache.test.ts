@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   PRO_PICK_CACHE_TTL_MS,
+  clearProPickCache,
   createProPickCacheKey,
   readProPickCache,
   writeProPickCache,
@@ -80,4 +81,32 @@ test("expired Pro pick results are discarded", () => {
     null,
   )
   assert.equal(storage.getItem(key), null)
+})
+
+ 
+test("empty Pro pick results can never be cached, even when all fixtures are excluded", () => {
+  const storage = new TestStorage()
+  const key = createProPickCacheKey("user-empty-result", fixtures)
+  writeProPickCache(key, {
+    savedAt: 1_000_000,
+    results: {},
+    excludedCount: fixtures.length,
+  }, fixtures.length, storage)
+  assert.equal(storage.getItem(key), null)
+  assert.equal(readProPickCache(key, fixtures.length, 1_000_001, storage), null)
+})
+
+test("manual Pro-pick recalculation invalidates memory and session caches", () => {
+  const storage = new TestStorage()
+  const key = createProPickCacheKey("user-clear-cache", fixtures)
+  const entry = {
+    savedAt: 1_000_000,
+    results: { "fixture-1": probabilities },
+    excludedCount: 0,
+  }
+  writeProPickCache(key, entry, fixtures.length, storage)
+  assert.ok(readProPickCache(key, fixtures.length, 1_000_001, storage))
+  clearProPickCache(key, storage)
+  assert.equal(storage.getItem(key), null)
+  assert.equal(readProPickCache(key, fixtures.length, 1_000_001, storage), null)
 })

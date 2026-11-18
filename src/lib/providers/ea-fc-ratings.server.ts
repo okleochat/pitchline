@@ -1,7 +1,7 @@
 import "server-only"
 
 import type { LeagueId } from "@/data/football"
-import { getEspnJson } from "@/lib/espn/transport.server"
+import { getEspnJsonQuick } from "@/lib/espn/transport.server"
 import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
 import { normalizeEspnRoster } from "@/lib/providers/espn-roster"
 import {
@@ -199,7 +199,7 @@ async function currentRoster(slug: string, teamId: string): Promise<unknown[] | 
     // Use ESPN's standard grouped-roster response without requesting an
     // unnecessarily high limit.
     const url = ESPN_SITE_BASE + "/" + slug + "/teams/" + teamId + "/roster"
-    const payload = await getEspnJson(url)
+    const payload = await getEspnJsonQuick(url)
     if (!payload) return null
 
     const players = normalizeEspnRoster(payload)

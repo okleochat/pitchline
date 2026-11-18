@@ -6,7 +6,7 @@ import type { MarketProbabilities } from "@/lib/sim"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000
 const PROBABILITY_FIELDS: (keyof MarketProbabilities)[] = [
   "home", "draw", "away", "btts", "homeClean", "awayClean",
   "over15", "under15", "over25", "under25", "over35",
@@ -82,6 +82,11 @@ export async function POST(request: NextRequest) {
       .collection("pitchlineCache")
       .doc("proBestPicks")
 
+    if (action === "delete") {
+      await ref.delete()
+      return response({ ok: true })
+    }
+
     if (action === "read") {
       const snapshot = await ref.get()
       const saved = record(snapshot.data())
@@ -96,7 +101,8 @@ export async function POST(request: NextRequest) {
         return response({ cache: null })
       }
       const results = saved.results as Record<string, MarketProbabilities>
-      if (Object.keys(results).length + (excludedCount as number) !== fixtureCount) {
+      if (Object.keys(results).length === 0 ||
+          Object.keys(results).length + (excludedCount as number) !== fixtureCount) {
         return response({ cache: null })
       }
       return response({ cache: { results, excludedCount } })
@@ -110,6 +116,9 @@ export async function POST(request: NextRequest) {
         return response({ error: "invalid_cache_payload" }, 400)
       }
       const resultCount = Object.keys(results).length
+      if (resultCount === 0) {
+        return response({ error: "empty_results_not_cacheable" }, 400)
+      }
       if (resultCount + (excludedCount as number) !== fixtureCount) {
         return response({ error: "incomplete_cache_payload" }, 400)
       }

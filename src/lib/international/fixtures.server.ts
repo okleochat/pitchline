@@ -3,7 +3,7 @@ import "server-only"
 import { getEspnJsonBatch } from "@/lib/espn/transport.server"
 import { INTERNATIONAL_COMPETITIONS, type CompetitionSource } from "./competitions"
 import { canReuseUpcomingCache, monthKeysInRange } from "./date-windows"
-import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
+import { getFirebaseAdminFirestore, hasFirebaseAdminCredentials } from "@/lib/firebase/admin"
 
 type Dict = Record<string, unknown>
 
@@ -66,6 +66,7 @@ function persistedDateTtl(date: string, today: string): number {
 }
 
 async function readPersistedDate(date: string, today: string): Promise<InternationalFixtureResponse | null> {
+  if (!hasFirebaseAdminCredentials()) return null
   try {
     const snapshot = await getFirebaseAdminFirestore()
       .collection("pitchlineInternationalDates")
@@ -85,6 +86,7 @@ async function writePersistedDate(
   today: string,
   response: InternationalFixtureResponse,
 ): Promise<void> {
+  if (!hasFirebaseAdminCredentials()) return
   try {
     await getFirebaseAdminFirestore()
       .collection("pitchlineInternationalDates")
@@ -96,6 +98,7 @@ async function writePersistedDate(
 }
 
 async function readPersistedUpcoming(): Promise<InternationalFixtureResponse | null> {
+  if (!hasFirebaseAdminCredentials()) return null
   if (persistedUpcomingMemory &&
       Date.now() - persistedUpcomingMemory.checkedAt < 60_000 &&
       Date.now() - persistedUpcomingMemory.savedAt <= PERSISTED_UPCOMING_TTL_MS) {
@@ -122,6 +125,7 @@ async function readPersistedUpcoming(): Promise<InternationalFixtureResponse | n
 }
 
 async function writePersistedUpcoming(response: InternationalFixtureResponse): Promise<void> {
+  if (!hasFirebaseAdminCredentials()) return
   const savedAt = Date.now()
   try {
     await getFirebaseAdminFirestore()

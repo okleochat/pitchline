@@ -1,5 +1,7 @@
 import "server-only"
 
+import { after } from "next/server"
+
 import type { LeagueId } from "@/data/football"
 import { getEspnJsonQuick } from "@/lib/espn/transport.server"
 import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
@@ -21,17 +23,19 @@ import type {
 
 type Dict = Record<string, unknown>
 type CacheEntry = { expiresAt: number; value: unknown }
+type SquadSnapshotCacheEntry = { value: ProTeamSquad; expiresAt: number; savedAt: number; snapshotCollection: string }
 
 const ESPN_SITE_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 const ROSTER_CACHE_MS = 12 * 60 * 60 * 1000
 const EA_SHARD_CACHE_MS = 12 * 60 * 60 * 1000
-const SQUAD_SNAPSHOT_CACHE_MS = 12 * 60 * 60 * 1000
+const SQUAD_SNAPSHOT_CACHE_MS = 24 * 60 * 60 * 1000
+const SQUAD_SNAPSHOT_MAX_STALE_MS = 72 * 60 * 60 * 1000
 const EMPTY_CACHE_MS = 15 * 60 * 1000
 const memoryCache = new Map<string, CacheEntry>()
 const inFlight = new Map<string, Promise<unknown>>()
 const eaShardCache = new Map<string, CacheEntry>()
 const eaShardInFlight = new Map<string, Promise<EaShardDocument | null>>()
-const squadSnapshotCache = new Map<string, CacheEntry>()
+const squadSnapshotCache = new Map<string, SquadSnapshotCacheEntry>()
 const squadSnapshotInFlight = new Map<string, Promise<ProTeamSquad | null>>()
 const EA_COLLECTION_CACHE_MS = 5 * 60 * 1000
 const LEGACY_EA_SHARD_COLLECTION = "ea_fc27_player_shards"
@@ -529,75 +533,175 @@ function validProTeamSquadSnapshot(value: unknown): value is ProTeamSquad {
 }
 
 /**
- * Persist the fully prepared ESPN + EA squad once per team and active EA
- * snapshot version. Later Match Desk and Best Picks requests reuse this final
- * Firestore team document instead of rebuilding it from hundreds of shards.
+ * Persist one prepared ESPN + EA squad per team. Reuse the last good profile
+ * immediately, then refresh it after the response when its cache has expired.
  */
 async function getTeamSquadSnapshot(
   team: PlayerTeamContext,
   slug: string,
-  collectionName: string,
 ): Promise<ProTeamSquad | null> {
   const espnId = team.espnId
   if (!espnId) return null
 
-  const cacheKey = "espn-ea-squad:v1:" + collectionName + ":" + slug + ":" + espnId
-  const inMemory = squadSnapshotCache.get(cacheKey)
-  if (inMemory && inMemory.expiresAt > Date.now() && validProTeamSquadSnapshot(inMemory.value)) {
-    return inMemory.value
-  }
-  if (inMemory) squadSnapshotCache.delete(cacheKey)
+  // Keep the prepared profile stable across EA collection rotations. A new
+  // EA sync should refresh a profile, not make the user's saved profile vanish.
+  const cacheKey = "espn-ea-squad:v2:" + slug + ":" + espnId
+  const documentId = cacheKey.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 900)
+  const reference = getFirebaseAdminFirestore().collection("provider_api_cache").doc(documentId)
 
-  const pending = squadSnapshotInFlight.get(cacheKey)
-  if (pending) return pending
+  const refresh = (): Promise<ProTeamSquad | null> => {
+    const pending = squadSnapshotInFlight.get(cacheKey)
+    if (pending) return pending
 
-  const task = (async () => {
-    const firestore = getFirebaseAdminFirestore()
-    const documentId = cacheKey.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 900)
-    const reference = firestore.collection("provider_api_cache").doc(documentId)
+    const task = (async () => {
+      const collectionName = await activeEaShardCollection()
+      const roster = await currentRoster(slug, espnId)
+      if (!roster?.length) return null
 
-    try {
-      const snapshot = await reference.get()
-      const saved = record(snapshot.data())
-      const expiresAt = typeof saved?.expiresAt === "number" ? saved.expiresAt : 0
-      if (
-        saved?.cacheKey === cacheKey &&
-        expiresAt > Date.now() &&
-        validProTeamSquadSnapshot(saved.value)
-      ) {
-        squadSnapshotCache.set(cacheKey, { value: saved.value, expiresAt })
-        return saved.value
+      const eaMatches = await findEaMatches(roster)
+      const squad = buildSquad(team, roster, eaMatches.matches, eaMatches.syncedAt)
+      const savedAt = Date.now()
+      const expiresAt = savedAt + SQUAD_SNAPSHOT_CACHE_MS
+      const entry: SquadSnapshotCacheEntry = {
+        value: squad,
+        savedAt,
+        expiresAt,
+        snapshotCollection: collectionName,
       }
-    } catch {
-      // Continue against the active EA ratings snapshot when cache is unavailable.
-    }
 
-    const roster = await currentRoster(slug, espnId)
-    if (!roster?.length) return null
+      squadSnapshotCache.set(cacheKey, entry)
+      if (squadSnapshotCache.size > 1200) {
+        const first = squadSnapshotCache.keys().next().value
+        if (first) squadSnapshotCache.delete(first)
+      }
 
-    const eaMatches = await findEaMatches(roster)
-    const squad = buildSquad(team, roster, eaMatches.matches, eaMatches.syncedAt)
-    const savedAt = Date.now()
-    const expiresAt = savedAt + SQUAD_SNAPSHOT_CACHE_MS
+      try {
+        await reference.set({
+          cacheKey,
+          value: squad,
+          snapshotCollection: collectionName,
+          savedAt,
+          expiresAt,
+        })
+      } catch {
+        // The current request can still use the prepared in-memory result.
+      }
+      return squad
+    })().finally(() => squadSnapshotInFlight.delete(cacheKey))
 
-    squadSnapshotCache.set(cacheKey, { value: squad, expiresAt })
-    if (squadSnapshotCache.size > 1200) {
-      const first = squadSnapshotCache.keys().next().value
-      if (first) squadSnapshotCache.delete(first)
-    }
+    squadSnapshotInFlight.set(cacheKey, task)
+    return task
+  }
 
+  const scheduleRefresh = () => {
     try {
-      await reference.set({ cacheKey, value: squad, savedAt, expiresAt })
+      // Return the last good profile to the user first. Next.js keeps this
+      // refresh alive after the response has been sent.
+      after(async () => {
+        try {
+          await refresh()
+        } catch (error) {
+          console.warn("[Pitchline EA FC] Background squad refresh failed", {
+            team: team.name,
+            message: error instanceof Error ? error.message : "unknown error",
+          })
+        }
+      })
     } catch {
-      // The current request can still use the prepared in-memory result.
+      // This fallback is mainly for non-request test/runtime contexts.
+      void refresh().catch((error: unknown) => {
+        console.warn("[Pitchline EA FC] Background squad refresh failed", {
+          team: team.name,
+          message: error instanceof Error ? error.message : "unknown error",
+        })
+      })
     }
-    return squad
-  })().finally(() => squadSnapshotInFlight.delete(cacheKey))
+  }
 
-  squadSnapshotInFlight.set(cacheKey, task)
-  return task
+  const now = Date.now()
+  const memoryEntry = squadSnapshotCache.get(cacheKey)
+  if (memoryEntry && validProTeamSquadSnapshot(memoryEntry.value)) {
+    if (memoryEntry.expiresAt > now) return memoryEntry.value
+    if (now - memoryEntry.savedAt <= SQUAD_SNAPSHOT_MAX_STALE_MS) {
+      scheduleRefresh()
+      return memoryEntry.value
+    }
+    squadSnapshotCache.delete(cacheKey)
+  } else if (memoryEntry) {
+    squadSnapshotCache.delete(cacheKey)
+  }
+
+  try {
+    const snapshot = await reference.get()
+    const saved = record(snapshot.data())
+    const expiresAt = typeof saved?.expiresAt === "number" ? saved.expiresAt : 0
+    const savedAt = typeof saved?.savedAt === "number"
+      ? saved.savedAt
+      : expiresAt - SQUAD_SNAPSHOT_CACHE_MS
+    const snapshotCollection = stringValue(saved?.snapshotCollection) ?? ""
+    if (
+      saved?.cacheKey === cacheKey &&
+      validProTeamSquadSnapshot(saved.value) &&
+      savedAt > 0 &&
+      now - savedAt <= SQUAD_SNAPSHOT_MAX_STALE_MS
+    ) {
+      const entry: SquadSnapshotCacheEntry = {
+        value: saved.value,
+        savedAt,
+        expiresAt,
+        snapshotCollection,
+      }
+      squadSnapshotCache.set(cacheKey, entry)
+      if (expiresAt > now) return entry.value
+      scheduleRefresh()
+      return entry.value
+    }
+  } catch {
+    // If the shared cache is unavailable, prepare from the active EA snapshot.
+  }
+
+  // Migrate profiles created by the previous collection-versioned cache. This
+  // avoids forcing every returning user through another first-time preparation
+  // immediately after this deployment.
+  try {
+    const collectionName = await activeEaShardCollection()
+    const legacyCacheKey = "espn-ea-squad:v1:" + collectionName + ":" + slug + ":" + espnId
+    const legacyDocumentId = legacyCacheKey.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 900)
+    const legacySnapshot = await getFirebaseAdminFirestore()
+      .collection("provider_api_cache")
+      .doc(legacyDocumentId)
+      .get()
+    const legacy = record(legacySnapshot.data())
+    if (legacy?.cacheKey === legacyCacheKey && validProTeamSquadSnapshot(legacy.value)) {
+      const savedAt = typeof legacy.savedAt === "number" ? legacy.savedAt : now
+      if (now - savedAt <= SQUAD_SNAPSHOT_MAX_STALE_MS) {
+        const expiresAt = now + SQUAD_SNAPSHOT_CACHE_MS
+        const entry: SquadSnapshotCacheEntry = {
+          value: legacy.value,
+          savedAt: now,
+          expiresAt,
+          snapshotCollection: collectionName,
+        }
+        squadSnapshotCache.set(cacheKey, entry)
+        await reference.set({
+          cacheKey,
+          value: entry.value,
+          snapshotCollection: collectionName,
+          savedAt: entry.savedAt,
+          expiresAt,
+        })
+        return entry.value
+      }
+    }
+  } catch {
+    // The legacy cache is optional; continue with a fresh profile if unavailable.
+  }
+
+  // A first-ever profile still needs one preparation pass. The Match Desk
+  // displays its Pro loading state during this request; the result is then
+  // persisted and returned immediately on subsequent visits.
+  return refresh()
 }
-
 function buildSquad(
   team: PlayerTeamContext,
   roster: unknown[],
@@ -702,10 +806,9 @@ export async function getProPlayerData(input: {
   }
 
   try {
-    const collectionName = await activeEaShardCollection()
     const [home, away] = await Promise.all([
-      getTeamSquadSnapshot(input.home, homeSlug, collectionName),
-      getTeamSquadSnapshot(input.away, awaySlug, collectionName),
+      getTeamSquadSnapshot(input.home, homeSlug),
+      getTeamSquadSnapshot(input.away, awaySlug),
     ])
     if (!home || !away) {
       const missing = [

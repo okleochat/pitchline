@@ -20,8 +20,9 @@ test("invalid ranges are rejected", () => {
   assert.throws(() => monthKeysInRange("yesterday", "2026-11-01"))
 })
 
-test("upcoming-only cache is not used for today's results", () => {
-  assert.equal(canReuseUpcomingCache("2026-11-16", "2026-11-16", "2026-11-30"), false)
+test("the month-batched cache can serve today and future dates but not past dates", () => {
+  assert.equal(canReuseUpcomingCache("2026-11-15", "2026-11-16", "2026-11-30"), false)
+  assert.equal(canReuseUpcomingCache("2026-11-16", "2026-11-16", "2026-11-30"), true)
   assert.equal(canReuseUpcomingCache("2026-11-17", "2026-11-16", "2026-11-30"), true)
   assert.equal(canReuseUpcomingCache("2026-12-01", "2026-11-16", "2026-11-30"), false)
 })

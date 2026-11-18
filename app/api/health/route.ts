@@ -31,4 +31,76 @@ export async function GET() {
   let eaFc27Snapshot: {
     available: boolean
     syncedAt: string | null
-    playerCoun¶»§q«^
+    playerCount: number | null
+    shardCount: number | null
+    ageMs: number | null
+  } = {
+    available: false,
+    syncedAt: null,
+    playerCount: null,
+    shardCount: null,
+    ageMs: null,
+  }
+
+  try {
+    const metadataSnapshot = await getFirebaseAdminFirestore()
+      .collection("ea_fc27_meta")
+      .doc("current")
+      .get()
+    const metadata = metadataSnapshot.data()
+    const activeCollection = typeof metadata?.activeCollection === "string"
+      ? metadata.activeCollection
+      : ""
+    if (metadataSnapshot.exists && /^ea_fc27_players_[a-zA-Z0-9_]+$/.test(activeCollection)) {
+      const sample = await getFirebaseAdminFirestore()
+        .collection(activeCollection)
+        .limit(1)
+        .get()
+      const syncedAt = typeof metadata?.syncedAt === "string" ? metadata.syncedAt : null
+      eaFc27Snapshot = {
+        available: !sample.empty,
+        syncedAt,
+        playerCount: typeof metadata?.playerCount === "number" ? metadata.playerCount : null,
+        shardCount: typeof metadata?.shardCount === "number" ? metadata.shardCount : null,
+        ageMs: syncedAt && Number.isFinite(Date.parse(syncedAt))
+          ? Math.max(0, Date.now() - Date.parse(syncedAt))
+          : null,
+      }
+    }
+  } catch {
+    // Health output reports the EA snapshot as unavailable without exposing credentials.
+  }
+
+  const health = board.source === "snapshot"
+    ? "degraded"
+    : snapshotFallbacks > 0 || !eaFc27Snapshot.available
+      ? "partial"
+      : "ok"
+
+  return NextResponse.json({
+    status: health,
+    checkedAt: new Date().toISOString(),
+    board: {
+      source: board.source,
+      updatedAt: board.updatedAt,
+      competitions: statuses.length,
+      liveStandings,
+      liveFixtures,
+      competitionsWithSnapshotFallbacks: snapshotFallbacks,
+      oldestFeedAgeMs: Math.max(0, Date.now() - oldestFeedTimestamp),
+    },
+    firebase: {
+      webConfigured: webFirebaseConfigured,
+      adminCredentialMode,
+      eaFc27Snapshot,
+      adminPermissionCheck: "not_performed",
+      subscriptionRecords: "server-managed",
+    },
+    footballProviders: {
+      sportsApiPro: providers,
+    },
+  }, {
+    status: health === "degraded" ? 503 : 200,
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  })
+}

@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
 import { SiteHeader } from "@/components/site-header"
 import { useFirebaseSession } from "@/components/auth/firebase-auth-provider"
-import { ArrowLeftRight, ChevronDown, LoaderCircle, Minus, Pause, Play, Plus, RotateCcw, Sparkles } from "lucide-react"
+import { ArrowLeftRight, Check, ChevronDown, LoaderCircle, Minus, Pause, Play, Plus, RotateCcw, Sparkles } from "lucide-react"
 import {
   LEAGUES,
   formRate,
@@ -41,6 +42,7 @@ import {
   type Report,
   type TapeEvent,
 } from "@/lib/sim"
+import { MAX_SLIP_LEGS, type SlipLeg } from "@/lib/slip/types"
 
 const STORAGE_KEY = "pitchline-desk"
 
@@ -690,6 +692,10 @@ export function Pitchline({
   const [proPickError, setProPickError] = useState<string | null>(null)
   const [proPickProgress, setProPickProgress] = useState({ done: 0, total: 0 })
   const [proPickThreshold, setProPickThreshold] = useState(80)
+  const [slipLegs, setSlipLegs] = useState<SlipLeg[]>([])
+  const [slipReady, setSlipReady] = useState(false)
+  const [slipSaving, setSlipSaving] = useState(false)
+  const [slipError, setSlipError] = useState<string | null>(null)
   const view = initialView
   const [pickKind, setPickKind] = useState<PickKind | "all">("all")
   const [pickLeague, setPickLeague] = useState<LeagueId | "all">("all")
@@ -704,6 +710,38 @@ export function Pitchline({
   const tapeRef = useRef<HTMLElement>(null)
   const runTimer = useRef<number | null>(null)
   const lastBoardPullAt = useRef(initial.source === "live" ? Date.now() : 0)
+
+  useEffect(() => {
+    if (view !== "picks" || session.loading) return
+    if (!isPro || !session.user?.uid) {
+      setSlipLegs([])
+      setSlipReady(true)
+      setSlipError(null)
+      return
+    }
+
+    const controller = new AbortController()
+    setSlipReady(false)
+    setSlipError(null)
+    fetch("/api/pro/slip", {
+      cache: "no-store",
+      credentials: "same-origin",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as { legs?: SlipLeg[]; error?: string }
+        if (!response.ok) throw new Error(payload.error ?? "slip_unavailable")
+        if (!controller.signal.aborted) setSlipLegs(Array.isArray(payload.legs) ? payload.legs : [])
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setSlipError(error instanceof Error ? error.message : "Could not load your saved slip.")
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSlipReady(true)
+      })
+    return () => controller.abort()
+  }, [view, session.loading, session.user?.uid, isPro])
 
   useEffect(() => {
     setBoard(initial)
@@ -1083,6 +1121,69 @@ export function Pitchline({
   const hotPicks = visiblePicks.filter((pick) => pick.share >= pickThreshold)
   const shownPicks = proPickMode ? hotPicks : hotPicks.length ? hotPicks : visiblePicks.slice(0, 5)
 
+  async function persistSlip(next: SlipLeg[]) {
+    const previous = slipLegs
+    setSlipLegs(next)
+    setSlipSaving(true)
+    setSlipError(null)
+    try {
+      const response = await fetch("/api/pro/slip", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ legs: next }),
+        cache: "no-store",
+        credentials: "same-origin",
+      })
+      const payload = await response.json().catch(() => ({})) as { error?: string; legs?: SlipLeg[] }
+      if (!response.ok) throw new Error(payload.error ?? "slip_save_failed")
+      if (Array.isArray(payload.legs)) setSlipLegs(payload.legs)
+    } catch (error) {
+      setSlipLegs(previous)
+      setSlipError(error instanceof Error ? error.message : "Your slip could not be saved.")
+    } finally {
+      setSlipSaving(false)
+    }
+  }
+
+  function toggleSlipPick(pick: MarketPick) {
+    if (!isPro || !slipReady || slipSaving) return
+    const key = pick.fixture.id + ":" + pick.label
+    const existing = slipLegs.find((leg) => leg.key === key)
+    if (existing) {
+      void persistSlip(slipLegs.filter((leg) => leg.key !== key))
+      return
+    }
+    if (slipLegs.length >= MAX_SLIP_LEGS) {
+      setSlipError("A slip can contain up to twelve selections.")
+      return
+    }
+    if (!pick.fixture.kickoffAt || !Number.isFinite(Date.parse(pick.fixture.kickoffAt))) {
+      setSlipError("This fixture does not have a verified kickoff time and cannot be added.")
+      return
+    }
+    if (slipLegs.some((leg) => leg.fixtureId === pick.fixture.id)) {
+      setSlipError("For now, add only one selection per match.")
+      return
+    }
+    const homeTeam = teamBy(pick.fixture.homeId)
+    const awayTeam = teamBy(pick.fixture.awayId)
+    if (!homeTeam || !awayTeam) return
+    const next: SlipLeg[] = [...slipLegs, {
+      key,
+      fixtureId: pick.fixture.id,
+      league: pick.fixture.league,
+      competitionName: pick.fixture.competitionName ?? leagueShort(pick.fixture.league),
+      kickoffAt: pick.fixture.kickoffAt,
+      when: pick.fixture.when,
+      homeTeam: homeTeam.name,
+      awayTeam: awayTeam.name,
+      label: pick.label,
+      kind: pick.kind,
+      probability: pick.share,
+    }]
+    void persistSlip(next)
+  }
+
   function toggleSort(next: SortKey) {
     if (sortKey === next) {
       setSortAsc((value) => !value)
@@ -1155,6 +1256,11 @@ export function Pitchline({
             <p className="text-sm text-muted tabular-nums">
               {hotPicks.length ? `${hotPicks.length} selected` : proPickMode ? `None at ${proPickThreshold}%+` : "No standout picks"}
             </p>
+            {isPro ? (
+              <Link href="/slip" className="press inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium">
+                My Slip <span className="rounded-full bg-sunken px-2 py-0.5 tabular-nums">{slipLegs.length}</span>
+              </Link>
+            ) : null}
           </div>
 
           <div className="panel mb-4">
@@ -1282,6 +1388,12 @@ export function Pitchline({
             </label>
           </div>
 
+          {isPro && !slipReady ? (
+            <p className="mb-3 text-xs text-muted" role="status">Loading your saved slip…</p>
+          ) : null}
+          {isPro && slipError ? (
+            <p className="mb-3 text-xs text-red-600" role="alert">{slipError}</p>
+          ) : null}
           {isPro && engineMode === "pro" && !proPickLoading && proPickExcludedCount > 0 ? (
             <p className="mb-3 text-xs text-muted" role="status">
               {proPickExcludedCount} fixtures were excluded because both teams did not meet the Pro squad-data requirements.
@@ -1311,11 +1423,11 @@ export function Pitchline({
                 const awayTeam = teamBy(pick.fixture.awayId)
                 if (!homeTeam || !awayTeam) return null
                 return (
+                  <article key={pick.key} className="flex items-stretch gap-2">
                   <button
-                    key={pick.key}
                     type="button"
                     onClick={() => openPick(pick)}
-                    className="press flex w-full items-center gap-3 rounded-3xl border border-border bg-card p-4 text-left"
+                    className="press flex min-w-0 flex-1 items-center gap-3 rounded-3xl border border-border bg-card p-4 text-left"
                   >
                     <span className="w-16 shrink-0">
                       <span className="block font-display text-2xl tabular-nums">{(pick.share * 100).toFixed(1)}%</span>
@@ -1331,6 +1443,19 @@ export function Pitchline({
                       </span>
                     </span>
                   </button>
+                  {isPro ? (
+                    <button
+                      type="button"
+                      aria-pressed={slipLegs.some((leg) => leg.key === pick.key)}
+                      onClick={() => toggleSlipPick(pick)}
+                      disabled={!slipReady || slipSaving || (!pick.fixture.kickoffAt && !slipLegs.some((leg) => leg.key === pick.key)) || (slipLegs.some((leg) => leg.fixtureId === pick.fixture.id && leg.key !== pick.key))}
+                      className={`press inline-flex w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl border px-2 text-xs font-medium disabled:opacity-40 ${slipLegs.some((leg) => leg.key === pick.key) ? "border-primary bg-sunken text-primary" : "border-border bg-card"}`}
+                    >
+                      {slipLegs.some((leg) => leg.key === pick.key) ? <Check className="size-4" /> : <Plus className="size-4" />}
+                      {slipLegs.some((leg) => leg.key === pick.key) ? "Added" : "Add to slip"}
+                    </button>
+                  ) : null}
+                  </article>
                 )
               })}
             </div>

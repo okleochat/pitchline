@@ -19,7 +19,7 @@ export function SiteHeader(_props: { subtitle?: string } = {}) {
   const session = useFirebaseSession()
   const [menuOpen, setMenuOpen] = useState(false)
   const accountLabel = session.loading || session.user ? "Account" : "Log in"
-  const links = [...LINKS, { href: "/account", label: accountLabel }]
+  const links = [...LINKS, ...(session.user?.isPro ? [{ href: "/slip", label: "My Slip" }] : []), { href: "/account", label: accountLabel }]
 
   useEffect(() => {
     setMenuOpen(false)

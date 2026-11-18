@@ -692,7 +692,6 @@ export function Pitchline({
   const [proPickError, setProPickError] = useState<string | null>(null)
   const [proPickProgress, setProPickProgress] = useState({ done: 0, total: 0 })
   const [proPickThreshold, setProPickThreshold] = useState(80)
-  const [proPickRefreshNonce, setProPickRefreshNonce] = useState(0)
   const [proPickRefreshCount, setProPickRefreshCount] = useState(0)
   const handledProPickRefreshRef = useRef(0)
   const [proPickWarning, setProPickWarning] = useState<string | null>(null)
@@ -1466,6 +1465,13 @@ export function Pitchline({
           {isPro && slipError ? (
             <p className="mb-3 text-xs text-red-600" role="alert">{slipError}</p>
           ) : null}
+          {isPro && engineMode === "pro" ? (
+            <div className="mb-3 flex justify-end">
+              <button type="button" onClick={() => setProPickRefreshCount((count) => count + 1)} disabled={proPickLoading} className="press inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-xs font-medium disabled:opacity-40">
+                <RotateCcw className="size-3.5" /> Recalculate Pro picks
+              </button>
+            </div>
+          ) : null}
           {isPro && engineMode === "pro" && proPickWarning ? (
             <p className="mb-3 text-xs text-amber-700" role="status">{proPickWarning}</p>
           ) : null}
@@ -1498,7 +1504,7 @@ export function Pitchline({
                 const awayTeam = teamBy(pick.fixture.awayId)
                 if (!homeTeam || !awayTeam) return null
                 return (
-                  <article key={pick.key} className="rounded-3xl border border-border bg-card">
+                  <article key={pick.key} className="overflow-hidden rounded-3xl border border-border bg-card">
                     <div className="flex items-stretch gap-1">
                   <button
                     type="button"
@@ -1527,9 +1533,9 @@ export function Pitchline({
                       title={slipPickIsAdded(pick) ? "Remove from slip" : "Add to slip"}
                       onClick={() => toggleSlipPick(pick)}
                       disabled={!slipReady || slipSaving || (!pick.fixture.kickoffAt && !slipPickIsAdded(pick)) || (slipLegs.length >= MAX_SLIP_LEGS && !slipPickIsAdded(pick)) || (slipLegs.some((leg) => leg.fixtureId === pick.fixture.id && leg.key !== slipPickKey(pick)))}
-                      className={`press mx-3 my-auto inline-flex size-9 shrink-0 items-center justify-center rounded-xl border disabled:opacity-40 ${slipPickIsAdded(pick) ? "border-primary bg-sunken text-primary" : "border-border bg-background"}`}
+                      className={`press mx-3 my-auto inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-medium disabled:opacity-40 ${slipPickIsAdded(pick) ? "border-primary bg-sunken text-primary" : "border-border bg-background"}`}
                     >
-                      {slipPickIsAdded(pick) ? <Check className="size-4" /> : <Plus className="size-4" />}
+                      {slipPickIsAdded(pick) ? <><Check className="size-4" /> Added</> : <><Plus className="size-4" /> Add to slip</>}
                     </button>
                   ) : null}
                     </div>

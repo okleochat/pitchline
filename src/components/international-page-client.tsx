@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { SiteHeader } from "@/components/site-header"
 import { useEffect, useState } from "react"
 import { Pitchline } from "@/components/pitchline"
 import type { Board } from "@/data/football"
@@ -104,6 +105,7 @@ export function InternationalPageClient({ initialDate }: { initialDate: string }
   return (
     <div>
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <SiteHeader />
         <section className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">National teams</p>

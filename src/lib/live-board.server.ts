@@ -827,7 +827,11 @@ async function readStoredBoard(): Promise<Board | null> {
     .collection("pitchlineData")
     .doc("liveBoard")
     .get()
-  return storedBoard(snapshot.data()?.board)
+  const data = snapshot.data()
+  const savedAt = typeof data?.savedAt === "number" ? data.savedAt : 0
+  // A missed cron run must not leave the app serving an arbitrarily old board.
+  if (!savedAt || Date.now() - savedAt > 36 * 60 * 60 * 1000) return null
+  return storedBoard(data?.board)
 }
 
 /** Called only by the protected daily refresh job. */
@@ -859,24 +863,51 @@ export async function refreshLiveBoard(): Promise<Board> {
   return board
 }
 
-/** Read the latest centrally stored board; never make ESPN calls for a page view. */
+/**
+ * Prefer the shared Firestore board. If the shared credential or stored
+ * snapshot is unavailable, rebuild from ESPN rather than returning the static
+ * snapshot: those fallback teams do not have the ESPN IDs needed by Pro squad
+ * intelligence. The in-process cache prevents repeated ESPN pulls per warm
+ * function instance while the shared Firestore integration is being repaired.
+ */
 export function getLiveBoard(): Promise<Board> {
   if (cache && Date.now() - cache.at < cache.ttl) return Promise.resolve(cache.board)
   if (!inflight) {
-    inflight = readStoredBoard()
-      .then((saved) => {
-        const board = saved ?? snapshotBoard()
-        cache = { at: Date.now(), ttl: BOARD_MEMORY_CACHE_MS, board }
-        return board
-      })
-      .catch(() => {
-        const board = cache?.board ?? snapshotBoard()
-        cache = { at: Date.now(), ttl: 15 * 1000, board }
-        return board
-      })
-      .finally(() => {
-        inflight = null
-      })
+    inflight = (async () => {
+      let saved: Board | null = null
+      try {
+        saved = await readStoredBoard()
+      } catch (error) {
+        console.warn("[pitchline/board] Firestore board unavailable; rebuilding from ESPN", {
+          message: error instanceof Error ? error.message : "unknown error",
+        })
+      }
+
+      if (saved?.source === "live") {
+        cache = { at: Date.now(), ttl: TTL_MS, board: saved }
+        return saved
+      }
+
+      try {
+        const live = await buildBoard()
+        if (live.source === "live") {
+          cache = { at: Date.now(), ttl: TTL_MS, board: live }
+          return live
+        }
+        const fallback = saved ?? live ?? snapshotBoard()
+        cache = { at: Date.now(), ttl: BOARD_MEMORY_CACHE_MS, board: fallback }
+        return fallback
+      } catch (error) {
+        console.error("[pitchline/board] ESPN fallback failed; using last known board", {
+          message: error instanceof Error ? error.message : "unknown error",
+        })
+        const fallback = saved ?? cache?.board ?? snapshotBoard()
+        cache = { at: Date.now(), ttl: 15 * 1000, board: fallback }
+        return fallback
+      }
+    })().finally(() => {
+      inflight = null
+    })
   }
   return inflight
 }

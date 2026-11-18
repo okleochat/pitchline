@@ -65,8 +65,9 @@ export async function POST(request: NextRequest) {
   } catch {
     return response({ error: "invalid_json" }, 400)
   }
+  if (!body) return response({ error: "invalid_json" }, 400)
 
-  const action = body?.action
+  const action = body.action
   const cacheKey = body?.cacheKey
   const fixtureCount = body?.fixtureCount
   if (!validCacheKey(cacheKey, user.uid)) return response({ error: "invalid_cache_key" }, 400)

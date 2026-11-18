@@ -406,7 +406,7 @@ export function SlipBuilder() {
                     <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-3">
                       <div>
                         <p className="text-xs text-muted">Combined odds</p>
-                        <p className="mt-1 font-display text-2xl tabular-nums">{booking.combinedOdds.toFixed(2)}</p>
+                        <p className="mt-1 font-display text-2xl tabular-nums">{booking.combinedOdds === null ? "—" : booking.combinedOdds.toFixed(2)}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted">Potential return</p>
@@ -440,6 +440,7 @@ export function SlipBuilder() {
                   </div>
                 ) : null}
               </section>
+            ) : null}
             {legs.length ? (
               <section className="panel mb-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">

@@ -252,6 +252,14 @@ function eligibleTestData(home = eligibleTestSquad("Home"), away = eligibleTestS
 
 test("Pro Best Picks require sufficient rated squad data for both teams", () => {
   assert.equal(hasEligibleProPickSquadData(eligibleTestData()), true)
+  // Exactly 60% on each team is eligible; the threshold is inclusive.
+  assert.equal(
+    hasEligibleProPickSquadData(eligibleTestData(
+      eligibleTestSquad("Home", 12, 20),
+      eligibleTestSquad("Away", 15, 25),
+    )),
+    true,
+  )
   assert.equal(
     hasEligibleProPickSquadData(eligibleTestData(eligibleTestSquad("Home"), eligibleTestSquad("Away", 8, 22))),
     false,

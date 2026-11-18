@@ -692,6 +692,7 @@ export function Pitchline({
   const [proPickError, setProPickError] = useState<string | null>(null)
   const [proPickProgress, setProPickProgress] = useState({ done: 0, total: 0 })
   const [proPickThreshold, setProPickThreshold] = useState(80)
+  const [proPickRefreshNonce, setProPickRefreshNonce] = useState(0)
   const [proPickRefreshCount, setProPickRefreshCount] = useState(0)
   const handledProPickRefreshRef = useRef(0)
   const [proPickWarning, setProPickWarning] = useState<string | null>(null)

@@ -48,4 +48,16 @@ function playerData(homeSquad: ProTeamSquad | null, awaySquad: ProTeamSquad | nu
 
 test("Best Picks Pro execution matches the Match Desk when player ratings are applied", () => {
   const data = playerData(squad("Barcelona"), squad("Villarreal"))
-  const shar¶»§q«^
+  const shared = runProEngine({ home, away, edge: 1.1, roll: 0, playerData: data })
+  const direct = simulatePro(home, away, 1.1, 0, data.home?.factors, data.away?.factors)
+  assert.deepEqual(shared.probabilities, direct.probabilities)
+  assert.equal(shared.details.playerAdjustmentsApplied, true)
+})
+
+test("Best Picks still returns a Pro result when squad ratings are unavailable, matching Match Desk fallback", () => {
+  const data = playerData(null, null)
+  const shared = runProEngine({ home, away, edge: 1.1, roll: 0, playerData: data })
+  const direct = simulatePro(home, away, 1.1, 0)
+  assert.deepEqual(shared.probabilities, direct.probabilities)
+  assert.equal(shared.details.playerAdjustmentsApplied, false)
+})

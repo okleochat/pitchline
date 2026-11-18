@@ -45,7 +45,7 @@ export function firebaseAdminCredentialMode():
   | "application-default-candidate"
   | "missing" {
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) return "service-account-json"
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
+  if (process.env.FIREBASE_CONFIG || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
     return "application-default-candidate"
   }
   return "missing"

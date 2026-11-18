@@ -15,7 +15,7 @@ export type ProPickCacheStorage = {
   removeItem(key: string): void
 }
 
-const CACHE_PREFIX = "pitchline:pro-picks:v1:"
+const CACHE_PREFIX = "pitchline:pro-picks:v2:"
 const memoryCache = new Map<string, ProPickCacheEntry>()
 
 function browserStorage(): ProPickCacheStorage | null {

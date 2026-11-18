@@ -28,7 +28,7 @@ export function monthKeysInRange(startDate: string, endDate: string): string[] {
   return months
 }
 
-/** Upcoming-only cache must never replace today's full scoreboard. */
+/** The monthly batch includes all events for today as well as future fixtures. */
 export function canReuseUpcomingCache(requestedDate: string, today: string, endDate: string): boolean {
-  return requestedDate > today && requestedDate <= endDate
+  return requestedDate >= today && requestedDate <= endDate
 }

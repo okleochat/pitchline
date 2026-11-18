@@ -273,9 +273,8 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
   // scoreboard calls on the International page and Best Picks.
   const upcoming = upcomingCache.get(today + ":30")
   const upcomingEnd = addDays(today, 30)
-  // Today's scoreboard may already contain live and completed matches. The
-  // shared upcoming cache intentionally contains only future pre-kickoff
-  // fixtures, so only reuse it for strictly future dates.
+  // The shared month-batched window includes all matches for today (including
+  // completed/in-progress events) plus all events in the future 30-day range.
   if (upcoming && upcoming.expiresAt > Date.now() && canReuseUpcomingCache(date, today, upcomingEnd)) {
     const fixtures = upcoming.value.fixtures.filter((fixture) => {
       const kickoffParts = new Intl.DateTimeFormat("en-CA", {

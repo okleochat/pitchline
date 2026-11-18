@@ -179,22 +179,17 @@ export async function getEspnJsonQuick(url: string): Promise<Record<string, unkn
   return null
 }
 
-export async function getEspnJson(
-  url: string,
-  options: { timeoutMs?: number; maxAttempts?: number } = {},
-): Promise<Record<string, unknown> | null> {
+export async function getEspnJson(url: string): Promise<Record<string, unknown> | null> {
   const path = requestPath(url)
-  const timeoutMs = options.timeoutMs ?? ESPN_REQUEST_TIMEOUT_MS
-  const maxAttempts = options.maxAttempts ?? ESPN_MAX_ATTEMPTS
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  for (let attempt = 1; attempt <= ESPN_MAX_ATTEMPTS; attempt += 1) {
     try {
       await waitForEspnRequestSlot()
 
       // Intentionally omit User-Agent. ESPN's CDN can reject scripted traffic
       // when clients send a spoofed/custom User-Agent header.
       const response = await fetch(url, {
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(ESPN_REQUEST_TIMEOUT_MS),
         headers: { accept: "application/json" },
         cache: "no-store",
       })
@@ -203,7 +198,7 @@ export async function getEspnJson(
         try {
           return (await response.json()) as Record<string, unknown>
         } catch {
-          if (attempt === maxAttempts) {
+          if (attempt === ESPN_MAX_ATTEMPTS) {
             console.warn("[Pitchline ESPN] Invalid JSON response", { path })
             return null
           }
@@ -212,7 +207,7 @@ export async function getEspnJson(
         }
       }
 
-      if (!retryableStatus(response.status) || attempt === maxAttempts) {
+      if (!retryableStatus(response.status) || attempt === ESPN_MAX_ATTEMPTS) {
         console.warn("[Pitchline ESPN] Request rejected", {
           path,
           status: response.status,
@@ -224,7 +219,7 @@ export async function getEspnJson(
       const serverDelay = retryAfterMs(response.headers.get("retry-after"))
       await sleep(serverDelay ?? 400 * 2 ** (attempt - 1))
     } catch (error) {
-      if (attempt === maxAttempts) {
+      if (attempt === ESPN_MAX_ATTEMPTS) {
         console.warn("[Pitchline ESPN] Request failed after retries", {
           path,
           attempts: attempt,

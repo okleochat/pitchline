@@ -756,7 +756,9 @@ export function Pitchline({
   useEffect(() => {
     // The international route is date-scoped by its server page. Do not replace
     // that selected date with the generic upcoming board on a background refresh.
-    if (initialLeague === "int") return
+    // Best Picks is hydrated from the saved Firestore snapshot on the server.
+    // Do not trigger a second live ESPN board pull after its first paint.
+    if (initialView === "picks" || initialLeague === "int") return
     let stop = false
     const pull = () => {
       // Avoid an immediate duplicate request when the refreshed board changes
@@ -1447,12 +1449,13 @@ export function Pitchline({
                     <button
                       type="button"
                       aria-pressed={slipLegs.some((leg) => leg.key === pick.key)}
+                      aria-label={slipLegs.some((leg) => leg.key === pick.key) ? "Remove pick from slip" : "Add pick to slip"}
+                      title={slipLegs.some((leg) => leg.key === pick.key) ? "Remove from slip" : "Add to slip"}
                       onClick={() => toggleSlipPick(pick)}
-                      disabled={!slipReady || slipSaving || (!pick.fixture.kickoffAt && !slipLegs.some((leg) => leg.key === pick.key)) || (slipLegs.some((leg) => leg.fixtureId === pick.fixture.id && leg.key !== pick.key))}
-                      className={`press inline-flex w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl border px-2 text-xs font-medium disabled:opacity-40 ${slipLegs.some((leg) => leg.key === pick.key) ? "border-primary bg-sunken text-primary" : "border-border bg-card"}`}
+                      disabled={!slipReady || slipSaving || (!pick.fixture.kickoffAt && !slipLegs.some((leg) => leg.key === pick.key)) || (slipLegs.length >= MAX_SLIP_LEGS && !slipLegs.some((leg) => leg.key === pick.key)) || (slipLegs.some((leg) => leg.fixtureId === pick.fixture.id && leg.key !== pick.key))}
+                      className={`press inline-flex size-10 shrink-0 items-center justify-center rounded-xl border disabled:opacity-40 ${slipLegs.some((leg) => leg.key === pick.key) ? "border-primary bg-sunken text-primary" : "border-border bg-card"}`}
                     >
                       {slipLegs.some((leg) => leg.key === pick.key) ? <Check className="size-4" /> : <Plus className="size-4" />}
-                      {slipLegs.some((leg) => leg.key === pick.key) ? "Added" : "Add to slip"}
                     </button>
                   ) : null}
                   </article>

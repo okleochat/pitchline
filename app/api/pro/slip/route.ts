@@ -65,7 +65,7 @@ export async function PUT(request: NextRequest) {
   if (!legs) {
     return NextResponse.json({
       error: "invalid_slip",
-      message: "Use up to twelve valid selections, with no more than one selection per match.",
+      message: "Use up to fifty valid selections, with no more than one selection per match.",
     }, { status: 400 })
   }
 

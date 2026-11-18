@@ -135,6 +135,50 @@ export async function getEspnJsonBatch(url: string): Promise<Record<string, unkn
   return fallbackToPacedRequest ? getEspnJson(url) : value
 }
 
+/**
+ * Fast bounded transport for user-facing team-squad lookups. A roster miss
+ * should fail visibly within a short window and be retried on the next request,
+ * not sit through the board transport's four long retries.
+ */
+export async function getEspnJsonQuick(url: string): Promise<Record<string, unknown> | null> {
+  const path = requestPath(url)
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await waitForEspnRequestSlot()
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(8_000),
+        headers: { accept: "application/json" },
+        cache: "no-store",
+      })
+      if (response.ok) {
+        try {
+          return await response.json() as Record<string, unknown>
+        } catch {
+          if (attempt === 1) continue
+          console.warn("[Pitchline ESPN] Quick roster response contained invalid JSON", { path })
+          return null
+        }
+      }
+      if (!retryableStatus(response.status) || attempt === 2) {
+        console.warn("[Pitchline ESPN] Quick roster request rejected", {
+          path, status: response.status, attempts: attempt,
+        })
+        return null
+      }
+      await sleep(250)
+    } catch (error) {
+      if (attempt === 2) {
+        console.warn("[Pitchline ESPN] Quick roster request failed", {
+          path, reason: error instanceof Error ? error.name : "unknown",
+        })
+        return null
+      }
+      await sleep(250)
+    }
+  }
+  return null
+}
+
 export async function getEspnJson(url: string): Promise<Record<string, unknown> | null> {
   const path = requestPath(url)
 

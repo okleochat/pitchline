@@ -65,6 +65,7 @@ export async function loadProPickMarkets(input: {
 }): Promise<{
   results: { fixtureId: string; probabilities: MarketProbabilities }[]
   excludedCount: number
+  retryableFixtureIds: string[]
 }> {
   const response = await fetch("/api/pro/picks", {
     method: "POST",
@@ -76,6 +77,9 @@ export async function loadProPickMarkets(input: {
   })
   if (!response.ok) {
     const result = (await response.json().catch(() => ({}))) as { error?: string }
+    if (result.error === "pro_player_data_temporarily_unavailable") {
+      throw new Error("ESPN squad data is temporarily unavailable. Your results were not cached. Press Recalculate to retry.")
+    }
     if (response.status === 401 || result.error === "authentication_required") {
       throw new Error("Sign in to use Pro Best Picks.")
     }
@@ -90,12 +94,16 @@ export async function loadProPickMarkets(input: {
   const result = (await response.json()) as {
     results?: { fixtureId: string; probabilities: MarketProbabilities }[]
     excludedCount?: number
+    retryableFixtureIds?: string[]
   }
   return {
     results: Array.isArray(result.results) ? result.results : [],
     excludedCount: Number.isSafeInteger(result.excludedCount) && (result.excludedCount ?? 0) > 0
       ? result.excludedCount as number
       : 0,
+    retryableFixtureIds: Array.isArray(result.retryableFixtureIds)
+      ? result.retryableFixtureIds.filter((id): id is string => typeof id === "string")
+      : [],
   }
 }
 
@@ -134,8 +142,21 @@ export async function readStoredProPickCache(input: {
   const cache = payload.cache
   if (!cache || !cache.results || typeof cache.results !== "object" || Array.isArray(cache.results)) return null
   if (!Number.isSafeInteger(cache.excludedCount) || cache.excludedCount < 0) return null
+  if (Object.keys(cache.results).length === 0) return null
   if (Object.keys(cache.results).length + cache.excludedCount !== input.fixtureCount) return null
   return cache
+}
+
+export async function clearStoredProPickCache(input: {
+  cacheKey: string
+  fixtureCount: number
+}): Promise<void> {
+  const response = await requestStoredProPickCache({
+    action: "delete",
+    cacheKey: input.cacheKey,
+    fixtureCount: input.fixtureCount,
+  })
+  if (!response.ok) throw new Error("Could not clear saved Pro picks.")
 }
 
 export async function writeStoredProPickCache(input: {

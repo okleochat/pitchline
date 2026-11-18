@@ -17,8 +17,8 @@ import {
   type RateSample,
   type Team,
 } from "@/data/football"
-import { loadBoard, loadForm, loadProPickMarkets, loadProSimulation, readStoredProPickCache, writeStoredProPickCache, type FormResult, type ProPickFixtureInput } from "@/lib/board"
-import { createProPickCacheKey, readProPickCache, writeProPickCache } from "@/lib/pro-pick-cache"
+import { clearStoredProPickCache, loadBoard, loadForm, loadProPickMarkets, loadProSimulation, readStoredProPickCache, writeStoredProPickCache, type FormResult, type ProPickFixtureInput } from "@/lib/board"
+import { clearProPickCache, createProPickCacheKey, readProPickCache, writeProPickCache } from "@/lib/pro-pick-cache"
 import { homeAdvantageForLeague } from "@/lib/home-advantage"
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
 import type { ProReport } from "@/lib/pro-sim"
@@ -692,6 +692,9 @@ export function Pitchline({
   const [proPickError, setProPickError] = useState<string | null>(null)
   const [proPickProgress, setProPickProgress] = useState({ done: 0, total: 0 })
   const [proPickThreshold, setProPickThreshold] = useState(80)
+  const [proPickRefreshCount, setProPickRefreshCount] = useState(0)
+  const handledProPickRefreshRef = useRef(0)
+  const [proPickWarning, setProPickWarning] = useState<string | null>(null)
   const [slipLegs, setSlipLegs] = useState<SlipLeg[]>([])
   const [slipReady, setSlipReady] = useState(false)
   const [slipSaving, setSlipSaving] = useState(false)
@@ -978,21 +981,26 @@ export function Pitchline({
   )
 
   useEffect(() => {
+    const forceRefresh = proPickRefreshCount > handledProPickRefreshRef.current
+    if (forceRefresh) handledProPickRefreshRef.current = proPickRefreshCount
+
     if (!proPickInputs.length || !proPickCacheKey) {
       setProPickResults({})
       setProPickExcludedCount(0)
       setProPickLoading(false)
       setProPickError(null)
+      setProPickWarning(null)
       setProPickProgress({ done: 0, total: 0 })
       return
     }
 
-    const cached = readProPickCache(proPickCacheKey, proPickInputs.length)
-    if (cached) {
+    const cached = forceRefresh ? null : readProPickCache(proPickCacheKey, proPickInputs.length)
+    if (cached && Object.keys(cached.results).length > 0) {
       setProPickResults(cached.results)
       setProPickExcludedCount(cached.excludedCount)
       setProPickLoading(false)
       setProPickError(null)
+      setProPickWarning(null)
       setProPickProgress({ done: proPickInputs.length, total: proPickInputs.length })
       return
     }
@@ -1001,15 +1009,24 @@ export function Pitchline({
     let active = true
     const accumulatedResults: Record<string, MarketProbabilities> = {}
     let accumulatedExcludedCount = 0
+    let unresolvedCount = 0
     setProPickResults({})
     setProPickExcludedCount(0)
     setProPickLoading(true)
     setProPickError(null)
+    setProPickWarning(null)
     setProPickProgress({ done: 0, total: proPickInputs.length })
     const run = async () => {
       // Browser storage is a quick same-tab shortcut. Firestore is the durable
       // per-account cache, so a completed run survives reloads and new devices.
-      const persisted = await readStoredProPickCache({
+      if (forceRefresh) {
+        clearProPickCache(proPickCacheKey)
+        await clearStoredProPickCache({
+          cacheKey: proPickCacheKey,
+          fixtureCount: proPickInputs.length,
+        }).catch(() => {})
+      }
+      const persisted = forceRefresh ? null : await readStoredProPickCache({
         cacheKey: proPickCacheKey,
         fixtureCount: proPickInputs.length,
         signal: controller.signal,
@@ -1018,6 +1035,7 @@ export function Pitchline({
       if (persisted) {
         setProPickResults(persisted.results)
         setProPickExcludedCount(persisted.excludedCount)
+        setProPickWarning(null)
         setProPickProgress({ done: proPickInputs.length, total: proPickInputs.length })
         writeProPickCache(proPickCacheKey, {
           savedAt: Date.now(),
@@ -1029,30 +1047,59 @@ export function Pitchline({
 
       for (let index = 0; index < proPickInputs.length; index += 12) {
         const batch = proPickInputs.slice(index, index + 12)
-        const batchResult = await loadProPickMarkets({ data: { fixtures: batch }, signal: controller.signal })
-        if (!active) return
-        for (const result of batchResult.results) {
-          accumulatedResults[result.fixtureId] = result.probabilities
+        let pendingFixtures = batch
+        let excludedInBatch = 0
+        for (let attempt = 0; attempt < 3 && pendingFixtures.length > 0; attempt += 1) {
+          const batchResult = await loadProPickMarkets({
+            data: { fixtures: pendingFixtures },
+            signal: controller.signal,
+          })
+          if (!active || controller.signal.aborted) return
+          for (const result of batchResult.results) {
+            accumulatedResults[result.fixtureId] = result.probabilities
+          }
+          excludedInBatch += batchResult.excludedCount
+          const retryable = new Set(batchResult.retryableFixtureIds)
+          pendingFixtures = pendingFixtures.filter((fixture) => retryable.has(fixture.fixtureId))
         }
-        accumulatedExcludedCount += batchResult.excludedCount
+        accumulatedExcludedCount += excludedInBatch
+        unresolvedCount += pendingFixtures.length
         setProPickResults({ ...accumulatedResults })
         setProPickExcludedCount(accumulatedExcludedCount)
         setProPickProgress({ done: Math.min(index + batch.length, proPickInputs.length), total: proPickInputs.length })
       }
 
       if (!active || controller.signal.aborted) return
+      const complete = unresolvedCount === 0 &&
+        Object.keys(accumulatedResults).length + accumulatedExcludedCount === proPickInputs.length
       const entry = {
         savedAt: Date.now(),
         results: accumulatedResults,
         excludedCount: accumulatedExcludedCount,
       }
-      await writeStoredProPickCache({
-        cacheKey: proPickCacheKey,
-        fixtureCount: proPickInputs.length,
-        results: accumulatedResults,
-        excludedCount: accumulatedExcludedCount,
-      }).catch(() => {})
-      writeProPickCache(proPickCacheKey, entry, proPickInputs.length)
+      if (complete && Object.keys(accumulatedResults).length > 0) {
+        await writeStoredProPickCache({
+          cacheKey: proPickCacheKey,
+          fixtureCount: proPickInputs.length,
+          results: accumulatedResults,
+          excludedCount: accumulatedExcludedCount,
+        }).catch(() => {})
+        writeProPickCache(proPickCacheKey, entry, proPickInputs.length)
+      } else {
+        // Partial and empty calculations stay visible but never poison either cache.
+        clearProPickCache(proPickCacheKey)
+        await clearStoredProPickCache({
+          cacheKey: proPickCacheKey,
+          fixtureCount: proPickInputs.length,
+        }).catch(() => {})
+      }
+      if (unresolvedCount > 0) {
+        setProPickWarning(
+          Object.keys(accumulatedResults).length > 0
+            ? unresolvedCount + " fixtures couldn't refresh their squad data. Valid picks are still shown; use Recalculate to retry the remaining fixtures."
+            : unresolvedCount + " fixtures couldn't refresh their squad data, so no Pro picks could be calculated. Use Recalculate to try again.",
+        )
+      }
     }
     run().then(() => {
       if (active) setProPickLoading(false)
@@ -1065,7 +1112,7 @@ export function Pitchline({
       active = false
       controller.abort()
     }
-  }, [proPickInputs, proPickCacheKey])
+  }, [proPickInputs, proPickCacheKey, proPickRefreshCount])
 
   const handicap = report ? splitHandicap(report.scores, spread) : null
   const totals = report ? splitTotal(report.scores, totalLine) : null
@@ -1147,16 +1194,25 @@ export function Pitchline({
     }
   }
 
+  function slipPickKey(pick: MarketPick): string {
+    return pick.fixture.id + ":" + pick.label
+  }
+
+  function slipPickIsAdded(pick: MarketPick): boolean {
+    const key = slipPickKey(pick)
+    return slipLegs.some((leg) => leg.key === key)
+  }
+
   function toggleSlipPick(pick: MarketPick) {
     if (!isPro || !slipReady || slipSaving) return
-    const key = pick.fixture.id + ":" + pick.label
+    const key = slipPickKey(pick)
     const existing = slipLegs.find((leg) => leg.key === key)
     if (existing) {
       void persistSlip(slipLegs.filter((leg) => leg.key !== key))
       return
     }
     if (slipLegs.length >= MAX_SLIP_LEGS) {
-      setSlipError("A slip can contain up to twelve selections.")
+      setSlipError("A slip can contain up to fifty selections.")
       return
     }
     if (!pick.fixture.kickoffAt || !Number.isFinite(Date.parse(pick.fixture.kickoffAt))) {
@@ -1258,11 +1314,24 @@ export function Pitchline({
             <p className="text-sm text-muted tabular-nums">
               {hotPicks.length ? `${hotPicks.length} selected` : proPickMode ? `None at ${proPickThreshold}%+` : "No standout picks"}
             </p>
-            {isPro ? (
-              <Link href="/slip" className="press inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium">
-                My Slip <span className="rounded-full bg-sunken px-2 py-0.5 tabular-nums">{slipLegs.length}</span>
-              </Link>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {isPro && engineMode === "pro" ? (
+                <button
+                  type="button"
+                  onClick={() => setProPickRefreshCount((value) => value + 1)}
+                  disabled={proPickLoading || !proPickInputs.length}
+                  className="press inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium disabled:opacity-40"
+                >
+                  <RotateCcw className="size-3.5" />
+                  Recalculate
+                </button>
+              ) : null}
+              {isPro ? (
+                <Link href="/slip" className="press inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium">
+                  My Slip <span className="rounded-full bg-sunken px-2 py-0.5 tabular-nums">{slipLegs.length}</span>
+                </Link>
+              ) : null}
+            </div>
           </div>
 
           <div className="panel mb-4">
@@ -1396,6 +1465,9 @@ export function Pitchline({
           {isPro && slipError ? (
             <p className="mb-3 text-xs text-red-600" role="alert">{slipError}</p>
           ) : null}
+          {isPro && engineMode === "pro" && proPickWarning ? (
+            <p className="mb-3 text-xs text-amber-700" role="status">{proPickWarning}</p>
+          ) : null}
           {isPro && engineMode === "pro" && !proPickLoading && proPickExcludedCount > 0 ? (
             <p className="mb-3 text-xs text-muted" role="status">
               {proPickExcludedCount} fixtures were excluded because both teams did not meet the Pro squad-data requirements.
@@ -1425,11 +1497,12 @@ export function Pitchline({
                 const awayTeam = teamBy(pick.fixture.awayId)
                 if (!homeTeam || !awayTeam) return null
                 return (
-                  <article key={pick.key} className="flex items-stretch gap-2">
+                  <article key={pick.key} className="rounded-3xl border border-border bg-card">
+                    <div className="flex items-stretch gap-1">
                   <button
                     type="button"
                     onClick={() => openPick(pick)}
-                    className="press flex min-w-0 flex-1 items-center gap-3 rounded-3xl border border-border bg-card p-4 text-left"
+                    className="press flex min-w-0 flex-1 items-center gap-3 rounded-3xl p-4 text-left"
                   >
                     <span className="w-16 shrink-0">
                       <span className="block font-display text-2xl tabular-nums">{(pick.share * 100).toFixed(1)}%</span>
@@ -1448,16 +1521,17 @@ export function Pitchline({
                   {isPro ? (
                     <button
                       type="button"
-                      aria-pressed={slipLegs.some((leg) => leg.key === pick.key)}
-                      aria-label={slipLegs.some((leg) => leg.key === pick.key) ? "Remove pick from slip" : "Add pick to slip"}
-                      title={slipLegs.some((leg) => leg.key === pick.key) ? "Remove from slip" : "Add to slip"}
+                      aria-pressed={slipPickIsAdded(pick)}
+                      aria-label={slipPickIsAdded(pick) ? "Remove pick from slip" : "Add pick to slip"}
+                      title={slipPickIsAdded(pick) ? "Remove from slip" : "Add to slip"}
                       onClick={() => toggleSlipPick(pick)}
-                      disabled={!slipReady || slipSaving || (!pick.fixture.kickoffAt && !slipLegs.some((leg) => leg.key === pick.key)) || (slipLegs.length >= MAX_SLIP_LEGS && !slipLegs.some((leg) => leg.key === pick.key)) || (slipLegs.some((leg) => leg.fixtureId === pick.fixture.id && leg.key !== pick.key))}
-                      className={`press inline-flex size-10 shrink-0 items-center justify-center rounded-xl border disabled:opacity-40 ${slipLegs.some((leg) => leg.key === pick.key) ? "border-primary bg-sunken text-primary" : "border-border bg-card"}`}
+                      disabled={!slipReady || slipSaving || (!pick.fixture.kickoffAt && !slipPickIsAdded(pick)) || (slipLegs.length >= MAX_SLIP_LEGS && !slipPickIsAdded(pick)) || (slipLegs.some((leg) => leg.fixtureId === pick.fixture.id && leg.key !== slipPickKey(pick)))}
+                      className={`press mx-3 my-auto inline-flex size-9 shrink-0 items-center justify-center rounded-xl border disabled:opacity-40 ${slipPickIsAdded(pick) ? "border-primary bg-sunken text-primary" : "border-border bg-background"}`}
                     >
-                      {slipLegs.some((leg) => leg.key === pick.key) ? <Check className="size-4" /> : <Plus className="size-4" />}
+                      {slipPickIsAdded(pick) ? <Check className="size-4" /> : <Plus className="size-4" />}
                     </button>
                   ) : null}
+                    </div>
                   </article>
                 )
               })}

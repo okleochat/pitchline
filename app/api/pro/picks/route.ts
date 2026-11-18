@@ -7,6 +7,7 @@ import type { LeagueId } from "@/data/football"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+export const maxDuration = 60
 
 type Dict = Record<string, unknown>
 type PickFixtureInput = {
@@ -69,6 +70,7 @@ function fixtureInput(value: unknown): PickFixtureInput | null {
 type ProPickSimulationResult =
   | { fixtureId: string; probabilities: ReturnType<typeof simulatePro>["probabilities"] }
   | { fixtureId: string; excluded: true }
+  | { fixtureId: string; retryable: true }
 
 async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulationResult> {
   const playerData = await getProPlayerData({
@@ -81,6 +83,10 @@ async function simulatePick(fixture: PickFixtureInput): Promise<ProPickSimulatio
       rateLeague: fixture.away.rateLeague, espnId: fixture.away.espnId, feedSlug: fixture.away.feedSlug,
     },
   })
+
+  if (playerData.status === "provider_error" || playerData.status === "roster_unavailable") {
+    return { fixtureId: fixture.fixtureId, retryable: true }
+  }
 
   if (!hasEligibleProPickSquadData(playerData)) {
     return { fixtureId: fixture.fixtureId, excluded: true }
@@ -126,17 +132,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_fixture" }, { status: 400 })
   }
 
-  try {
-    const simulations = await Promise.all((fixtures as PickFixtureInput[]).map(simulatePick))
-    const results = simulations.flatMap((item) =>
-      "probabilities" in item ? [item] : [],
-    )
-    const excludedCount = simulations.length - results.length
-    return NextResponse.json(
-      { results, excludedCount },
-      { headers: { "Cache-Control": "private, no-store" } },
-    )
-  } catch {
-    return NextResponse.json({ error: "pro_picks_failed" }, { status: 500 })
-  }
+  const simulations = await Promise.all((fixtures as PickFixtureInput[]).map(async (fixture) => {
+    try {
+      return await simulatePick(fixture)
+    } catch (error) {
+      console.warn("[Pitchline Pro Picks] Fixture calculation failed; keeping other results", {
+        fixtureId: fixture.fixtureId,
+        message: error instanceof Error ? error.message : "unknown error",
+      })
+      return { fixtureId: fixture.fixtureId, retryable: true } as const
+    }
+  }))
+  const results = simulations.flatMap((item) =>
+    "probabilities" in item ? [item] : [],
+  )
+  const excludedCount = simulations.filter((item) => "excluded" in item).length
+  const retryableFixtureIds = simulations.flatMap((item) =>
+    "retryable" in item ? [item.fixtureId] : [],
+  )
+  return NextResponse.json(
+    { results, excludedCount, retryableFixtureIds },
+    { headers: { "Cache-Control": "private, no-store" } },
+  )
 }

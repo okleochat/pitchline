@@ -19,7 +19,6 @@ type BookingResult = {
   expiresAt: string | null
   combinedOdds: number | null
   bookmakerName?: string
-  creditsCharged?: number
   legs: Array<{
     key: string
     homeTeam: string
@@ -42,16 +41,12 @@ function messageFor(error: string, fallback: string): string {
   if (error === "selection_unavailable" || error === "SELECTIONS_UNAVAILABLE" || error === "MANAGED_SELECTIONS_UNAVAILABLE") {
     return "At least one selection could not be matched to a current bookmaker market. Review the details below, remove or replace that pick, and try again."
   }
-  if (error === "MANAGED_API_KEY_REQUIRED") {
-    return "Add MANAGE_BET_CODES_API_KEY to Pitchline's Vercel Production environment to enable this bookmaker. The provider charges two credits for each successfully generated code."
-  }
-  if (error === "MANAGED_BOOK_NOT_VERIFIED") {
-    return "The bookmaker did not verify every selection in the new slip. No booking code has been presented as successful."
-  }
   if (error === "authentication_required") return "Sign in to use My Slip."
   if (error === "pro_required") return "An active Pro subscription is required."
   if (error === "slip_unavailable" || error === "slip_save_failed") return "Pitchline could not save your slip. Please try again."
-  if (error === "SPORTYBET_UNAVAILABLE" || error === "bookmaker_unavailable" || error === "MANAGED_BOOKMAKER_UNAVAILABLE") {
+  if (error === "SPORTYBET_UNAVAILABLE" || error === "SPORTPESA_UNAVAILABLE" ||
+      error === "SPORTPESA_BOOKING_FAILED" || error === "SPORTPESA_LOADBACK_FAILED" ||
+      error === "SPORTPESA_LOADBACK_PARTIAL" || error === "bookmaker_unavailable") {
     return "The bookmaker service is temporarily unavailable. Your Pitchline slip is still saved."
   }
   return fallback
@@ -70,14 +65,6 @@ export function SlipBuilder() {
   const [stakeText, setStakeText] = useState("1000")
   const [copied, setCopied] = useState(false)
   const [selectedBookmaker, setSelectedBookmaker] = useState("sportybet")
-  const [providerConfig, setProviderConfig] = useState<{
-    providers: { key: string; name: string; integration: "native" | "managed"; requiresApiKey: boolean }[]
-    manageBetCodesConfigured: boolean
-    managedCreditsPerCode: number
-    apiKeyUrl: string
-    docsUrl: string
-    manualOnly: { name: string; reason: string }[]
-  } | null>(null)
   const [selectionsCopied, setSelectionsCopied] = useState(false)
 
   useEffect(() => {
@@ -113,25 +100,9 @@ export function SlipBuilder() {
     return () => controller.abort()
   }, [session.loading, session.user?.uid, isPro])
 
-  useEffect(() => {
-    if (session.loading || !isPro || !session.user?.uid) return
-    const controller = new AbortController()
-    fetch("/api/pro/slip/bookmakers", {
-      cache: "no-store",
-      credentials: "same-origin",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({})) as typeof providerConfig & { error?: string }
-        if (!response.ok) throw new Error(payload.error ?? "bookmaker_list_unavailable")
-        if (!controller.signal.aborted && payload) setProviderConfig(payload)
-      })
-      .catch(() => {})
-    return () => controller.abort()
-  }, [session.loading, session.user?.uid, isPro])
-
-  const selectedProvider = providerConfig?.providers.find((provider) => provider.key === selectedBookmaker)
-  const providerNeedsKey = selectedProvider?.integration === "managed" && !providerConfig?.manageBetCodesConfigured
+  const selectedProvider = selectedBookmaker === "sportpesa"
+    ? { key: "sportpesa", name: "SportPesa" }
+    : { key: "sportybet", name: "SportyBet" }
 
   const currentOdds = useMemo(
     () => new Map((booking?.legs ?? []).map((leg) => [leg.key, leg.odds])),
@@ -182,15 +153,12 @@ export function SlipBuilder() {
     setBooking(null)
     setCopied(false)
     try {
-      const nativeProvider = selectedBookmaker === "sportybet"
       const response = await fetch(
-        nativeProvider ? "/api/pro/slip/sportybet" : "/api/pro/slip/bookmaker",
+        selectedBookmaker === "sportpesa"
+          ? "/api/pro/slip/sportpesa"
+          : "/api/pro/slip/sportybet",
         {
           method: "POST",
-          ...(nativeProvider ? {} : {
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ bookmaker: selectedBookmaker }),
-          }),
           cache: "no-store",
           credentials: "same-origin",
         },
@@ -364,26 +332,15 @@ export function SlipBuilder() {
                     }}
                     className="mt-2 h-11 w-full rounded-lg border border-border bg-card px-3 text-base"
                   >
-                    {(providerConfig?.providers ?? [
-                      { key: "sportybet", name: "SportyBet", integration: "native" as const, requiresApiKey: false },
-                    ]).map((provider) => (
-                      <option key={provider.key} value={provider.key}>{provider.name}</option>
-                    ))}
+                    <option value="sportybet">SportyBet</option>
+                    <option value="sportpesa">SportPesa</option>
                   </select>
                 </label>
-                {providerNeedsKey ? (
-                  <p className="mb-3 rounded-lg bg-sunken p-3 text-xs text-muted">
-                    This bookmaker uses Manage Bet Codes, a third-party service. Add MANAGE_BET_CODES_API_KEY to Pitchline&apos;s Vercel Production environment before generating. Each successful code costs {providerConfig?.managedCreditsPerCode ?? 2} API credits.{" "}
-                    <a href={providerConfig?.apiKeyUrl ?? "https://managebetcodes.app/dashboard/api"} target="_blank" rel="noreferrer" className="underline">Get API key</a>
-                    {" · "}
-                    <a href={providerConfig?.docsUrl ?? "https://managebetcodes.app/docs"} target="_blank" rel="noreferrer" className="underline">API details</a>
-                  </p>
-                ) : null}
                 <button
                   type="button"
                   className="press inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"
                   onClick={() => void generateCode()}
-                  disabled={saving || creating || legs.length === 0 || (!providerConfig && selectedBookmaker !== "sportybet") || Boolean(providerNeedsKey)}
+                  disabled={saving || creating || legs.length === 0}
                 >
                   {creating ? <LoaderCircle className="size-4 animate-spin" /> : null}
                   {creating ? "Checking markets and generating…" : "Generate " + (selectedProvider?.name ?? "SportyBet") + " code"}
@@ -435,7 +392,6 @@ export function SlipBuilder() {
                     >
                       Open {booking.bookmakerName ?? selectedProvider?.name ?? "bookmaker"} <ExternalLink className="size-4" />
                     </a>
-                    {booking.creditsCharged ? <p className="mt-3 text-xs text-muted">Third-party API credits used: {booking.creditsCharged}</p> : null}
                     <p className="mt-3 text-xs text-muted">The code only transfers a reserved slip. It does not place a bet. Load it at the bookmaker and confirm all selections, current odds and stake before placing.</p>
                   </div>
                 ) : null}
@@ -445,15 +401,9 @@ export function SlipBuilder() {
               <section className="panel mb-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <h2 className="text-sm font-semibold">Other bookmakers</h2>
-                    <p className="mt-1 text-xs text-muted">Automatic booking codes are not currently verified for Betway, BetPawa, SportPesa, BC.Game or Hollywoodbets. Copy the picks to rebuild manually.</p>
-                    {providerConfig?.manualOnly?.length ? (
-                      <ul className="mt-2 space-y-1 text-xs text-muted">
-                        {providerConfig.manualOnly.map((item) => (
-                          <li key={item.name}><span className="font-medium">{item.name}:</span> {item.reason}</li>
-                        ))}
-                      </ul>
-                    ) : null}
+                    <h2 className="text-sm font-semibold">Manual bookmaker export</h2>
+                    <p className="mt-1 text-xs text-muted">The other bookmakers in your list do not yet have a directly verified pre-bet code flow in Pitchline. Copy these selections to rebuild manually.</p>
+                    <p className="mt-2 text-xs text-muted">Football.com, 1xBet, 22Bet, Bet9ja, Betway, BetPawa, Paripesa, Afropari, BC.Game and Hollywoodbets.</p>
                   </div>
                   <button
                     type="button"
@@ -471,7 +421,7 @@ export function SlipBuilder() {
         )}
 
         <p className="mt-5 text-xs text-muted">
-          SportyBet uses its regional website interface, not an official public developer API. Other code targets use the optional Manage Bet Codes API and cost two credits per generated code. Bookmaker markets can change or become unavailable; Pitchline will not silently replace a selection.
+          SportyBet and SportPesa use their own website endpoints for pre-bet share codes. These are not public developer APIs and may change; Pitchline will not silently replace a selection or place a wager.
         </p>
       </div>
     </main>

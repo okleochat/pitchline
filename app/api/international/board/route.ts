@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getLiveBoard, mergeInternationalFixtures } from "@/lib/live-board.server"
+import { mergeInternationalFixtures } from "@/lib/live-board.server"
+import { snapshotBoard } from "@/data/football"
 import { getInternationalFixtures } from "@/lib/international/fixtures.server"
 
 export const runtime = "nodejs"
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
   try {
     // Keep the same ordering as the former server page so getLiveBoard's
     // upcoming international batch can be reused by the date-scoped lookup.
-    const baseBoard = await getLiveBoard()
+    const baseBoard = snapshotBoard()
     const fixtureResult = await getInternationalFixtures(date)
     const now = Date.now()
     const upcomingFixtures = fixtureResult.fixtures.filter((fixture) => {

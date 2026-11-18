@@ -37,6 +37,8 @@ const responseCache = new Map<string, { expiresAt: number; value: InternationalF
 const upcomingCache = new Map<string, { expiresAt: number; value: InternationalFixtureResponse }>()
 const PERSISTED_UPCOMING_TTL_MS = 36 * 60 * 60 * 1000
 const PERSISTED_HISTORY_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const COMPETITION_MONTH_CACHE_TTL_MS = 5 * 60 * 1000
+const competitionMonthCache = new Map<string, { expiresAt: number; events: unknown[] }>()
 let persistedUpcomingMemory: { checkedAt: number; savedAt: number; value: InternationalFixtureResponse } | null = null
 
 function isInternationalResponse(value: unknown): value is InternationalFixtureResponse {
@@ -227,12 +229,6 @@ function mapEvent(value: unknown, source: CompetitionSource): InternationalFixtu
   }
 }
 
-async function fetchCompetition(date: string, source: CompetitionSource) {
-  const compactDate = date.replaceAll("-", "")
-  const url = ESPN_SCOREBOARD + "/" + source.slug + "/scoreboard?dates=" + compactDate
-  return getEspnJson(url)
-}
-
 /** Load senior international tournament and qualifier fixtures from ESPN. */
 export async function getInternationalFixtures(date: string): Promise<InternationalFixtureResponse> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date + "T00:00:00Z"))) {
@@ -298,10 +294,14 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
     return result
   }
 
+  // Use the same month-bucketed ESPN scoreboards as the shared board.
+  // This captures the full competition schedule and avoids a separate daily
+  // request shape that can omit friendlies and other date-scoped events.
+  const months = monthKeysInRange(date, date)
   const boards = await Promise.all(
     INTERNATIONAL_COMPETITIONS.map(async (source) => ({
       source,
-      board: await fetchCompetition(date, source),
+      ...(await fetchCompetitionMonths(months, source)),
     })),
   )
 
@@ -311,7 +311,7 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
   }
 
   const unavailable = boards
-    .filter((item) => item.board === null)
+    .filter((item) => item.partial)
     .map((item) => item.source.name)
 
   const byId = new Map<string, InternationalFixture>()
@@ -319,7 +319,9 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
     const events = (board?.events as unknown[] | undefined) ?? []
     for (const event of events) {
       const fixture = mapEvent(event, source)
-      if (fixture && !byId.has(fixture.id)) byId.set(fixture.id, fixture)
+      if (fixture && fixtureDateInLagos(fixture.kickoff) === date && !byId.has(fixture.id)) {
+        byId.set(fixture.id, fixture)
+      }
     }
   }
 
@@ -360,20 +362,38 @@ function addDays(date: string, days: number): string {
   return value.toISOString().slice(0, 10)
 }
 
+async function fetchCompetitionMonth(month: string, source: CompetitionSource): Promise<unknown[] | null> {
+  const key = source.slug + ":" + month
+  const cached = competitionMonthCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.events
+  if (cached) competitionMonthCache.delete(key)
+
+  const payload = await getEspnJson(
+    ESPN_SCOREBOARD + "/" + source.slug + "/scoreboard?dates=" + month + "&limit=500",
+  )
+  if (!payload) return null
+  const events = Array.isArray(payload.events) ? payload.events : []
+  competitionMonthCache.set(key, {
+    expiresAt: Date.now() + COMPETITION_MONTH_CACHE_TTL_MS,
+    events,
+  })
+  if (competitionMonthCache.size > 120) {
+    const firstKey = competitionMonthCache.keys().next().value
+    if (firstKey) competitionMonthCache.delete(firstKey)
+  }
+  return events
+}
+
 async function fetchCompetitionMonths(months: string[], source: CompetitionSource): Promise<{
   board: Record<string, unknown> | null
   partial: boolean
 }> {
-  const monthBoards = await Promise.all(months.map((month) =>
-    getEspnJson(ESPN_SCOREBOARD + "/" + source.slug + "/scoreboard?dates=" + month + "&limit=500")
-  ))
-  const available = monthBoards.filter((board): board is Record<string, unknown> => board !== null)
+  const monthBoards = await Promise.all(months.map((month) => fetchCompetitionMonth(month, source)))
+  const available = monthBoards.filter((events): events is unknown[] => events !== null)
   if (!available.length) return { board: null, partial: true }
 
   return {
-    board: {
-      events: available.flatMap((board) => Array.isArray(board.events) ? board.events : []),
-    },
+    board: { events: available.flat() },
     partial: available.length !== monthBoards.length,
   }
 }

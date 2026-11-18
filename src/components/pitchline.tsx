@@ -134,7 +134,7 @@ function ProSquadSummary({ squad }: { squad: ProTeamSquad }) {
           ))}
         </div>
       ) : (
-        <p className="mt-2 text-xs text-muted">Squad details unavailable</p>
+        <p className="mt-2 text-xs text-muted">No rated players in this saved roster profile.</p>
       )}
     </div>
   )
@@ -168,9 +168,9 @@ function ProPlayerDataPanel({ data }: { data: ProPlayerData }) {
   const statusLabel: Record<ProPlayerData["status"], string> = {
     available: "Squad profile ready",
     partial: "Limited squad information",
-    team_not_found: "Team profile unavailable",
-    roster_unavailable: "Squad information unavailable",
-    provider_error: "Player information temporarily unavailable",
+    team_not_found: "Using team-level baseline",
+    roster_unavailable: "Using team-level baseline",
+    provider_error: "Using team-level baseline",
   }
   return (
     <section className="mt-5 border-t border-border pt-4" aria-label="Squad insights">
@@ -722,8 +722,10 @@ export function Pitchline({
   const [ready, setReady] = useState(false)
   const [engineMode, setEngineMode] = useState<"pro" | "classic">("classic")
   const [proReport, setProReport] = useState<ProReport | null>(null)
+  const [proReportKey, setProReportKey] = useState<string | null>(null)
   const [proLoading, setProLoading] = useState(false)
   const [proError, setProError] = useState<string | null>(null)
+  const [proErrorKey, setProErrorKey] = useState<string | null>(null)
   const [proPickResults, setProPickResults] = useState<Record<string, MarketProbabilities>>({})
   const [proPickExcludedCount, setProPickExcludedCount] = useState(0)
   const [proPickLoading, setProPickLoading] = useState(false)
@@ -954,19 +956,33 @@ export function Pitchline({
     () => (same ? null : simulate(desk.home, desk.away, edge, roll, model)),
     [same, desk.home, desk.away, edge, roll, model],
   )
+  // Trust only a report for the currently selected fixture and model inputs.
+  // This prevents the previous fixture's "unavailable" status flashing before
+  // the next request's loading state is painted.
+  const proRequestKey = JSON.stringify([
+    desk.home, desk.away,
+    home.espnId, home.feedSlug, away.espnId, away.feedSlug,
+    edge, roll,
+  ])
+  const currentProReport = proReportKey === proRequestKey ? proReport : null
+  const currentProError = proErrorKey === proRequestKey ? proError : null
 
   useEffect(() => {
     if (!isPro || engineMode !== "pro" || view !== "desk" || same) {
       setProReport(null)
+      setProReportKey(null)
       setProLoading(false)
       setProError(null)
+      setProErrorKey(null)
       return
     }
 
     const controller = new AbortController()
     setProReport(null)
+    setProReportKey(null)
     setProLoading(true)
     setProError(null)
+    setProErrorKey(null)
     loadProSimulationWithRetry({
       home: { ...desk.home, espnId: home.espnId, feedSlug: home.feedSlug },
       away: { ...desk.away, espnId: away.espnId, feedSlug: away.feedSlug },
@@ -976,19 +992,21 @@ export function Pitchline({
       .then((result) => {
         if (controller.signal.aborted) return
         setProReport(result)
+        setProReportKey(proRequestKey)
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return
         setProError(error instanceof Error ? error.message : "The Pro simulation could not be completed.")
+        setProErrorKey(proRequestKey)
       })
       .finally(() => {
         if (!controller.signal.aborted) setProLoading(false)
       })
 
     return () => controller.abort()
-  }, [isPro, engineMode, view, same, desk.home, desk.away, edge, roll])
+  }, [isPro, engineMode, view, same, desk.home, desk.away, home.espnId, home.feedSlug, away.espnId, away.feedSlug, edge, roll, proRequestKey])
 
-  const report = isPro && engineMode === "pro" && view === "desk" ? proReport : classicReport
+  const report = isPro && engineMode === "pro" && view === "desk" ? currentProReport : classicReport
 
   const proPickInputs = useMemo<ProPickFixtureInput[]>(() => {
     if (view !== "picks" || !isPro || engineMode !== "pro") return []
@@ -1191,6 +1209,9 @@ export function Pitchline({
       const homeTeam = byId.get(fixture.homeId)
       const awayTeam = byId.get(fixture.awayId)
       if (!homeTeam || !awayTeam || homeTeam.id === awayTeam.id) continue
+      // A displayed date label is not a verified event timestamp. Only expose
+      // slip-eligible picks when ESPN supplied a parseable kickoff time.
+      if (!fixture.kickoffAt || !Number.isFinite(Date.parse(fixture.kickoffAt))) continue
       if (fixture.league === "int" && !hasInternationalPickHistory(homeTeam.formMatches, awayTeam.formMatches)) continue
       const shaped = shapePair(homeTeam, awayTeam, board.teams, level, null, null)
       if (usePro) {
@@ -1840,7 +1861,7 @@ export function Pitchline({
         <section className="panel mb-4">
           <p className="text-sm">Pick two different teams.</p>
         </section>
-      ) : isPro && engineMode === "pro" && (proLoading || (!proReport && !proError)) ? (
+      ) : isPro && engineMode === "pro" && (proLoading || (!currentProReport && !currentProError)) ? (
         <section className="panel mb-4" aria-live="polite" aria-busy="true">
           <div className="flex items-center gap-2">
             <LoaderCircle className="size-4 animate-spin text-primary" aria-hidden="true" />
@@ -1849,10 +1870,10 @@ export function Pitchline({
           <p className="mt-1 text-sm text-muted">Preparing the saved team profiles and match simulation. The Pro Engine will appear when squad insights are ready.</p>
           <ProPlayerDataLoadingPanel />
         </section>
-      ) : isPro && engineMode === "pro" && proError ? (
+      ) : isPro && engineMode === "pro" && currentProError ? (
         <section className="panel mb-4" role="alert">
           <p className="text-sm font-medium">Pro simulation unavailable</p>
-          <p className="mt-1 text-sm text-muted">{proError}</p>
+          <p className="mt-1 text-sm text-muted">{currentProError}</p>
           <button
             type="button"
             className="press mt-3 h-11 rounded-lg border border-border px-4 text-sm font-medium"
@@ -1916,23 +1937,23 @@ export function Pitchline({
                 </dl>
               </div>
             </div>
-            {isPro && engineMode === "pro" && proReport ? (
+            {isPro && engineMode === "pro" && currentProReport ? (
               <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-border pt-4 text-sm sm:grid-cols-3">
                   <div>
                     <dt className="text-xs text-muted">Possession</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{home.short} {proReport.details.possessionHomePct.toFixed(1)}%</dd>
+                    <dd className="mt-1 font-medium tabular-nums">{home.short} {currentProReport.details.possessionHomePct.toFixed(1)}%</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-muted">Average shots</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.shotsHome.toFixed(1)}–{proReport.details.shotsAway.toFixed(1)}</dd>
+                    <dd className="mt-1 font-medium tabular-nums">{currentProReport.details.shotsHome.toFixed(1)}–{currentProReport.details.shotsAway.toFixed(1)}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-muted">Shots on target</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{proReport.details.shotsOnTargetHome.toFixed(1)}–{proReport.details.shotsOnTargetAway.toFixed(1)}</dd>
+                    <dd className="mt-1 font-medium tabular-nums">{currentProReport.details.shotsOnTargetHome.toFixed(1)}–{currentProReport.details.shotsOnTargetAway.toFixed(1)}</dd>
                   </div>
               </dl>
             ) : null}
-            {isPro && engineMode === "pro" && proReport?.playerData ? <ProPlayerDataPanel data={proReport.playerData} /> : null}
+            {isPro && engineMode === "pro" && currentProReport?.playerData ? <ProPlayerDataPanel data={currentProReport.playerData} /> : null}
             <dl className="mt-6 grid grid-cols-3 gap-3 border-t border-border pt-4">
               <div>
                 <dt className="text-xs text-muted">Both score</dt>

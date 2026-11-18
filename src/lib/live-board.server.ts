@@ -836,19 +836,30 @@ async function readStoredBoard(): Promise<Board | null> {
 }
 
 /**
- * Read the last persisted board without contacting ESPN. Best Picks uses this
- * on the server for its first render, falling back to the bundled snapshot.
+ * Best Picks needs verified ESPN kickoff timestamps for saved slips. If the
+ * scheduled Firestore board is missing or stale, refresh it rather than
+ * rendering the bundled fixtures that contain only human-readable date labels.
  */
 export async function getBoardSnapshot(): Promise<Board> {
   try {
     const saved = await readStoredBoard()
-    if (saved?.source === "live") return saved
+    if (saved?.source === "live" && saved.fixtures.every((fixture) =>
+      typeof fixture.kickoffAt === "string" && Number.isFinite(Date.parse(fixture.kickoffAt))
+    )) return saved
   } catch (error) {
-    console.warn("[pitchline/board] Saved snapshot unavailable; using bundled board", {
+    console.warn("[pitchline/board] Saved snapshot unavailable; rebuilding live board", {
       message: error instanceof Error ? error.message : "unknown error",
     })
   }
-  return snapshotBoard()
+
+  try {
+    return await refreshLiveBoard()
+  } catch (error) {
+    console.warn("[pitchline/board] Live first-render refresh failed; using bundled fallback", {
+      message: error instanceof Error ? error.message : "unknown error",
+    })
+    return snapshotBoard()
+  }
 }
 
 /** Called only by the protected daily refresh job. */

@@ -21,7 +21,7 @@ import { clearStoredProPickCache, loadBoard, loadForm, loadProPickMarkets, loadP
 import { clearProPickCache, createProPickCacheKey, readProPickCache, writeProPickCache } from "@/lib/pro-pick-cache"
 import { homeAdvantageForLeague } from "@/lib/home-advantage"
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
-import type { ProReport } from "@/lib/pro-sim"
+import type { ProReport, ProTeam } from "@/lib/pro-sim"
 import type { ProPlayerData, ProTeamSquad } from "@/lib/pro-player-data"
 import {
   analyticalSplit,
@@ -78,6 +78,20 @@ type MarketPick = {
 
 function fixtureHomeEdge(league: LeagueId, board: Board): number {
   return homeAdvantageForLeague(league, board.leagueStatus[league]?.homeAdvantagePct)
+}
+
+async function loadProSimulationWithRetry(
+  data: { home: ProTeam; away: ProTeam; edge: number; roll: number },
+  signal: AbortSignal,
+): Promise<ProReport> {
+  const transientStatuses = new Set(["provider_error", "roster_unavailable"])
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const report = await loadProSimulation({ data, signal })
+    if (!transientStatuses.has(report.playerData?.status ?? "") || attempt === 2) return report
+    if (signal.aborted) throw new DOMException("Request aborted", "AbortError")
+    await new Promise<void>((resolve) => window.setTimeout(resolve, attempt === 0 ? 500 : 1_000))
+  }
+  throw new Error("The Pro simulation could not be completed.")
 }
 
 function readDesk(): Partial<DeskState> | null {
@@ -750,6 +764,12 @@ export function Pitchline({
     const controller = new AbortController()
     setSlipReady(false)
     setSlipError(null)
+    const timeout = window.setTimeout(() => {
+      if (controller.signal.aborted) return
+      controller.abort()
+      setSlipError("Loading your saved slip timed out. You can still add a pick; refresh later to sync saved selections.")
+      setSlipReady(true)
+    }, 10_000)
     fetch("/api/pro/slip", {
       cache: "no-store",
       credentials: "same-origin",
@@ -765,9 +785,13 @@ export function Pitchline({
         setSlipError(error instanceof Error ? error.message : "Could not load your saved slip.")
       })
       .finally(() => {
+        window.clearTimeout(timeout)
         if (!controller.signal.aborted) setSlipReady(true)
       })
-    return () => controller.abort()
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
   }, [view, session.loading, session.user?.uid, isPro])
 
   useEffect(() => {
@@ -943,15 +967,12 @@ export function Pitchline({
     setProReport(null)
     setProLoading(true)
     setProError(null)
-    loadProSimulation({
-      data: {
-        home: { ...desk.home, espnId: home.espnId, feedSlug: home.feedSlug },
-        away: { ...desk.away, espnId: away.espnId, feedSlug: away.feedSlug },
-        edge,
-        roll,
-      },
-      signal: controller.signal,
-    })
+    loadProSimulationWithRetry({
+      home: { ...desk.home, espnId: home.espnId, feedSlug: home.feedSlug },
+      away: { ...desk.away, espnId: away.espnId, feedSlug: away.feedSlug },
+      edge,
+      roll,
+    }, controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return
         setProReport(result)
@@ -1199,6 +1220,8 @@ export function Pitchline({
     setSlipLegs(next)
     setSlipSaving(true)
     setSlipError(null)
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 15_000)
     try {
       const response = await fetch("/api/pro/slip", {
         method: "PUT",
@@ -1206,14 +1229,18 @@ export function Pitchline({
         body: JSON.stringify({ legs: next }),
         cache: "no-store",
         credentials: "same-origin",
+        signal: controller.signal,
       })
       const payload = await response.json().catch(() => ({})) as { error?: string; legs?: SlipLeg[] }
       if (!response.ok) throw new Error(payload.error ?? "slip_save_failed")
       if (Array.isArray(payload.legs)) setSlipLegs(payload.legs)
     } catch (error) {
       setSlipLegs(previous)
-      setSlipError(error instanceof Error ? error.message : "Your slip could not be saved.")
+      setSlipError(controller.signal.aborted
+        ? "Saving your slip timed out. Please check My Slip before trying again."
+        : error instanceof Error ? error.message : "Your slip could not be saved.")
     } finally {
+      window.clearTimeout(timeout)
       setSlipSaving(false)
     }
   }
@@ -1235,7 +1262,8 @@ export function Pitchline({
       void persistSlip(slipLegs.filter((leg) => leg.key !== key))
       return
     }
-    if (slipLegs.length >= MAX_SLIP_LEGS) {
+    const existingForFixture = slipLegs.some((leg) => leg.fixtureId === pick.fixture.id)
+    if (slipLegs.length >= MAX_SLIP_LEGS && !existingForFixture) {
       setSlipError("A slip can contain up to fifty selections.")
       return
     }
@@ -1243,26 +1271,28 @@ export function Pitchline({
       setSlipError("This fixture does not have a verified kickoff time and cannot be added.")
       return
     }
-    if (slipLegs.some((leg) => leg.fixtureId === pick.fixture.id)) {
-      setSlipError("For now, add only one selection per match.")
-      return
-    }
     const homeTeam = teamBy(pick.fixture.homeId)
     const awayTeam = teamBy(pick.fixture.awayId)
     if (!homeTeam || !awayTeam) return
-    const next: SlipLeg[] = [...slipLegs, {
-      key,
-      fixtureId: pick.fixture.id,
-      league: pick.fixture.league,
-      competitionName: pick.fixture.competitionName ?? leagueShort(pick.fixture.league),
-      kickoffAt: pick.fixture.kickoffAt,
-      when: pick.fixture.when,
-      homeTeam: homeTeam.name,
-      awayTeam: awayTeam.name,
-      label: pick.label,
-      kind: pick.kind,
-      probability: pick.share,
-    }]
+    // Keep one selection per match, but let the user change it directly from
+    // Best Picks instead of silently disabling every alternative market.
+    const next: SlipLeg[] = [
+      ...slipLegs.filter((leg) => leg.fixtureId !== pick.fixture.id),
+      {
+        key,
+        fixtureId: pick.fixture.id,
+        league: pick.fixture.league,
+        competitionName: pick.fixture.competitionName ?? leagueShort(pick.fixture.league),
+        kickoffAt: pick.fixture.kickoffAt,
+        when: pick.fixture.when,
+        homeTeam: homeTeam.name,
+        awayTeam: awayTeam.name,
+        label: pick.label,
+        kind: pick.kind,
+        probability: pick.share,
+      },
+    ]
+    setSlipError(null)
     void persistSlip(next)
   }
 
@@ -1553,13 +1583,13 @@ export function Pitchline({
                     <button
                       type="button"
                       aria-pressed={slipPickIsAdded(pick)}
-                      aria-label={slipPickIsAdded(pick) ? "Remove pick from slip" : "Add pick to slip"}
-                      title={slipPickIsAdded(pick) ? "Remove from slip" : "Add to slip"}
+                      aria-label={slipPickIsAdded(pick) ? "Remove pick from slip" : slipLegs.some((leg) => leg.fixtureId === pick.fixture.id) ? "Replace pick in slip" : "Add pick to slip"}
+                      title={!slipReady ? "Loading your saved slip" : slipSaving ? "Saving your slip" : slipPickIsAdded(pick) ? "Remove from slip" : slipLegs.some((leg) => leg.fixtureId === pick.fixture.id) ? "Replace the current selection for this match" : "Add to slip"}
                       onClick={() => toggleSlipPick(pick)}
-                      disabled={!slipReady || slipSaving || (!pick.fixture.kickoffAt && !slipPickIsAdded(pick)) || (slipLegs.length >= MAX_SLIP_LEGS && !slipPickIsAdded(pick)) || (slipLegs.some((leg) => leg.fixtureId === pick.fixture.id && leg.key !== slipPickKey(pick)))}
+                      disabled={!slipReady || slipSaving}
                       className={`press mx-3 my-auto inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-medium disabled:opacity-40 ${slipPickIsAdded(pick) ? "border-primary bg-sunken text-primary" : "border-border bg-background"}`}
                     >
-                      {slipPickIsAdded(pick) ? <><Check className="size-4" /> Added</> : <><Plus className="size-4" /> Add to slip</>}
+                      {slipSaving ? <><LoaderCircle className="size-4 animate-spin" /> Saving</> : slipPickIsAdded(pick) ? <><Check className="size-4" /> Added</> : slipLegs.some((leg) => leg.fixtureId === pick.fixture.id) ? <><RotateCcw className="size-4" /> Replace pick</> : <><Plus className="size-4" /> Add to slip</>}
                     </button>
                   ) : null}
                     </div>
@@ -1810,13 +1840,13 @@ export function Pitchline({
         <section className="panel mb-4">
           <p className="text-sm">Pick two different teams.</p>
         </section>
-      ) : isPro && engineMode === "pro" && proLoading ? (
+      ) : isPro && engineMode === "pro" && (proLoading || (!proReport && !proError)) ? (
         <section className="panel mb-4" aria-live="polite" aria-busy="true">
           <div className="flex items-center gap-2">
             <LoaderCircle className="size-4 animate-spin text-primary" aria-hidden="true" />
             <p className="text-sm font-medium">Loading Pro Engine…</p>
           </div>
-          <p className="mt-1 text-sm text-muted">Preparing squad data and match simulation.</p>
+          <p className="mt-1 text-sm text-muted">Preparing the saved team profiles and match simulation. The Pro Engine will appear when squad insights are ready.</p>
           <ProPlayerDataLoadingPanel />
         </section>
       ) : isPro && engineMode === "pro" && proError ? (

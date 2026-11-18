@@ -3,6 +3,7 @@ import "server-only"
 import { getEspnJson } from "@/lib/espn/transport.server"
 import { INTERNATIONAL_COMPETITIONS, type CompetitionSource } from "./competitions"
 import { canReuseUpcomingCache, monthKeysInRange } from "./date-windows"
+import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
 
 type Dict = Record<string, unknown>
 
@@ -34,6 +35,102 @@ const LIVE_CACHE_TTL_MS = 2 * 60 * 1000
 const OTHER_DATE_CACHE_TTL_MS = 10 * 60 * 1000
 const responseCache = new Map<string, { expiresAt: number; value: InternationalFixtureResponse }>()
 const upcomingCache = new Map<string, { expiresAt: number; value: InternationalFixtureResponse }>()
+const PERSISTED_UPCOMING_TTL_MS = 36 * 60 * 60 * 1000
+const PERSISTED_HISTORY_TTL_MS = 30 * 24 * 60 * 60 * 1000
+let persistedUpcomingMemory: { checkedAt: number; savedAt: number; value: InternationalFixtureResponse } | null = null
+
+function isInternationalResponse(value: unknown): value is InternationalFixtureResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const item = value as Partial<InternationalFixtureResponse>
+  return typeof item.date === "string" && Array.isArray(item.fixtures) &&
+    typeof item.competitionsChecked === "number" && Array.isArray(item.competitionsUnavailable)
+}
+
+function dateInLagos(iso: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(iso))
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return values.year + "-" + values.month + "-" + values.day
+}
+
+function persistedDateTtl(date: string, today: string): number {
+  if (date === today) return LIVE_CACHE_TTL_MS
+  if (date < today) return PERSISTED_HISTORY_TTL_MS
+  return OTHER_DATE_CACHE_TTL_MS
+}
+
+async function readPersistedDate(date: string, today: string): Promise<InternationalFixtureResponse | null> {
+  try {
+    const snapshot = await getFirebaseAdminFirestore()
+      .collection("pitchlineInternationalDates")
+      .doc(date)
+      .get()
+    const data = snapshot.data()
+    const savedAt = typeof data?.savedAt === "number" ? data.savedAt : 0
+    if (!data || !savedAt || Date.now() - savedAt > persistedDateTtl(date, today)) return null
+    return isInternationalResponse(data.response) ? data.response : null
+  } catch {
+    return null
+  }
+}
+
+async function writePersistedDate(
+  date: string,
+  today: string,
+  response: InternationalFixtureResponse,
+): Promise<void> {
+  try {
+    await getFirebaseAdminFirestore()
+      .collection("pitchlineInternationalDates")
+      .doc(date)
+      .set({ savedAt: Date.now(), response })
+  } catch {
+    // The in-process cache and live ESPN fallback remain available without Firestore.
+  }
+}
+
+async function readPersistedUpcoming(): Promise<InternationalFixtureResponse | null> {
+  if (persistedUpcomingMemory &&
+      Date.now() - persistedUpcomingMemory.checkedAt < 60_000 &&
+      Date.now() - persistedUpcomingMemory.savedAt <= PERSISTED_UPCOMING_TTL_MS) {
+    return persistedUpcomingMemory.value
+  }
+
+  try {
+    const snapshot = await getFirebaseAdminFirestore()
+      .collection("pitchlineData")
+      .doc("internationalUpcoming")
+      .get()
+    const data = snapshot.data()
+    const savedAt = typeof data?.savedAt === "number" ? data.savedAt : 0
+    if (!data || !savedAt || Date.now() - savedAt > PERSISTED_UPCOMING_TTL_MS ||
+        !isInternationalResponse(data.response)) {
+      persistedUpcomingMemory = null
+      return null
+    }
+    persistedUpcomingMemory = { checkedAt: Date.now(), savedAt, value: data.response }
+    return data.response
+  } catch {
+    return null
+  }
+}
+
+async function writePersistedUpcoming(response: InternationalFixtureResponse): Promise<void> {
+  const savedAt = Date.now()
+  try {
+    await getFirebaseAdminFirestore()
+      .collection("pitchlineData")
+      .doc("internationalUpcoming")
+      .set({ savedAt, response })
+    persistedUpcomingMemory = { checkedAt: savedAt, savedAt, value: response }
+  } catch {
+    // The shared board refresh must still complete if this optional cache write fails.
+  }
+}
 
 function record(value: unknown): Dict | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Dict : null
@@ -145,10 +242,35 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
   const cached = responseCache.get(date)
   if (cached && cached.expiresAt > Date.now()) return cached.value
 
+  const today = dateInLagos(new Date().toISOString())
+  const persistedDate = await readPersistedDate(date, today)
+  if (persistedDate) {
+    responseCache.set(date, {
+      expiresAt: Date.now() + persistedDateTtl(date, today),
+      value: persistedDate,
+    })
+    return persistedDate
+  }
+
+  // Serve future dates from the snapshot populated by the scheduled shared-board refresh.
+  const durableUpcoming = await readPersistedUpcoming()
+  if (durableUpcoming &&
+      canReuseUpcomingCache(date, durableUpcoming.date, addDays(durableUpcoming.date, 30))) {
+    const result: InternationalFixtureResponse = {
+      ...durableUpcoming,
+      date,
+      fixtures: durableUpcoming.fixtures.filter((fixture) => dateInLagos(fixture.kickoff) === date),
+    }
+    responseCache.set(date, {
+      expiresAt: Date.now() + OTHER_DATE_CACHE_TTL_MS,
+      value: result,
+    })
+    return result
+  }
+
   // Reuse the 30-day batch already fetched by the shared match board whenever
   // the requested day falls inside that window; this avoids a second set of
   // scoreboard calls on the International page and Best Picks.
-  const today = dateInLagos()
   const upcoming = upcomingCache.get(today + ":30")
   const upcomingEnd = addDays(today, 30)
   // Today's scoreboard may already contain live and completed matches. The
@@ -214,6 +336,7 @@ export async function getInternationalFixtures(date: string): Promise<Internatio
 
   const ttl = date === today ? LIVE_CACHE_TTL_MS : OTHER_DATE_CACHE_TTL_MS
   responseCache.set(date, { expiresAt: Date.now() + ttl, value: result })
+  await writePersistedDate(date, today, result)
   if (responseCache.size > 90) {
     const firstKey = responseCache.keys().next().value
     if (firstKey) responseCache.delete(firstKey)
@@ -311,6 +434,7 @@ export async function getUpcomingInternationalFixtures(days = 30): Promise<Inter
     partial: unavailable.length > 0,
   }
   upcomingCache.set(cacheKey, { expiresAt: Date.now() + 2 * 60 * 1000, value: result })
+  await writePersistedUpcoming(result)
   if (upcomingCache.size > 20) {
     const firstKey = upcomingCache.keys().next().value
     if (firstKey) upcomingCache.delete(firstKey)

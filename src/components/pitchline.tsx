@@ -16,7 +16,7 @@ import {
   type RateSample,
   type Team,
 } from "@/data/football"
-import { loadBoard, loadForm, loadProPickMarkets, loadProSimulation, type FormResult, type ProPickFixtureInput } from "@/lib/board"
+import { loadBoard, loadForm, loadProPickMarkets, loadProSimulation, readStoredProPickCache, writeStoredProPickCache, type FormResult, type ProPickFixtureInput } from "@/lib/board"
 import { createProPickCacheKey, readProPickCache, writeProPickCache } from "@/lib/pro-pick-cache"
 import { homeAdvantageForLeague } from "@/lib/home-advantage"
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
@@ -703,7 +703,7 @@ export function Pitchline({
   const [priceText, setPriceText] = useState("")
   const tapeRef = useRef<HTMLElement>(null)
   const runTimer = useRef<number | null>(null)
-  const lastBoardPullAt = useRef(0)
+  const lastBoardPullAt = useRef(initial.source === "live" ? Date.now() : 0)
 
   useEffect(() => {
     setBoard(initial)
@@ -967,6 +967,26 @@ export function Pitchline({
     setProPickError(null)
     setProPickProgress({ done: 0, total: proPickInputs.length })
     const run = async () => {
+      // Browser storage is a quick same-tab shortcut. Firestore is the durable
+      // per-account cache, so a completed run survives reloads and new devices.
+      const persisted = await readStoredProPickCache({
+        cacheKey: proPickCacheKey,
+        fixtureCount: proPickInputs.length,
+        signal: controller.signal,
+      }).catch(() => null)
+      if (!active || controller.signal.aborted) return
+      if (persisted) {
+        setProPickResults(persisted.results)
+        setProPickExcludedCount(persisted.excludedCount)
+        setProPickProgress({ done: proPickInputs.length, total: proPickInputs.length })
+        writeProPickCache(proPickCacheKey, {
+          savedAt: Date.now(),
+          results: persisted.results,
+          excludedCount: persisted.excludedCount,
+        }, proPickInputs.length)
+        return
+      }
+
       for (let index = 0; index < proPickInputs.length; index += 12) {
         const batch = proPickInputs.slice(index, index + 12)
         const batchResult = await loadProPickMarkets({ data: { fixtures: batch }, signal: controller.signal })
@@ -981,11 +1001,18 @@ export function Pitchline({
       }
 
       if (!active || controller.signal.aborted) return
-      writeProPickCache(proPickCacheKey, {
+      const entry = {
         savedAt: Date.now(),
         results: accumulatedResults,
         excludedCount: accumulatedExcludedCount,
-      }, proPickInputs.length)
+      }
+      await writeStoredProPickCache({
+        cacheKey: proPickCacheKey,
+        fixtureCount: proPickInputs.length,
+        results: accumulatedResults,
+        excludedCount: accumulatedExcludedCount,
+      }).catch(() => {})
+      writeProPickCache(proPickCacheKey, entry, proPickInputs.length)
     }
     run().then(() => {
       if (active) setProPickLoading(false)

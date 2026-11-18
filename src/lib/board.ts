@@ -98,3 +98,58 @@ export async function loadProPickMarkets(input: {
       : 0,
   }
 }
+
+
+export type StoredProPickCache = {
+  results: Record<string, MarketProbabilities>
+  excludedCount: number
+}
+
+async function requestStoredProPickCache(
+  data: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return fetch("/api/pro/picks/cache", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+    cache: "no-store",
+    credentials: "same-origin",
+    signal,
+  })
+}
+
+export async function readStoredProPickCache(input: {
+  cacheKey: string
+  fixtureCount: number
+  signal?: AbortSignal
+}): Promise<StoredProPickCache | null> {
+  const response = await requestStoredProPickCache({
+    action: "read",
+    cacheKey: input.cacheKey,
+    fixtureCount: input.fixtureCount,
+  }, input.signal)
+  if (!response.ok) throw new Error("Could not read saved Pro picks.")
+  const payload = (await response.json()) as { cache?: StoredProPickCache | null }
+  const cache = payload.cache
+  if (!cache || !cache.results || typeof cache.results !== "object" || Array.isArray(cache.results)) return null
+  if (!Number.isSafeInteger(cache.excludedCount) || cache.excludedCount < 0) return null
+  if (Object.keys(cache.results).length + cache.excludedCount !== input.fixtureCount) return null
+  return cache
+}
+
+export async function writeStoredProPickCache(input: {
+  cacheKey: string
+  fixtureCount: number
+  results: Record<string, MarketProbabilities>
+  excludedCount: number
+}): Promise<void> {
+  const response = await requestStoredProPickCache({
+    action: "write",
+    cacheKey: input.cacheKey,
+    fixtureCount: input.fixtureCount,
+    results: input.results,
+    excludedCount: input.excludedCount,
+  })
+  if (!response.ok) throw new Error("Could not save Pro picks.")
+}

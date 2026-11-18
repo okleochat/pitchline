@@ -40,5 +40,20 @@ function getAdminApp() {
   }, "pitchline-admin")
 }
 
+export function firebaseAdminCredentialMode():
+  | "service-account-json"
+  | "application-default-candidate"
+  | "missing" {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) return "service-account-json"
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
+    return "application-default-candidate"
+  }
+  return "missing"
+}
+
+export function hasFirebaseAdminCredentials(): boolean {
+  return firebaseAdminCredentialMode() !== "missing"
+}
+
 export function getFirebaseAdminAuth() { return getAuth(getAdminApp()) }
 export function getFirebaseAdminFirestore() { return getFirestore(getAdminApp()) }

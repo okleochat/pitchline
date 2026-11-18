@@ -42,6 +42,7 @@ import {
   type Report,
   type TapeEvent,
 } from "@/lib/sim"
+import { MAX_SLIP_LEGS, type SlipLeg } from "@/lib/slip/types"
 
 const STORAGE_KEY = "pitchline-desk"
 

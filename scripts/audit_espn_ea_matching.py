@@ -195,6 +195,27 @@ def load_ea_snapshot(db):
         raise RuntimeError(f"Active EA collection {collection} contains no player records.")
     return collection, metadata, players_by_id, shard_count
 
+def score_is_usable(player):
+    # Mirrors deriveEaPlayerScores()'s hasAnyPlayerData gate.
+    overall = player.get("overall", player.get("overallRating"))
+    if isinstance(overall, dict):
+        overall = overall.get("value")
+    if isinstance(overall, (int, float)) and not isinstance(overall, bool):
+        return True
+    stats = rec(player.get("stats"))
+    keys = (
+        "pac", "pace", "sho", "shooting", "pas", "passing", "dri", "dribbling",
+        "def", "defending", "phy", "physicality",
+        "gkDiving", "gkHandling", "gkPositioning", "gkReflexes", "gkKicking", "reactions",
+    )
+    for key in keys:
+        value = stats.get(key, player.get(key))
+        if isinstance(value, dict):
+            value = value.get("value")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return True
+    return False
+
 def match_exact(espn, ea_players, exact_index):
     keys = {normalize_prod(name) for name in espn["names"]}
     keys.discard("")
@@ -383,6 +404,8 @@ def main():
         team_name = team.get("name", "")
         exact_ids = set()
         exact = 0
+        identity_exact = 0
+        unrated_identity = 0
         ambiguous = 0
         conflict = 0
         high = medium = low = 0
@@ -393,16 +416,43 @@ def main():
                 ambiguous += 1
                 totals["ambiguous_exact"] += 1
             elif match:
+                identity_exact += 1
+                totals["exact_identity_matches"] += 1
                 if match["id"] in exact_ids:
                     conflict += 1
                     totals["duplicate_identity_conflicts"] += 1
                     continue
                 exact_ids.add(match["id"])
-                exact += 1
-                totals["exact_matches"] += 1
-                if match.get("overall") is not None or isinstance(match.get("stats"), dict):
+                if score_is_usable(match):
+                    exact += 1
                     rated_exact += 1
+                    totals["exact_matches"] += 1
                     totals["rated_exact_matches"] += 1
+                    continue
+                # The identity exists in EA, but the app cannot create scores
+                # from this record; it therefore does not count as rated coverage.
+                unrated_identity += 1
+                totals["unrated_exact_identity"] += 1
+                unmatched_rows.append({
+                    "league": team.get("league", ""),
+                    "team": team_name,
+                    "espn_team_id": team.get("espnId", ""),
+                    "espn_player_id": player["espn_id"],
+                    "espn_player": player["name"],
+                    "espn_name_candidates": " | ".join(player["names"]),
+                    "position": player["position"],
+                    "nationality": player["nationality"],
+                    "candidate_count": 1,
+                    "top_candidate": match.get("name", ""),
+                    "top_candidate_id": match.get("id", ""),
+                    "top_candidate_overall": match.get("overall", ""),
+                    "top_candidate_position": match.get("position", ""),
+                    "top_candidate_nationality": match.get("nationality", ""),
+                    "similarity": 100,
+                    "confidence": "unrated",
+                    "reason": "exact_EA_identity_but_no_usable_rating_fields",
+                    "other_candidates": match.get("name", ""),
+                })
                 continue
 
             candidates = fuzzy_candidates(player, ea_players, indexes, limit=3)
@@ -452,15 +502,17 @@ def main():
             "team": team_name,
             "espn_team_id": team.get("espnId", ""),
             "roster_count": roster_count,
-            "exact_matches": exact,
+            "exact_identity_matches": identity_exact,
+            "exact_matches": rated_exact,
             "rated_exact_matches": rated_exact,
+            "unrated_exact_identity": unrated_identity,
             "coverage_pct": round(coverage * 100, 1),
             "ambiguous_exact": ambiguous,
             "duplicate_identity_conflicts": conflict,
             "high_confidence_unmatched": high,
             "medium_confidence_unmatched": medium,
             "low_confidence_unmatched": low,
-            "no_candidate": roster_count - exact - ambiguous - conflict - high - medium - low,
+            "no_candidate": roster_count - rated_exact - ambiguous - conflict - unrated_identity - high - medium - low,
             "projected_coverage_with_high_candidates_pct": round(projected / roster_count * 100, 1) if roster_count else 0,
             "current_60pct_and_12_gate": exact >= 12 and coverage >= 0.6,
             "projected_60pct_and_12_gate": projected >= 12 and (projected / roster_count >= 0.6 if roster_count else False),
@@ -472,8 +524,9 @@ def main():
         totals["projected_gate_teams"] += int(projected >= 12 and (projected / roster_count >= 0.6 if roster_count else False))
 
     rostered = totals["espn_roster_players"]
-    exact_count = totals["exact_matches"]
-    unmatched_count = max(0, rostered - exact_count - totals["ambiguous_exact"] - totals["duplicate_identity_conflicts"])
+    exact_count = totals["exact_identity_matches"]
+    rated_count = totals["rated_exact_matches"]
+    unmatched_count = max(0, rostered - rated_count - totals["ambiguous_exact"] - totals["duplicate_identity_conflicts"])
     high_count = totals["high_confidence_unmatched"]
     summary = {
         "audit_type": "read_only_espn_to_ea_player_identity_audit",
@@ -488,9 +541,11 @@ def main():
         "roster_fetch_failures_or_empty": len(failures),
         "espn_roster_players": rostered,
         "exact_identity_matches": exact_count,
-        "exact_match_coverage_pct": round(exact_count / rostered * 100, 2) if rostered else 0,
+        "rated_exact_matches": rated_count,
+        "exact_rating_coverage_pct": round(rated_count / rostered * 100, 2) if rostered else 0,
         "ambiguous_exact_matches": totals["ambiguous_exact"],
         "duplicate_identity_conflicts": totals["duplicate_identity_conflicts"],
+        "unrated_exact_identity_records": totals["unrated_exact_identity"],
         "unmatched_after_current_logic": unmatched_count,
         "high_confidence_name_variant_candidates": high_count,
         "medium_confidence_candidates": totals["medium_confidence_unmatched"],
@@ -517,7 +572,7 @@ def main():
     summary["league_breakdown"] = {
         league: {
             **dict(counts),
-            "coverage_pct": round(counts["exact_matches"] / counts["roster_count"] * 100, 1) if counts["roster_count"] else 0,
+            "coverage_pct": round(counts["rated_exact_matches"] / counts["roster_count"] * 100, 1) if counts["roster_count"] else 0,
         }
         for league, counts in sorted(by_league.items())
     }

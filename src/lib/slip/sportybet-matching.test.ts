@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { matchSportyBetFixture, normalizeTeamName, parseEventTimestamp, resolveSportyBetSelection } from "./sportybet-matching.ts"
+import { matchSportyBetFixture, normalizeTeamName, parseEventTimestamp, resolveSportyBetSelection, teamNameMatchScore } from "./sportybet-matching.ts"
 import { normalizeSlipLegs, type SlipLeg } from "./types.ts"
 
 const now = Date.parse("2026-11-18T12:00:00.000Z")
@@ -68,6 +68,12 @@ test("normalizes regional aliases and bookmaker club-name variants", () => {
   assert.equal(normalizeTeamName("Stade Rennais"), normalizeTeamName("Rennes"))
   assert.equal(normalizeTeamName("Bayern München"), normalizeTeamName("Bayern Munich"))
   assert.equal(normalizeTeamName("Queens Park Rangers"), normalizeTeamName("QPR"))
+})
+
+test("does not confuse first teams with reserve or youth sides", () => {
+  assert.equal(teamNameMatchScore("Elversberg", "SV Elversberg II"), 0)
+  assert.equal(teamNameMatchScore("Roma", "Roma U21"), 0)
+  assert.equal(teamNameMatchScore("Sporting Lisbon", "Sporting Lisbo"), 0.9)
 })
 
 test("parses provider kickoff values in seconds, milliseconds and ISO format", () => {

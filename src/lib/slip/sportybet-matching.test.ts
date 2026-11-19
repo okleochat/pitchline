@@ -70,6 +70,53 @@ test("normalizes regional aliases and bookmaker club-name variants", () => {
   assert.equal(normalizeTeamName("Queens Park Rangers"), normalizeTeamName("QPR"))
 })
 
+test("normalizes the exact club-name variants returned by SportyBet", () => {
+  assert.equal(normalizeTeamName("FC Twente"), normalizeTeamName("FC Twente Enschede"))
+  assert.equal(normalizeTeamName("Willem II"), normalizeTeamName("Willem II Tilburg"))
+  assert.equal(normalizeTeamName("Gil Vicente"), normalizeTeamName("Gil Vicente Barcelos"))
+  assert.equal(normalizeTeamName("Estoril"), normalizeTeamName("Estoril Praia"))
+  assert.equal(normalizeTeamName("Norwich City"), normalizeTeamName("Norwich"))
+  assert.equal(normalizeTeamName("Istanbul Basaksehir"), normalizeTeamName("Istanbul BB"))
+  assert.equal(normalizeTeamName("AZ Alkmaar"), normalizeTeamName("Alkmaar"))
+  assert.equal(normalizeTeamName("SC Freiburg"), normalizeTeamName("Freiburg"))
+  assert.equal(normalizeTeamName("Elversberg"), normalizeTeamName("SV 07 Elversberg"))
+})
+
+test("matches all eight reported SportyBet fixture name variants", () => {
+  const cases = [
+    ["FC Twente", "Willem II", "FC Twente Enschede", "Willem II Tilburg", "2026-11-22T11:15:00.000Z"],
+    ["Gil Vicente", "Estoril", "Gil Vicente Barcelos", "Estoril Praia", "2026-11-29T18:00:00.000Z"],
+    ["Norwich City", "Queens Park Rangers", "Norwich", "Queens Park Rangers", "2026-11-24T19:45:00.000Z"],
+    ["Istanbul Basaksehir", "Corum FK", "Istanbul BB", "Corum FK", "2026-11-23T17:00:00.000Z"],
+    ["Sparta Rotterdam", "AZ Alkmaar", "Sparta Rotterdam", "Alkmaar", "2026-11-22T13:30:00.000Z"],
+    ["Sparta Prague", "AZ Alkmaar", "Sparta Prague", "Alkmaar", "2026-11-26T20:00:00.000Z"],
+    ["SC Freiburg", "FC Twente", "Freiburg", "FC Twente Enschede", "2026-11-26T20:00:00.000Z"],
+    ["Elversberg", "Freiburg", "SV 07 Elversberg", "Freiburg", "2026-11-21T14:30:00.000Z"],
+  ] as const
+
+  for (const [homeTeam, awayTeam, homeTeamName, awayTeamName, kickoffAt] of cases) {
+    const leg: SlipLeg = {
+      ...baseLeg,
+      homeTeam,
+      awayTeam,
+      label: homeTeam + " to win",
+      kickoffAt,
+    }
+    const event = {
+      ...fixture,
+      eventId: homeTeam + ":" + awayTeam,
+      homeTeamName,
+      awayTeamName,
+      estimateStartTime: Date.parse(kickoffAt),
+    }
+    assert.equal(
+      matchSportyBetFixture(leg, [event], now)?.eventId,
+      event.eventId,
+      homeTeam + " vs " + awayTeam,
+    )
+  }
+})
+
 test("does not confuse first teams with reserve or youth sides", () => {
   assert.equal(teamNameMatchScore("Elversberg", "SV Elversberg II"), 0)
   assert.equal(teamNameMatchScore("Roma", "Roma U21"), 0)

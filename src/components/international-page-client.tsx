@@ -77,7 +77,7 @@ export function InternationalPageClient({ initialDate }: { initialDate: string }
   }, [initialDate])
 
   function navigateToDate(nextDate: string) {
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(nextDate)) return
+    if (!/^\d{4}-\\d{2}-\\d{2}$/.test(nextDate)) return
     const parsed = new Date(nextDate + "T00:00:00Z")
     if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== nextDate) return
     setDate(nextDate)

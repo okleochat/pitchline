@@ -35,48 +35,150 @@ export type SportyBetSelection = {
 
 const TEAM_ALIASES: Record<string, string> = {
   "man city": "manchester city",
-  "manchester city": "manchester city",
   "man utd": "manchester united",
   "man united": "manchester united",
-  "manchester united": "manchester united",
+  "manchester utd": "manchester united",
   "tottenham": "tottenham hotspur",
   "spurs": "tottenham hotspur",
-  "tottenham hotspur": "tottenham hotspur",
   "nottm forest": "nottingham forest",
-  "nottingham forest": "nottingham forest",
+  "nottingham": "nottingham forest",
   "brighton": "brighton and hove albion",
-  "brighton and hove albion": "brighton and hove albion",
   "psg": "paris saint germain",
-  "paris saint germain": "paris saint germain",
+  "paris sg": "paris saint germain",
   "atletico": "atletico madrid",
-  "atletico madrid": "atletico madrid",
+  "atleti": "atletico madrid",
   "inter": "inter milan",
   "internazionale": "inter milan",
-  "inter milan": "inter milan",
   "bayern": "bayern munich",
-  "bayern munich": "bayern munich",
+  "bayern munchen": "bayern munich",
+  "koln": "cologne",
+  "cologne": "cologne",
   "newcastle": "newcastle united",
-  "newcastle united": "newcastle united",
   "leeds": "leeds united",
-  "leeds united": "leeds united",
+  "feyenoord": "feyenoord rotterdam",
+  "ajax": "ajax amsterdam",
+  "west ham": "west ham united",
+  "preston": "preston north end",
+  "norwich": "norwich city",
+  "qpr": "queens park rangers",
+  "cardiff": "cardiff city",
+  "willem 2": "willem ii",
+  "sparta praha": "sparta prague",
+  "az": "az alkmaar",
+  "ado": "ado den haag",
+  "estoril": "estoril praia",
+  "excelsior": "excelsior rotterdam",
+  "frankfurt": "eintracht frankfurt",
+  "stade rennais": "rennes",
+  "basaksehir": "istanbul basaksehir",
+  "nijmegen": "nec nijmegen",
 }
 
+const PREFIX_TOKENS = new Set([
+  "1", "fc", "afc", "cf", "sc", "ac", "as", "sv", "vfb", "vfl", "tsg",
+  "bsc", "fk", "cd", "ud", "ssc", "rc", "ks",
+])
+const SUFFIX_TOKENS = new Set([
+  "fc", "afc", "cf", "sc", "fk", "club", "calcio",
+])
+const AMBIGUOUS_SINGLE_NAMES = new Set([
+  "milan", "roma", "rome", "madrid", "city", "united", "sporting",
+  "paris", "london", "athletic", "rangers", "real",
+])
+
+/**
+ * Convert provider-specific club labels into a stable comparison name.
+ * This is deliberately conservative: known aliases are explicit, while
+ * uncertain fuzzy comparisons are handled separately with a confidence score.
+ */
 export function normalizeTeamName(value: string): string {
-  const base = value
+  const prepared = value
+    .replace(/ß/g, "ss")
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
     .replace(/&/g, " and ")
-    .replace(/\b(fc|afc|cf|sc)\b/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
+
+  const tokens = prepared.split(" ").filter(Boolean).map((token) => token === "ii" ? "2" : token)
+  while (tokens.length > 1 && PREFIX_TOKENS.has(tokens[0])) tokens.shift()
+  while (tokens.length > 1 && SUFFIX_TOKENS.has(tokens[tokens.length - 1])) tokens.pop()
+
+  const base = tokens.join(" ")
   return TEAM_ALIASES[base] ?? base
 }
 
-function startTime(event: SportyBetEvent): number {
-  const value = Number(event.estimateStartTime)
-  return Number.isFinite(value) ? value : Number.NaN
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index)
+  for (let row = 1; row <= left.length; row += 1) {
+    let diagonal = previous[0]
+    previous[0] = row
+    for (let column = 1; column <= right.length; column += 1) {
+      const above = previous[column]
+      const substitution = diagonal + (left[row - 1] === right[column - 1] ? 0 : 1)
+      previous[column] = Math.min(previous[column] + 1, previous[column - 1] + 1, substitution)
+      diagonal = above
+    }
+  }
+  return previous[right.length]
+}
+
+/** Confidence score for two club labels; 0 means they should not be treated as the same team. */
+export function teamNameMatchScore(left: string, right: string): number {
+  const a = normalizeTeamName(left)
+  const b = normalizeTeamName(right)
+  if (!a || !b) return 0
+  if (a === b) return 1
+
+  const aTokens = a.split(" ")
+  const bTokens = b.split(" ")
+  const aSet = new Set(aTokens)
+  const bSet = new Set(bTokens)
+  const overlap = [...aSet].filter((token) => bSet.has(token)).length
+
+  // Allow a provider to add or omit a secondary club/location descriptor,
+  // but require at least two shared tokens to avoid matching generic names.
+  if (aTokens.length > 1 && bTokens.length > 1) {
+    const smallerSet = aSet.size <= bSet.size ? aSet : bSet
+    if ([...smallerSet].every((token) => (aSet.has(token) && bSet.has(token)))) return 0.94
+    const union = new Set([...aSet, ...bSet]).size
+    if (overlap >= 2 && overlap / union >= 0.8) return 0.9
+  }
+
+  // A single distinctive club name may appear with a provider-added city or
+  // club prefix. Common ambiguous words such as Milan or Madrid are excluded.
+  if (aTokens.length === 1 && bSet.has(a) &&
+      a.length >= 8 && !AMBIGUOUS_SINGLE_NAMES.has(a)) return 0.89
+  if (bTokens.length === 1 && aSet.has(b) &&
+      b.length >= 8 && !AMBIGUOUS_SINGLE_NAMES.has(b)) return 0.89
+
+  const longest = Math.max(a.length, b.length)
+  if (longest < 6) return 0
+  const similarity = 1 - editDistance(a, b) / longest
+  return similarity >= 0.88 ? similarity : 0
+}
+
+/** Accept both provider Unix seconds and milliseconds, plus ISO-like date strings. */
+export function parseEventTimestamp(value: unknown): number {
+  if (typeof value === "number" || (typeof value === "string" && /^\d{9,16}$/.test(value.trim()))) {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) return Number.NaN
+    return numeric < 100_000_000_000 ? numeric * 1000 : numeric
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : Number.NaN
+  }
+  return Number.NaN
+}
+
+const MAX_KICKOFF_DIFFERENCE_MS = 90 * 60 * 1000
+
+function isPreMatchStatus(value: string | undefined): boolean {
+  const status = (value ?? "").toLowerCase().replace(/[^a-z]/g, "")
+  return ["notstart", "notstarted", "scheduled", "prematch", "pending"].includes(status)
 }
 
 export function matchSportyBetFixture(
@@ -87,23 +189,30 @@ export function matchSportyBetFixture(
   const targetKickoff = Date.parse(leg.kickoffAt)
   if (!Number.isFinite(targetKickoff) || targetKickoff <= now) return null
 
-  const home = normalizeTeamName(leg.homeTeam)
-  const away = normalizeTeamName(leg.awayTeam)
-  const matches = new Map<string, SportyBetEvent>()
-
+  const candidates: Array<{ event: SportyBetEvent; score: number }> = []
   for (const event of events) {
     const eventId = typeof event.eventId === "string" ? event.eventId : ""
-    const eventStart = startTime(event)
-    const status = (event.matchStatus ?? "").trim().toLowerCase()
+    const eventStart = parseEventTimestamp(event.estimateStartTime)
     if (!eventId || !Number.isFinite(eventStart) || eventStart <= now) continue
-    if (status !== "not start" && status !== "not started") continue
-    if (normalizeTeamName(event.homeTeamName ?? "") !== home ||
-        normalizeTeamName(event.awayTeamName ?? "") !== away) continue
-    if (Math.abs(eventStart - targetKickoff) > 45 * 60 * 1000) continue
-    matches.set(eventId, event)
+    if (!isPreMatchStatus(event.matchStatus)) continue
+
+    const homeScore = teamNameMatchScore(leg.homeTeam, event.homeTeamName ?? "")
+    const awayScore = teamNameMatchScore(leg.awayTeam, event.awayTeamName ?? "")
+    if (homeScore < 0.88 || awayScore < 0.88) continue
+
+    const timeDifference = Math.abs(eventStart - targetKickoff)
+    if (timeDifference > MAX_KICKOFF_DIFFERENCE_MS) continue
+
+    // Prefer the closest kickoff when names are equally strong. The small
+    // confidence gap check below still rejects genuinely ambiguous duplicates.
+    const score = (homeScore + awayScore) - timeDifference / (MAX_KICKOFF_DIFFERENCE_MS * 2)
+    candidates.push({ event, score })
   }
 
-  return matches.size === 1 ? [...matches.values()][0] : null
+  candidates.sort((left, right) => right.score - left.score)
+  if (!candidates.length) return null
+  if (candidates.length > 1 && candidates[0].score - candidates[1].score < 0.025) return null
+  return candidates[0].event
 }
 
 function activeOutcome(market: SportyBetMarket, name: string): SportyBetOutcome | null {

@@ -38,6 +38,7 @@ const TEAM_ALIASES: Record<string, string> = {
   "man utd": "manchester united",
   "man united": "manchester united",
   "manchester utd": "manchester united",
+  "west ham utd": "west ham united",
   "tottenham": "tottenham hotspur",
   "spurs": "tottenham hotspur",
   "nottm forest": "nottingham forest",
@@ -70,6 +71,12 @@ const TEAM_ALIASES: Record<string, string> = {
   "excelsior": "excelsior rotterdam",
   "frankfurt": "eintracht frankfurt",
   "stade rennais": "rennes",
+  "betis": "real betis",
+  "sociedad": "real sociedad",
+  "marseille": "olympique marseille",
+  "olympique marseille": "olympique marseille",
+  "lyon": "olympique lyonnais",
+  "olympique lyonnais": "olympique lyonnais",
   "basaksehir": "istanbul basaksehir",
   "nijmegen": "nec nijmegen",
 }
@@ -138,11 +145,9 @@ export function teamNameMatchScore(left: string, right: string): number {
   const bSet = new Set(bTokens)
   const overlap = [...aSet].filter((token) => bSet.has(token)).length
 
-  // Allow a provider to add or omit a secondary club/location descriptor,
-  // but require at least two shared tokens to avoid matching generic names.
+  // A high token overlap can resolve punctuation and word-order differences,
+  // but extra tokens are not ignored: they may distinguish reserve or youth teams.
   if (aTokens.length > 1 && bTokens.length > 1) {
-    const smallerSet = aSet.size <= bSet.size ? aSet : bSet
-    if ([...smallerSet].every((token) => (aSet.has(token) && bSet.has(token)))) return 0.94
     const union = new Set([...aSet, ...bSet]).size
     if (overlap >= 2 && overlap / union >= 0.8) return 0.9
   }

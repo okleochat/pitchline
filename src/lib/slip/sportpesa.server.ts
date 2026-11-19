@@ -1,7 +1,7 @@
 import "server-only"
 
 import type { SlipLeg } from "./types"
-import { normalizeTeamName } from "./sportybet-matching"
+import { parseEventTimestamp, teamNameMatchScore } from "./sportybet-matching"
 
 const API_BASE = "https://www.sportpesa.com/api"
 const PAGE_SIZE = 100
@@ -153,19 +153,30 @@ async function upcomingEvents(): Promise<FeedSnapshot> {
 function matchingEvent(leg: SlipLeg, events: SportPesaEvent[], now: number): SportPesaEvent | null {
   const expectedTime = Date.parse(leg.kickoffAt)
   if (!Number.isFinite(expectedTime) || expectedTime <= now) return null
-  const expectedHome = normalizeTeamName(leg.homeTeam)
-  const expectedAway = normalizeTeamName(leg.awayTeam)
-  const matches = events.filter((event) => {
-    const start = number(event.dateTimestamp)
-    if (!String(event.id ?? "") || !Number.isFinite(start) || start <= now) return false
-    if (event.isLive === true || event.started === true) return false
+
+  const maxKickoffDifference = 90 * 60 * 1000
+  const candidates: Array<{ event: SportPesaEvent; score: number }> = []
+  for (const event of events) {
+    const start = parseEventTimestamp(event.dateTimestamp ?? event.date)
+    if (!String(event.id ?? "") || !Number.isFinite(start) || start <= now) continue
+    if (event.isLive === true || event.started === true) continue
+
     const names = event.competitors ?? []
-    if (names.length < 2) return false
-    if (normalizeTeamName(names[0]?.name ?? "") !== expectedHome) return false
-    if (normalizeTeamName(names[1]?.name ?? "") !== expectedAway) return false
-    return Math.abs(start - expectedTime) <= 45 * 60 * 1000
-  })
-  return matches.length === 1 ? matches[0] : null
+    if (names.length < 2) continue
+    const homeScore = teamNameMatchScore(leg.homeTeam, names[0]?.name ?? "")
+    const awayScore = teamNameMatchScore(leg.awayTeam, names[1]?.name ?? "")
+    if (homeScore < 0.88 || awayScore < 0.88) continue
+
+    const timeDifference = Math.abs(start - expectedTime)
+    if (timeDifference > maxKickoffDifference) continue
+    const score = homeScore + awayScore - timeDifference / (maxKickoffDifference * 2)
+    candidates.push({ event, score })
+  }
+
+  candidates.sort((left, right) => right.score - left.score)
+  if (!candidates.length) return null
+  if (candidates.length > 1 && candidates[0].score - candidates[1].score < 0.025) return null
+  return candidates[0].event
 }
 
 function exactSelection(leg: SlipLeg, event: SportPesaEvent): {

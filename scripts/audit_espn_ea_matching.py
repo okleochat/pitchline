@@ -286,6 +286,8 @@ def fuzzy_candidates(espn, ea_players, indexes, limit=3):
     espn_nat = normalize_prod(espn["nationality"])
     for pid in pool:
         player = ea_players[pid]
+        if not score_is_usable(player):
+            continue
         best_score = 0
         best_reason = "near_spelling"
         surname_match = False

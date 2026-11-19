@@ -57,6 +57,9 @@ const TEAM_ALIASES: Record<string, string> = {
   "newcastle": "newcastle united",
   "leeds": "leeds united",
   "feyenoord": "feyenoord rotterdam",
+  "twente enschede": "twente",
+  "willem 2 tilburg": "willem ii",
+  "gil vicente barcelos": "gil vicente",
   "ajax": "ajax amsterdam",
   "west ham": "west ham united",
   "preston": "preston north end",
@@ -78,6 +81,9 @@ const TEAM_ALIASES: Record<string, string> = {
   "lyon": "olympique lyonnais",
   "olympique lyonnais": "olympique lyonnais",
   "basaksehir": "istanbul basaksehir",
+  "istanbul bb": "istanbul basaksehir",
+  "alkmaar": "az alkmaar",
+  "07 elversberg": "elversberg",
   "nijmegen": "nec nijmegen",
 }
 

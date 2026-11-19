@@ -46,6 +46,8 @@ export class SportyBetBookingError extends Error {
 }
 
 let fixtureCache: { savedAt: number; events: SportyBetEvent[] } | null = null
+const EVENT_DETAIL_CACHE_MS = 45_000
+const eventDetailCache = new Map<string, { savedAt: number; event: SportyBetEvent }>()
 
 function headers(): HeadersInit {
   return {
@@ -153,6 +155,37 @@ async function upcomingEvents(): Promise<SportyBetEvent[]> {
   return events
 }
 
+async function fetchSportyBetEventDetail(eventId: string): Promise<SportyBetEvent | null> {
+  const cached = eventDetailCache.get(eventId)
+  if (cached && Date.now() - cached.savedAt < EVENT_DETAIL_CACHE_MS) return cached.event
+
+  try {
+    const params = new URLSearchParams({ eventId })
+    const response = await fetch(API_BASE + "/factsCenter/event?" + params.toString(), {
+      headers: headers(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!response.ok) return null
+
+    const payload = await response.json() as SportyBetEnvelope<SportyBetEvent>
+    const event = payload.data
+    if (Number(payload.bizCode) !== 10000 || !event ||
+        !Array.isArray(event.markets) || event.markets.length === 0) return null
+
+    const detail = { ...event, eventId: event.eventId || eventId }
+    eventDetailCache.set(eventId, { savedAt: Date.now(), event: detail })
+    if (eventDetailCache.size > 100) {
+      const firstKey = eventDetailCache.keys().next().value
+      if (firstKey) eventDetailCache.delete(firstKey)
+    }
+    return detail
+  } catch {
+    // The full-board lookup is an optional recovery path; the fixture index remains authoritative.
+    return null
+  }
+}
+
 export type SportyBetBookingResult = {
   shareCode: string
   shareURL: string
@@ -175,8 +208,11 @@ export async function createSportyBetBooking(legs: SlipLeg[]): Promise<SportyBet
   }
 
   const events = await upcomingEvents()
-  const selections: SportyBetSelection[] = []
-  const rows: SportyBetBookingResult["legs"] = []
+  const candidates: Array<{
+    leg: SlipLeg
+    event: SportyBetEvent
+    selection: SportyBetSelection | null
+  }> = []
   const failures: string[] = []
   const usedEvents = new Set<string>()
 
@@ -186,8 +222,32 @@ export async function createSportyBetBooking(legs: SlipLeg[]): Promise<SportyBet
       failures.push(leg.homeTeam + " vs " + leg.awayTeam + ": fixture not found, already started, or kickoff could not be matched safely.")
       continue
     }
+    candidates.push({
+      leg,
+      event,
+      selection: resolveSportyBetSelection(leg, event),
+    })
+  }
 
-    const selection = resolveSportyBetSelection(leg, event)
+  // The upcoming index is deliberately restricted to the main markets to keep
+  // the paginated feed light. When a pick is not present there, hydrate the
+  // event's full bookmaker market board before declaring it unavailable.
+  const needsDetail = candidates.filter((candidate) => !candidate.selection)
+  let nextDetailIndex = 0
+  await Promise.all(Array.from({ length: Math.min(4, needsDetail.length) }, async () => {
+    while (nextDetailIndex < needsDetail.length) {
+      const candidate = needsDetail[nextDetailIndex++]
+      const eventId = candidate.event.eventId
+      if (!eventId) continue
+      const detail = await fetchSportyBetEventDetail(eventId)
+      if (detail) candidate.selection = resolveSportyBetSelection(candidate.leg, detail)
+    }
+  }))
+
+  const selections: SportyBetSelection[] = []
+  const rows: SportyBetBookingResult["legs"] = []
+  for (const candidate of candidates) {
+    const { leg, selection } = candidate
     if (!selection) {
       failures.push(leg.homeTeam + " vs " + leg.awayTeam + ": this exact market or outcome is not currently available.")
       continue

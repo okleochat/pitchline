@@ -322,7 +322,7 @@ const VERIFIED_TRANSLITERATION_ALIASES: Record<string, string[]> = {
   "lukasz poreba": ["Łukasz Poręba"],
   "albert gronbaek": ["Albert Grønbæk"],
   "tom krauss": ["Tom Krauß"],
-  "emil hojilund": ["Emil Højlund"],
+  "emil hojlund": ["Emil Højlund"],
   "frederik ronnow": ["Frederik Rønnow"],
   "lukasz skorupski": ["Łukasz Skorupski"],
   "albert gudmundsson": ["Albert Guðmundsson"],

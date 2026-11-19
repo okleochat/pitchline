@@ -261,11 +261,18 @@ export function teamNameKey(value: string): string {
 }
 
 /** Normalize names consistently with scripts/sync_ea_fc27.py. */
+const EXTENDED_LATIN_TRANSLITERATION: Record<string, string> = {
+  "ø": "o", "ł": "l", "đ": "d", "ð": "d", "þ": "th",
+  "æ": "ae", "œ": "oe", "ß": "ss", "ı": "i", "ħ": "h", "ŋ": "n",
+}
+
 export function normalisePlayerName(value: string): string {
-  return value
-    .normalize("NFD")
+  const transliterated = value.toLowerCase().replace(/[øłđðþæœßıħŋ]/g, (character) =>
+    EXTENDED_LATIN_TRANSLITERATION[character] ?? character,
+  )
+  return transliterated
+    .normalize("NFKD")
     .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
@@ -276,6 +283,97 @@ export function normalisePlayerName(value: string): string {
 export function playerNameShardId(value: string): string {
   const compact = normalisePlayerName(value).replace(/[^a-z0-9]/g, "")
   return compact.slice(0, 4).padEnd(4, "_") || "____"
+}
+
+/**
+ * EA snapshots already in Firestore were created before extended-Latin
+ * transliteration was added. Read both the new shard and the old shard for
+ * each audited alias so this release works immediately, before the next sync.
+ */
+export function playerNameShardIds(value: string): string[] {
+  const compactNew = normalisePlayerName(value).replace(/[^a-z0-9]/g, "")
+  const legacy = value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[^a-z0-9]/g, "")
+  const ids = [
+    compactNew.slice(0, 4).padEnd(4, "_") || "____",
+    legacy.slice(0, 4).padEnd(4, "_") || "____",
+  ]
+  return [...new Set(ids)]
+}
+
+/**
+ * Audited identity aliases that differ only by extended-Latin characters.
+ * These are exact equivalents, not fuzzy guesses. Near-spelling candidates
+ * from the audit are intentionally not included.
+ */
+const VERIFIED_TRANSLITERATION_ALIASES: Record<string, string[]> = {
+  "pascal gross": ["Pascal Groß"],
+  "michal skoras": ["Michał Skóraś"],
+  "filip jorgensen": ["Filip Jörgensen"],
+  "milosz piekutowski": ["Miłosz Piekutowski"],
+  "aron donnum": ["Aron Dønnum"],
+  "lukasz poreba": ["Łukasz Poręba"],
+  "albert gronbaek": ["Albert Grønbæk"],
+  "tom krauss": ["Tom Krauß"],
+  "emil hojilund": ["Emil Højlund"],
+  "frederik ronnow": ["Frederik Rønnow"],
+  "lukasz skorupski": ["Łukasz Skorupski"],
+  "albert gudmundsson": ["Albert Guðmundsson"],
+  "jan ziolkowski": ["Jan Ziółkowski"],
+  "thorir johann helgason": ["Þórir Jóhann Helgason"],
+  "marcin bulka": ["Marcin Bułka"],
+  "przemyslaw placheta": ["Przemysław Płacheta"],
+  "michal rosiak": ["Michał Rosiak"],
+  "sondre orjasaeter": ["Sondre Ørjasæter"],
+  "stefan ingi sigurdarson": ["Stefán Ingi Sigurðarson"],
+  "nokkvi thorisson": ["Nökkvi Þórisson"],
+  "kacper kozlowski": ["Kacper Kozłowski"],
+  "jakub kaluzinski": ["Jakub Kałuziński"],
+  "michal karbownik": ["Michał Karbownik"],
+  "anders baertelsen": ["Anders Bærtelsen"],
+  "jens jonsson": ["Jens Jønsson"],
+  "luka callo": ["Luka Callø"],
+  "viktor dadason": ["Viktor Daðason"],
+  "nicklas rojkjaer": ["Nicklas Røjkjær"],
+  "eggert aron gudmundsson": ["Eggert Aron Guðmundsson"],
+  "julian laegreid": ["Julian Lægreid"],
+  "eryk kozlowski": ["Eryk Kozłowski"],
+  "filip jagiello": ["Filip Jagiełło"],
+  "michal gurgul": ["Michał Gurgul"],
+  "radoslaw murawski": ["Radosław Murawski"],
+  "frederik elkaer": ["Frederik Elkær"],
+  "mateusz musialowski": ["Mateusz Musiałowski"],
+  "jesper lindstrom": ["Jesper Lindstrøm"],
+  "szymon wlodarczyk": ["Szymon Włodarczyk"],
+}
+
+/**
+ * Add only identity candidates established by the audit: explicit
+ * transliteration aliases and the exact reverse of a two/three-token name.
+ * No partial-name or approximate-spelling candidates are generated.
+ */
+export function eaPlayerNameSearchCandidates(nameCandidates: string[]): string[] {
+  const result = nameCandidates.map((name) => name.trim()).filter(Boolean)
+  for (const name of result.slice()) {
+    const key = normalisePlayerName(name)
+    result.push(...(VERIFIED_TRANSLITERATION_ALIASES[key] ?? []))
+  }
+
+  const canonical = result[0]
+  if (canonical) {
+    const tokens = canonical.split(/\s+/).filter(Boolean)
+    if (tokens.length === 2 || tokens.length === 3) {
+      result.push([...tokens].reverse().join(" "))
+    }
+  }
+  return [...new Set(result)]
 }
 
 /**
@@ -291,14 +389,22 @@ export function matchEaPlayerByName(input: {
 }, candidates: unknown[]): Dict | null {
   const keys = new Set(input.nameCandidates.map(normalisePlayerName).filter(Boolean))
   if (!keys.size) return null
+  const tokenOrderKeys = new Set([...keys].map((key) => key.split(" ").filter(Boolean).sort().join(" ")))
 
   const matches = candidates.flatMap((candidate) => {
     const item = record(candidate)
     if (!item) return []
     const nameKeys = Array.isArray(item.nameKeys)
       ? item.nameKeys.filter((key): key is string => typeof key === "string")
-      : [typeof item.name === "string" ? item.name : ""]
-    return nameKeys.some((key) => keys.has(normalisePlayerName(key))) ? [item] : []
+      : []
+    if (typeof item.name === "string") nameKeys.push(item.name)
+    const matched = nameKeys.some((key) => {
+      const normalized = normalisePlayerName(key)
+      if (keys.has(normalized)) return true
+      const tokenOrderKey = normalized.split(" ").filter(Boolean).sort().join(" ")
+      return Boolean(tokenOrderKey) && tokenOrderKeys.has(tokenOrderKey)
+    })
+    return matched ? [item] : []
   })
   const unique = [...new Map(matches.map((item) => [String(item.id ?? ""), item])).values()]
   if (unique.length <= 1) return unique[0] ?? null

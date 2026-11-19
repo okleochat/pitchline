@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { SlipLeg } from "./types"
+import type { OmittedSlipLeg, SlipLeg } from "./types"
 import { parseEventTimestamp, teamNameMatchScore } from "./sportybet-matching"
 
 const API_BASE = "https://www.sportpesa.com/api"
@@ -248,6 +248,7 @@ export type SportPesaBookingResult = {
     market: string
     odds: number
   }>
+  omittedLegs: OmittedSlipLeg[]
 }
 
 /** Uses SportPesa's own public football feed and its native share-betslip endpoint. */
@@ -260,24 +261,24 @@ export async function createSportPesaBooking(legs: SlipLeg[]): Promise<SportPesa
   const bets: Dict[] = []
   const rows: SportPesaBookingResult["legs"] = []
   const usedEvents = new Set<string>()
-  const failures: string[] = []
+  const omittedLegs: OmittedSlipLeg[] = []
 
   for (const leg of legs) {
     const event = matchingEvent(leg, feed.events, Date.now())
     if (!event) {
-      failures.push(leg.homeTeam + " vs " + leg.awayTeam + ": fixture not found or kickoff could not be matched safely.")
+      omittedLegs.push({ key: leg.key, homeTeam: leg.homeTeam, awayTeam: leg.awayTeam, reason: "This selection could not be matched to a current pre-match fixture." })
       continue
     }
     const resolved = exactSelection(leg, event)
     if (!resolved) {
-      failures.push(leg.homeTeam + " vs " + leg.awayTeam + ": the exact market/outcome is not currently available.")
+      omittedLegs.push({ key: leg.key, homeTeam: leg.homeTeam, awayTeam: leg.awayTeam, reason: "This selected market or outcome is not currently available." })
       continue
     }
     const eventId = number(event.id)
     const marketId = String(resolved.market.id ?? "")
     const selectionId = resolved.selection.id
     if (usedEvents.has(String(eventId))) {
-      failures.push(leg.homeTeam + " vs " + leg.awayTeam + ": only one selection per match is supported.")
+      omittedLegs.push({ key: leg.key, homeTeam: leg.homeTeam, awayTeam: leg.awayTeam, reason: "Only one selection per match can be transferred." })
       continue
     }
     usedEvents.add(String(eventId))
@@ -319,12 +320,12 @@ export async function createSportPesaBooking(legs: SlipLeg[]): Promise<SportPesa
     })
   }
 
-  if (failures.length || bets.length !== legs.length) {
+  if (!bets.length) {
     throw new SportPesaBookingError(
       "SELECTIONS_UNAVAILABLE",
-      "SportPesa could not match every selection to a current market. Your slip was not submitted.",
+      "None of the selections could be matched to current SportPesa markets, so no booking code was created.",
       409,
-      failures,
+      omittedLegs.map((leg) => leg.homeTeam + " vs " + leg.awayTeam + ": " + leg.reason),
     )
   }
 
@@ -442,5 +443,6 @@ export async function createSportPesaBooking(legs: SlipLeg[]): Promise<SportPesa
     expiresAt,
     combinedOdds,
     legs: rows,
+    omittedLegs,
   }
 }

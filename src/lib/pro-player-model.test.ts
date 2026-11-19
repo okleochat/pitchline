@@ -166,6 +166,22 @@ test("audited transliteration aliases and exact name reordering match without fu
   assert.equal(reorderedMatch?.id, "ea-tosin")
 })
 
+test("near-spelling name similarities remain unmatched without an explicit alias", () => {
+  const candidate = {
+    id: "ea-cristhian",
+    name: "Cristhian Loor",
+    nameKeys: ["cristhian loor"],
+    nationality: "Ecuador",
+    position: "DF",
+    overall: 70,
+  }
+  assert.equal(matchEaPlayerByName({
+    nameCandidates: ["Cristian Loor"],
+    position: "DF",
+    nationality: "Ecuador",
+  }, [candidate]), null)
+})
+
 test("ambiguous same-name EA records are not guessed", () => {
   const candidates = [
     { id: "1", nameKeys: ["alex smith"], position: "ST", nationality: "England" },

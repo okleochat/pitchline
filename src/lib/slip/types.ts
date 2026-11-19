@@ -18,6 +18,13 @@ export type SlipLeg = {
   probability: number
 }
 
+export type OmittedSlipLeg = {
+  key: string
+  homeTeam: string
+  awayTeam: string
+  reason: string
+}
+
 const LEAGUE_IDS = new Set<LeagueId>([
   "eng", "esp", "ita", "ger", "fra", "ch", "ned", "por", "tur",
   "ksa", "mls", "bra", "mx", "ucl", "uel", "uecl", "int",

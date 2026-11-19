@@ -11,7 +11,7 @@ import {
 } from "lucide-react"
 import { SiteHeader } from "@/components/site-header"
 import { useFirebaseSession } from "@/components/auth/firebase-auth-provider"
-import type { SlipLeg } from "@/lib/slip/types"
+import type { OmittedSlipLeg, SlipLeg } from "@/lib/slip/types"
 
 type BookingResult = {
   shareCode: string
@@ -27,6 +27,7 @@ type BookingResult = {
     market: string
     odds: number
   }>
+  omittedLegs?: OmittedSlipLeg[]
 }
 
 function money(value: number): string {
@@ -39,7 +40,7 @@ function money(value: number): string {
 
 function messageFor(error: string, fallback: string): string {
   if (error === "selection_unavailable" || error === "SELECTIONS_UNAVAILABLE" || error === "MANAGED_SELECTIONS_UNAVAILABLE") {
-    return "At least one selection could not be matched to a current bookmaker market. Review the details below, remove or replace that pick, and try again."
+    return "None of the selections could be matched to a current bookmaker market, so no code was created. Review the selections below and try again."
   }
   if (error === "authentication_required") return "Sign in to use My Slip."
   if (error === "pro_required") return "An active Pro subscription is required."
@@ -349,6 +350,24 @@ export function SlipBuilder() {
                 {booking ? (
                   <div className="mt-4 rounded-xl border border-border bg-background p-4">
                     <p className="text-xs font-semibold tracking-wide text-muted uppercase">{booking.bookmakerName ?? selectedProvider?.name ?? "Booking"} code created</p>
+                    {booking.omittedLegs?.length ? (
+                      <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-50 p-3 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100" role="status">
+                        <p className="text-sm font-semibold">
+                          Code created with {booking.legs.length} of {legs.length} selections
+                        </p>
+                        <p className="mt-1 text-xs">
+                          {booking.omittedLegs.length} selection{booking.omittedLegs.length === 1 ? " was" : "s were"} left out and will not appear in this bookmaker code.
+                        </p>
+                        <ul className="mt-2 space-y-2 text-xs">
+                          {booking.omittedLegs.map((omitted) => (
+                            <li key={omitted.key}>
+                              <span className="font-semibold">{omitted.homeTeam} vs {omitted.awayTeam}</span>
+                              <span className="block opacity-80">{omitted.reason}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                       <p className="font-display text-3xl tracking-widest tabular-nums">{booking.shareCode}</p>
                       <button

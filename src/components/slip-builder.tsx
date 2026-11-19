@@ -316,7 +316,7 @@ export function SlipBuilder() {
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h2 className="font-display text-xl">Booking code</h2>
-                    <p className="mt-1 text-xs text-muted">Pitchline checks every match and market before requesting a code.</p>
+                    <p className="mt-1 text-xs text-muted">Each pick is checked separately. Unavailable selections are left out and listed after the code is created.</p>
                   </div>
                   <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium">Nigeria</span>
                 </div>

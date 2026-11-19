@@ -88,11 +88,6 @@ const PREFIX_TOKENS = new Set([
 const SUFFIX_TOKENS = new Set([
   "fc", "afc", "cf", "sc", "fk", "club", "calcio",
 ])
-const AMBIGUOUS_SINGLE_NAMES = new Set([
-  "milan", "roma", "rome", "madrid", "city", "united", "sporting",
-  "paris", "london", "athletic", "rangers", "real",
-])
-
 /**
  * Convert provider-specific club labels into a stable comparison name.
  * This is deliberately conservative: known aliases are explicit, while
@@ -152,16 +147,11 @@ export function teamNameMatchScore(left: string, right: string): number {
     if (overlap >= 2 && overlap / union >= 0.8) return 0.9
   }
 
-  // A single distinctive club name may appear with a provider-added city or
-  // club prefix. Common ambiguous words such as Milan or Madrid are excluded.
-  if (aTokens.length === 1 && bSet.has(a) &&
-      a.length >= 8 && !AMBIGUOUS_SINGLE_NAMES.has(a)) return 0.89
-  if (bTokens.length === 1 && aSet.has(b) &&
-      b.length >= 8 && !AMBIGUOUS_SINGLE_NAMES.has(b)) return 0.89
-
   const longest = Math.max(a.length, b.length)
   if (longest < 6) return 0
-  const similarity = 1 - editDistance(a, b) / longest
+  const distance = editDistance(a, b)
+  if (distance === 1) return 0.9
+  const similarity = 1 - distance / longest
   return similarity >= 0.88 ? similarity : 0
 }
 

@@ -20,7 +20,7 @@ function record(value: unknown): Dict | null {
 
 function validCacheKey(value: unknown, uid: string): value is string {
   if (typeof value !== "string") return false
-  const prefix = `pitchline:pro-picks:v2:${encodeURIComponent(uid)}:`
+  const prefix = `pitchline:pro-picks:v3:${encodeURIComponent(uid)}:`
   return value.startsWith(prefix) && /^[a-z0-9]{2,32}$/.test(value.slice(prefix.length))
 }
 

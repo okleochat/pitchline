@@ -21,6 +21,7 @@ import { clearStoredProPickCache, loadBoard, loadForm, loadProPickMarkets, loadP
 import { clearProPickCache, createProPickCacheKey, readProPickCache, writeProPickCache } from "@/lib/pro-pick-cache"
 import { homeAdvantageForLeague } from "@/lib/home-advantage"
 import { hasInternationalPickHistory } from "@/lib/international/pick-eligibility"
+import { localFixtureDateKey } from "@/lib/fixture-date"
 import type { ProReport, ProTeam } from "@/lib/pro-sim"
 import type { ProPlayerData, ProTeamSquad } from "@/lib/pro-player-data"
 import {
@@ -742,6 +743,7 @@ export function Pitchline({
   const view = initialView
   const [pickKind, setPickKind] = useState<PickKind | "all">("all")
   const [pickLeague, setPickLeague] = useState<LeagueId | "all">("all")
+  const [pickDate, setPickDate] = useState("")
   const [model, setModel] = useState<ModelKind>("plain")
   const [formWindow, setFormWindow] = useState<FormWindow>("season")
   const [level, setLevel] = useState(false)
@@ -1229,6 +1231,7 @@ export function Pitchline({
   const visiblePicks = picks.filter((pick) => {
     if (pickKind !== "all" && pick.kind !== pickKind) return false
     if (pickLeague !== "all" && pick.fixture.league !== pickLeague) return false
+    if (pickDate && localFixtureDateKey(pick.fixture.kickoffAt) !== pickDate) return false
     return true
   })
   const proPickMode = isPro && engineMode === "pro"
@@ -1387,7 +1390,7 @@ export function Pitchline({
               </p>
             </div>
             <p className="text-sm text-muted tabular-nums">
-              {hotPicks.length ? `${hotPicks.length} selected` : proPickMode ? `None at ${proPickThreshold}%+` : "No standout picks"}
+              {hotPicks.length ? `${hotPicks.length} selected` : pickDate ? "No picks on selected date" : proPickMode ? `None at ${proPickThreshold}%+` : "No standout picks"}
             </p>
             <div className="flex items-center gap-2">
               {isPro && engineMode === "pro" ? (
@@ -1513,25 +1516,51 @@ export function Pitchline({
                 </button>
               ))}
             </div>
-            <label className="mt-4 block text-sm font-medium" htmlFor="picks-league">
-              Competition
-              <span className="relative mt-2 block">
-                <select
-                  id="picks-league"
-                  value={pickLeague}
-                  onChange={(event) => setPickLeague(event.target.value as LeagueId | "all")}
-                  className="h-11 w-full appearance-none rounded-lg border border-border bg-card pr-10 pl-3 text-base"
-                >
-                  <option value="all">All competitions</option>
-                  {LEAGUES.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted" />
-              </span>
-            </label>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm font-medium" htmlFor="picks-league">
+                Competition
+                <span className="relative mt-2 block">
+                  <select
+                    id="picks-league"
+                    value={pickLeague}
+                    onChange={(event) => setPickLeague(event.target.value as LeagueId | "all")}
+                    className="h-11 w-full appearance-none rounded-lg border border-border bg-card pr-10 pl-3 text-base"
+                  >
+                    <option value="all">All competitions</option>
+                    {LEAGUES.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted" />
+                </span>
+              </label>
+              <div>
+                <label className="block text-sm font-medium" htmlFor="picks-date">
+                  Match date
+                </label>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    id="picks-date"
+                    type="date"
+                    value={pickDate}
+                    onChange={(event) => setPickDate(event.target.value)}
+                    className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-card px-3 text-base"
+                  />
+                  {pickDate ? (
+                    <button
+                      type="button"
+                      onClick={() => setPickDate("")}
+                      className="press h-11 shrink-0 rounded-lg border border-border px-3 text-sm font-medium"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs text-muted">Leave blank to show all dates.</p>
+              </div>
+            </div>
           </div>
 
           {isPro && !slipReady ? (
@@ -1567,7 +1596,7 @@ export function Pitchline({
             </section>
           ) : shownPicks.length === 0 ? (
             <section className="panel">
-              <p className="text-sm">{proPickMode ? `No picks meet the ${proPickThreshold}% minimum. Lower the filter to see more selections.` : "Nothing stands out in the current selection."}</p>
+              <p className="text-sm">{pickDate ? "No picks match this date and the other filters." : proPickMode ? `No picks meet the ${proPickThreshold}% minimum. Lower the filter to see more selections.` : "Nothing stands out in the current selection."}</p>
             </section>
           ) : (
             <div className="space-y-2">

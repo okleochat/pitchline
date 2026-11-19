@@ -197,9 +197,16 @@ def normalise_player(raw: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def fold_name(value: str) -> str:
-    decomposed = unicodedata.normalize("NFD", value)
+    # Keep this mapping in sync with normalisePlayerName() in
+    # src/lib/pro-player-model.ts. NFD/NFKD alone do not transliterate
+    # characters such as ø, ł, đ, ð, þ, æ, œ, ß, ı, ħ and ŋ.
+    transliteration = str.maketrans({
+        "ø": "o", "ł": "l", "đ": "d", "ð": "d", "þ": "th",
+        "æ": "ae", "œ": "oe", "ß": "ss", "ı": "i", "ħ": "h", "ŋ": "n",
+    })
+    decomposed = unicodedata.normalize("NFKD", value.lower().translate(transliteration))
     ascii_text = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
-    ascii_text = ascii_text.lower().replace("&", " and ")
+    ascii_text = ascii_text.replace("&", " and ")
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", ascii_text)).strip()
 
 

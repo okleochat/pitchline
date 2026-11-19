@@ -5,10 +5,12 @@ import type { ProPlayerData, ProTeamSquad } from "./pro-player-data.ts"
 import {
   deriveEaPlayerScores,
   deriveSquadFactors,
+  eaPlayerNameSearchCandidates,
   matchEaPlayerByName,
   normaliseEaSquadPlayer,
   normalisePlayerName,
   playerNameShardId,
+  playerNameShardIds,
   positionFrom,
   teamNameKey,
 } from "./pro-player-model.ts"
@@ -121,6 +123,63 @@ test("ESPN roster names match EA identities through strict normalized name keys"
   assert.equal(playerNameShardId("Mason Mount"), "maso")
   assert.equal(playerNameShardId("é"), "e___")
   assert.equal(playerNameShardId(""), "____")
+})
+
+test("extended-Latin player names normalize and resolve legacy Firestore shards", () => {
+  assert.equal(
+    normalisePlayerName("Ødegaard Łukasz Džeko Þórir Ægir Œuvre Straße"),
+    "odegaard lukasz dzeko thorir aegir oeuvre strasse",
+  )
+  assert.deepEqual(playerNameShardIds("Łukasz Poręba"), ["luka", "ukas"])
+  assert.ok(eaPlayerNameSearchCandidates(["Lukasz Poreba"]).includes("Łukasz Poręba"))
+})
+
+test("audited transliteration aliases and exact name reordering match without fuzzy similarity", () => {
+  const transliterated = {
+    id: "ea-lukasz",
+    name: "Łukasz Poręba",
+    nameKeys: ["ukasz poreba"],
+    nationality: "Poland",
+    position: "CM",
+    overall: 75,
+  }
+  const transliterationMatch = matchEaPlayerByName({
+    nameCandidates: eaPlayerNameSearchCandidates(["Lukasz Poreba"]),
+    position: "CM",
+    nationality: "Poland",
+  }, [transliterated])
+  assert.equal(transliterationMatch?.id, "ea-lukasz")
+
+  const reordered = {
+    id: "ea-tosin",
+    name: "Aiyegun Tosin",
+    nameKeys: ["aiyegun tosin"],
+    nationality: "Nigeria",
+    position: "FW",
+    overall: 72,
+  }
+  const reorderedMatch = matchEaPlayerByName({
+    nameCandidates: eaPlayerNameSearchCandidates(["Tosin Aiyegun"]),
+    position: "FW",
+    nationality: "Nigeria",
+  }, [reordered])
+  assert.equal(reorderedMatch?.id, "ea-tosin")
+})
+
+test("near-spelling name similarities remain unmatched without an explicit alias", () => {
+  const candidate = {
+    id: "ea-cristhian",
+    name: "Cristhian Loor",
+    nameKeys: ["cristhian loor"],
+    nationality: "Ecuador",
+    position: "DF",
+    overall: 70,
+  }
+  assert.equal(matchEaPlayerByName({
+    nameCandidates: ["Cristian Loor"],
+    position: "DF",
+    nationality: "Ecuador",
+  }, [candidate]), null)
 })
 
 test("ambiguous same-name EA records are not guessed", () => {

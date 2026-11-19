@@ -132,6 +132,12 @@ class SyncEaFc27Tests(unittest.TestCase):
         self.assertEqual(sync.player_shard_id("é"), "e___")
         self.assertEqual(sync.player_shard_id(""), "____")
 
+    def test_extended_latin_names_transliterate_consistently_before_sharding(self):
+        self.assertEqual(sync.fold_name("Łukasz Poręba"), "lukasz poreba")
+        self.assertEqual(sync.fold_name("Pascal Groß"), "pascal gross")
+        self.assertEqual(sync.fold_name("Þórir Jóhann Ægir"), "thorir johann aegir")
+        self.assertEqual(sync.player_shard_id("Łukasz Poręba"), "luka")
+
 
     def test_common_two_character_prefix_is_split_into_smaller_shards(self):
         players = [

@@ -33,7 +33,7 @@ const fixtures: ProPickFixtureInput[] = [{
 
 test("Pro picks cache key is stable and scoped to user and complete inputs", () => {
   assert.equal(createProPickCacheKey("user-a", fixtures), createProPickCacheKey("user-a", fixtures))
-  assert.match(createProPickCacheKey("user-a", fixtures), /^pitchline:pro-picks:v2:/)
+  assert.match(createProPickCacheKey("user-a", fixtures), /^pitchline:pro-picks:v3:/)
   assert.notEqual(createProPickCacheKey("user-a", fixtures), createProPickCacheKey("user-b", fixtures))
   assert.notEqual(
     createProPickCacheKey("user-a", fixtures),

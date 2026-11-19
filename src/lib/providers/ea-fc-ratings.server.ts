@@ -8,9 +8,10 @@ import { getFirebaseAdminFirestore } from "@/lib/firebase/admin"
 import { normalizeEspnRoster } from "@/lib/providers/espn-roster"
 import {
   deriveSquadFactors,
+  eaPlayerNameSearchCandidates,
   matchEaPlayerByName,
   normaliseEaSquadPlayer,
-  playerNameShardId,
+  playerNameShardIds,
   positionFrom,
 } from "@/lib/pro-player-model"
 import type {
@@ -465,14 +466,14 @@ async function findEaMatches(
     const id = athleteId(entry)
     return id ? [{
       id,
-      names: rosterNameCandidates(entry),
+      names: eaPlayerNameSearchCandidates(rosterNameCandidates(entry)),
       position: rosterPosition(entry),
       nationality: rosterNationality(entry),
     }] : []
   })
 
   const shardIds = [...new Set(namedRoster.flatMap((item) =>
-    item.names.map(playerNameShardId),
+    item.names.flatMap(playerNameShardIds),
   ).filter(Boolean))]
   const shards = await loadEaShards(shardIds)
   const shardPlayers = shards.flatMap((shard) => shard?.players ?? [])

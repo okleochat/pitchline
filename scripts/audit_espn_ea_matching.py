@@ -526,7 +526,7 @@ def main():
     rostered = totals["espn_roster_players"]
     exact_count = totals["exact_identity_matches"]
     rated_count = totals["rated_exact_matches"]
-    unmatched_count = max(0, rostered - rated_count - totals["ambiguous_exact"] - totals["duplicate_identity_conflicts"])
+    unmatched_count = max(0, rostered - rated_count)
     high_count = totals["high_confidence_unmatched"]
     summary = {
         "audit_type": "read_only_espn_to_ea_player_identity_audit",

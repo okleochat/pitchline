@@ -572,7 +572,7 @@ def main():
     summary["league_breakdown"] = {
         league: {
             **dict(counts),
-            "coverage_pct": round(counts["rated_exact_matches"] / counts["roster_count"] * 100, 1) if counts["roster_count"] else 0,
+            "coverage_pct": round(counts["exact_matches"] / counts["roster_count"] * 100, 1) if counts["roster_count"] else 0,
         }
         for league, counts in sorted(by_league.items())
     }

@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { SlipLeg } from "./types"
+import type { OmittedSlipLeg, SlipLeg } from "./types"
 import {
   matchSportyBetFixture,
   resolveSportyBetSelection,
@@ -186,13 +186,6 @@ async function fetchSportyBetEventDetail(eventId: string): Promise<SportyBetEven
   }
 }
 
-export type OmittedBookingLeg = {
-  key: string
-  homeTeam: string
-  awayTeam: string
-  reason: string
-}
-
 export type SportyBetBookingResult = {
   shareCode: string
   shareURL: string
@@ -206,7 +199,7 @@ export type SportyBetBookingResult = {
     market: string
     odds: number
   }>
-  omittedLegs: OmittedBookingLeg[]
+  omittedLegs: OmittedSlipLeg[]
 }
 
 /** Creates a shareable slip reservation only. The endpoint never places or stakes a wager. */
@@ -221,7 +214,7 @@ export async function createSportyBetBooking(legs: SlipLeg[]): Promise<SportyBet
     event: SportyBetEvent
     selection: SportyBetSelection | null
   }> = []
-  const omittedLegs: OmittedBookingLeg[] = []
+  const omittedLegs: OmittedSlipLeg[] = []
   const usedEvents = new Set<string>()
 
   for (const leg of legs) {

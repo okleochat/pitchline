@@ -195,14 +195,13 @@ def load_ea_snapshot(db):
         raise RuntimeError(f"Active EA collection {collection} contains no player records.")
     return collection, metadata, players_by_id, shard_count
 
-def match_exact(espn, ea_players):
+def match_exact(espn, ea_players, exact_index):
     keys = {normalize_prod(name) for name in espn["names"]}
     keys.discard("")
-    matches = []
-    for player in ea_players.values():
-        if any(normalize_prod(alias) in keys for alias in player["nameKeys"]):
-            matches.append(player)
-    matches = list({p["id"]: p for p in matches}.values())
+    ids = set()
+    for key in keys:
+        ids.update(exact_index.get(key, ()))
+    matches = [ea_players[pid] for pid in ids if pid in ea_players]
     if len(matches) <= 1:
         return (matches[0] if matches else None), ("exact" if matches else "unmatched"), len(matches)
     ep = espn["position_group"]
@@ -223,6 +222,7 @@ def match_exact(espn, ea_players):
     return (matches[0] if len(matches) == 1 else None), ("exact" if len(matches) == 1 else "ambiguous_exact"), len(matches)
 
 def candidate_indexes(ea_players):
+    by_exact = defaultdict(set)
     by_token = defaultdict(set)
     by_surname = defaultdict(set)
     player_aliases = {}
@@ -234,6 +234,8 @@ def candidate_indexes(ea_players):
             trans = normalize_translit(alias)
             if prod or trans:
                 variants.append((prod, trans, alias))
+                if prod:
+                    by_exact[prod].add(pid)
                 tokens = {t for t in trans.split() if t not in IGNORED_TOKENS and len(t) > 1}
                 for token in tokens:
                     by_token[token].add(pid)
@@ -241,10 +243,10 @@ def candidate_indexes(ea_players):
                 if all_tokens:
                     by_surname[all_tokens[-1]].add(pid)
         player_aliases[pid] = variants
-    return by_token, by_surname, player_aliases
+    return by_exact, by_token, by_surname, player_aliases
 
 def fuzzy_candidates(espn, ea_players, indexes, limit=3):
-    by_token, by_surname, player_aliases = indexes
+    _, by_token, by_surname, player_aliases = indexes
     names = espn["names"]
     norm_names = [(normalize_prod(n), normalize_translit(n)) for n in names]
     tokens = {t for _, trans in norm_names for t in trans.split() if t not in IGNORED_TOKENS and len(t) > 1}
@@ -386,7 +388,7 @@ def main():
         high = medium = low = 0
         rated_exact = 0
         for player in roster:
-            match, status, duplicate_count = match_exact(player, ea_players)
+            match, status, duplicate_count = match_exact(player, ea_players, indexes[0])
             if status == "ambiguous_exact":
                 ambiguous += 1
                 totals["ambiguous_exact"] += 1

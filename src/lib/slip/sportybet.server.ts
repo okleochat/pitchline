@@ -186,6 +186,13 @@ async function fetchSportyBetEventDetail(eventId: string): Promise<SportyBetEven
   }
 }
 
+export type OmittedBookingLeg = {
+  key: string
+  homeTeam: string
+  awayTeam: string
+  reason: string
+}
+
 export type SportyBetBookingResult = {
   shareCode: string
   shareURL: string
@@ -199,6 +206,7 @@ export type SportyBetBookingResult = {
     market: string
     odds: number
   }>
+  omittedLegs: OmittedBookingLeg[]
 }
 
 /** Creates a shareable slip reservation only. The endpoint never places or stakes a wager. */
@@ -213,13 +221,13 @@ export async function createSportyBetBooking(legs: SlipLeg[]): Promise<SportyBet
     event: SportyBetEvent
     selection: SportyBetSelection | null
   }> = []
-  const failures: string[] = []
+  const omittedLegs: OmittedBookingLeg[] = []
   const usedEvents = new Set<string>()
 
   for (const leg of legs) {
     const event = matchSportyBetFixture(leg, events)
     if (!event) {
-      failures.push(leg.homeTeam + " vs " + leg.awayTeam + ": fixture not found, already started, or kickoff could not be matched safely.")
+      omittedLegs.push({ key: leg.key, homeTeam: leg.homeTeam, awayTeam: leg.awayTeam, reason: "This selection could not be matched to a current pre-match fixture." })
       continue
     }
     candidates.push({
@@ -249,11 +257,11 @@ export async function createSportyBetBooking(legs: SlipLeg[]): Promise<SportyBet
   for (const candidate of candidates) {
     const { leg, selection } = candidate
     if (!selection) {
-      failures.push(leg.homeTeam + " vs " + leg.awayTeam + ": this exact market or outcome is not currently available.")
+      omittedLegs.push({ key: leg.key, homeTeam: leg.homeTeam, awayTeam: leg.awayTeam, reason: "This selected market or outcome is not currently available." })
       continue
     }
     if (usedEvents.has(selection.eventId)) {
-      failures.push(leg.homeTeam + " vs " + leg.awayTeam + ": only one selection per match is supported in this slip.")
+      omittedLegs.push({ key: leg.key, homeTeam: leg.homeTeam, awayTeam: leg.awayTeam, reason: "Only one selection per match can be transferred." })
       continue
     }
     usedEvents.add(selection.eventId)
@@ -268,12 +276,12 @@ export async function createSportyBetBooking(legs: SlipLeg[]): Promise<SportyBet
     })
   }
 
-  if (failures.length || selections.length !== legs.length) {
+  if (!selections.length) {
     throw new SportyBetBookingError(
       "SELECTIONS_UNAVAILABLE",
-      "Some selections could not be matched to live SportyBet markets. Your slip has not been submitted.",
+      "None of the selections could be matched to current SportyBet markets, so no booking code was created.",
       409,
-      failures,
+      omittedLegs.map((leg) => leg.homeTeam + " vs " + leg.awayTeam + ": " + leg.reason),
     )
   }
 
@@ -357,5 +365,5 @@ export async function createSportyBetBooking(legs: SlipLeg[]): Promise<SportyBet
     : null
   const combinedOdds = rows.reduce((total, row) => total * row.odds, 1)
 
-  return { shareCode, shareURL, expiresAt, combinedOdds, legs: rows }
+  return { shareCode, shareURL, expiresAt, combinedOdds, legs: rows, omittedLegs }
 }

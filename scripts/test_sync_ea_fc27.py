@@ -135,7 +135,7 @@ class SyncEaFc27Tests(unittest.TestCase):
     def test_extended_latin_names_transliterate_consistently_before_sharding(self):
         self.assertEqual(sync.fold_name("Łukasz Poręba"), "lukasz poreba")
         self.assertEqual(sync.fold_name("Pascal Groß"), "pascal gross")
-        self.assertEqual(sync.fold_name("Þórir Jóhann Ægir"), "thoir johann aegir")
+        self.assertEqual(sync.fold_name("Þórir Jóhann Ægir"), "thorir johann aegir")
         self.assertEqual(sync.player_shard_id("Łukasz Poręba"), "luka")
 
 

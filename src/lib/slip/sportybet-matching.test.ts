@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { matchSportyBetFixture, normalizeTeamName, resolveSportyBetSelection } from "./sportybet-matching.ts"
+import { matchSportyBetFixture, normalizeTeamName, parseEventTimestamp, resolveSportyBetSelection, teamNameMatchScore } from "./sportybet-matching.ts"
 import { normalizeSlipLegs, type SlipLeg } from "./types.ts"
 
 const now = Date.parse("2026-11-18T12:00:00.000Z")
@@ -58,6 +58,50 @@ test("normalizes common bookmaker team aliases", () => {
   assert.equal(normalizeTeamName("Man City"), "manchester city")
   assert.equal(normalizeTeamName("Manchester City"), "manchester city")
   assert.equal(normalizeTeamName("Brighton & Hove Albion"), "brighton and hove albion")
+})
+
+test("normalizes regional aliases and bookmaker club-name variants", () => {
+  assert.equal(normalizeTeamName("1. FC Köln"), normalizeTeamName("Cologne"))
+  assert.equal(normalizeTeamName("VfB Stuttgart"), normalizeTeamName("Stuttgart"))
+  assert.equal(normalizeTeamName("Internazionale"), normalizeTeamName("Inter"))
+  assert.equal(normalizeTeamName("FC Twente"), normalizeTeamName("Twente"))
+  assert.equal(normalizeTeamName("Stade Rennais"), normalizeTeamName("Rennes"))
+  assert.equal(normalizeTeamName("Bayern München"), normalizeTeamName("Bayern Munich"))
+  assert.equal(normalizeTeamName("Queens Park Rangers"), normalizeTeamName("QPR"))
+})
+
+test("does not confuse first teams with reserve or youth sides", () => {
+  assert.equal(teamNameMatchScore("Elversberg", "SV Elversberg II"), 0)
+  assert.equal(teamNameMatchScore("Roma", "Roma U21"), 0)
+  assert.equal(teamNameMatchScore("Sporting Lisbon", "Sporting Lisbo"), 0.9)
+})
+
+test("parses provider kickoff values in seconds, milliseconds and ISO format", () => {
+  const milliseconds = Date.parse("2026-11-20T20:30:00.000Z")
+  assert.equal(parseEventTimestamp(milliseconds), milliseconds)
+  assert.equal(parseEventTimestamp(Math.floor(milliseconds / 1000)), milliseconds)
+  assert.equal(parseEventTimestamp("2026-11-20T20:30:00.000Z"), milliseconds)
+})
+
+test("matches aliased club names and safely chooses the closest duplicate kickoff", () => {
+  const expected: SlipLeg = {
+    ...baseLeg,
+    homeTeam: "Bayern Munich",
+    awayTeam: "Cologne",
+  }
+  const translated = {
+    ...fixture,
+    eventId: "koln-fixture",
+    homeTeamName: "Bayern",
+    awayTeamName: "1. FC Köln",
+  }
+  const laterDuplicate = {
+    ...translated,
+    eventId: "later-kickoff",
+    estimateStartTime: Date.parse("2026-11-20T21:30:00.000Z"),
+  }
+  assert.equal(matchSportyBetFixture(expected, [laterDuplicate, translated], now)?.eventId, "koln-fixture")
+  assert.equal(matchSportyBetFixture(expected, [translated, { ...translated, eventId: "ambiguous-copy" }], now), null)
 })
 
 test("matches a fixture only when teams, kickoff and pre-match status agree", () => {

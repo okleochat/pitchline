@@ -1,8 +1,8 @@
 "use client"
 
-import Link from "next/link"
 import { SiteHeader } from "@/components/site-header"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Pitchline } from "@/components/pitchline"
 import type { Board } from "@/data/football"
 
@@ -63,11 +63,27 @@ function displayKickoff(value: string) {
 }
 
 export function InternationalPageClient({ initialDate }: { initialDate: string }) {
+  const router = useRouter()
   const [date, setDate] = useState(initialDate)
+  const [draftDate, setDraftDate] = useState(initialDate)
   const [payload, setPayload] = useState<InternationalPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    setDate(initialDate)
+    setDraftDate(initialDate)
+  }, [initialDate])
+
+  function navigateToDate(nextDate: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) return
+    const parsed = new Date(nextDate + "T00:00:00Z")
+    if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== nextDate) return
+    setDate(nextDate)
+    setDraftDate(nextDate)
+    router.push("/international?date=" + encodeURIComponent(nextDate), { scroll: false })
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -114,13 +130,15 @@ export function InternationalPageClient({ initialDate }: { initialDate: string }
               International fixtures and match insights.
             </p>
           </div>
-          <form action="/international" method="get" className="flex items-end gap-2">
+          <form onSubmit={(event) => { event.preventDefault(); navigateToDate(draftDate) }} className="flex items-end gap-2">
             <label className="block text-sm">
               <span className="mb-1 block text-muted">Match date</span>
               <input
                 type="date"
                 name="date"
-                defaultValue={date}
+                value={draftDate}
+                onChange={(event) => setDraftDate(event.target.value)}
+                required
                 className="h-11 rounded-lg border border-border bg-card px-3 text-base"
               />
             </label>
@@ -128,9 +146,9 @@ export function InternationalPageClient({ initialDate }: { initialDate: string }
           </form>
         </section>
         <div className="mb-5 flex items-center justify-between gap-3">
-          <Link href={"/international?date=" + shiftDate(date, -1)} className="press inline-flex h-10 items-center rounded-lg border border-border bg-card px-3 text-sm">Previous day</Link>
+          <button type="button" onClick={() => navigateToDate(shiftDate(date, -1))} className="press inline-flex h-10 items-center rounded-lg border border-border bg-card px-3 text-sm">Previous day</button>
           <p className="text-center text-sm font-medium">{displayDate(date)}</p>
-          <Link href={"/international?date=" + shiftDate(date, 1)} className="press inline-flex h-10 items-center rounded-lg border border-border bg-card px-3 text-sm">Next day</Link>
+          <button type="button" onClick={() => navigateToDate(shiftDate(date, 1))} className="press inline-flex h-10 items-center rounded-lg border border-border bg-card px-3 text-sm">Next day</button>
         </div>
       </div>
 

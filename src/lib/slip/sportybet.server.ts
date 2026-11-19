@@ -11,7 +11,7 @@ import {
 const API_BASE = "https://www.sportybet.com/api/ng"
 const MARKET_IDS = "1,18,29"
 const PAGE_SIZE = 100
-const MAX_PAGES = 15
+const MAX_PAGES = 30
 const FIXTURE_CACHE_MS = 90_000
 
 type SportyBetEnvelope<T> = {
@@ -112,7 +112,15 @@ async function upcomingEvents(): Promise<SportyBetEvent[]> {
   }
 
   const total = Math.max(0, Number(first.data.totalNum) || 0)
-  const pageCount = Math.max(1, Math.min(MAX_PAGES, Math.ceil(total / PAGE_SIZE)))
+  const requestedPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  if (requestedPages > MAX_PAGES) {
+    throw new SportyBetBookingError(
+      "SPORTYBET_PARTIAL_FEED",
+      "SportyBet listed more fixtures than Pitchline can safely validate in one request. Please try again later.",
+      502,
+    )
+  }
+  const pageCount = Math.min(MAX_PAGES, requestedPages)
   const pages: SportyBetEnvelope<UpcomingData>[] = [first]
 
   // Fetch independent pages in small batches to avoid sending a burst of requests.

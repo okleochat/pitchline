@@ -269,97 +269,173 @@ def candidate_indexes(ea_players):
     return by_exact, by_token, by_surname, player_aliases
 
 def fuzzy_candidates(espn, ea_players, indexes, limit=3):
+    """
+    Conservative candidate review. Never equate players merely because they
+    share one token: token_set_ratio caused many obvious false positives
+    (e.g. a common first name or surname being treated as a 100% match).
+    """
     _, by_token, by_surname, player_aliases = indexes
     names = espn["names"]
     norm_names = [(normalize_prod(n), normalize_translit(n)) for n in names]
-    tokens = {t for _, trans in norm_names for t in trans.split() if t not in IGNORED_TOKENS and len(t) > 1}
-    surname_tokens = {trans.split()[-1] for _, trans in norm_names if trans.split()}
+    meaningful_tokens = {
+        token
+        for _, translit in norm_names
+        for token in translit.split()
+        if token not in IGNORED_TOKENS and len(token) > 1
+    }
+    # A one-token short name is deliberately not fuzzy-matched. If it is an
+    # exact EA alias it was already considered by the production-equivalent
+    # matcher; otherwise it is too ambiguous to recover safely.
+    if len(meaningful_tokens) < 2:
+        return []
+
     pool = set()
-    for token in tokens:
+    for token in meaningful_tokens:
         pool.update(by_token.get(token, ()))
-    for surname in surname_tokens:
-        pool.update(by_surname.get(surname, ()))
+    for _, translit in norm_names:
+        token_list = [t for t in translit.split() if t not in SUFFIXES]
+        if len(token_list) >= 2:
+            pool.update(by_surname.get(token_list[-1], ()))
     pool.discard("")
     if not pool:
         return []
 
+    def core_tokens(value):
+        return [token for token in value.split() if token not in SUFFIXES]
+
     output = []
     espn_pos = espn["position_group"]
     espn_nat = normalize_prod(espn["nationality"])
+
     for pid in pool:
         player = ea_players[pid]
         if not score_is_usable(player):
             continue
-        best_score = 0
-        best_reason = "near_spelling"
-        surname_match = False
-        translit_exact = False
-        order_match = False
-        initial_match = False
-        for ep, et, _ in player_aliases[pid]:
-            for xp, xt in norm_names:
-                if not xt:
-                    continue
-                if xt == et and xt:
-                    translit_exact = True
-                    best_score = 100
-                    best_reason = "transliteration_only"
-                if xp and ep and sorted(xp.split()) == sorted(ep.split()):
-                    order_match = True
-                    best_score = max(best_score, 99)
-                    best_reason = "name_order_or_token_variant"
-                score = max(
-                    fuzz.ratio(xt, et),
-                    fuzz.token_sort_ratio(xt, et),
-                    fuzz.token_set_ratio(xt, et),
-                )
-                if score > best_score:
-                    best_score = score
-                    best_reason = "near_spelling"
-                if xt.split() and et.split() and xt.split()[-1] == et.split()[-1]:
-                    surname_match = True
-                xfirst = xt.split()[0] if xt.split() else ""
-                efirst = et.split()[0] if et.split() else ""
-                if xfirst and efirst and xfirst[0] == efirst[0]:
-                    initial_match = True
+
         ea_pos = position_group(str(player.get("position", "")))
         position_match = espn_pos != "UNK" and espn_pos == ea_pos
         ea_nat = normalize_prod(str(player.get("nationality", "")))
         nationality_match = bool(espn_nat and ea_nat and espn_nat == ea_nat)
+        position_known = espn_pos != "UNK" and ea_pos != "UNK"
+        nationality_known = bool(espn_nat and ea_nat)
+        context_match_count = int(position_match) + int(nationality_match)
+        context_mismatch = (
+            (position_known and not position_match) or
+            (nationality_known and not nationality_match)
+        )
 
-        # A transliteration exact match can be strong only with one consistent identity.
-        # Otherwise require a clear name similarity and at least one independent identity clue.
-        if translit_exact and (position_match or nationality_match):
+        best = None
+        for ep, et, _ in player_aliases[pid]:
+            if not et:
+                continue
+            ea_tokens = core_tokens(et)
+            if len(ea_tokens) < 2:
+                continue
+
+            for xp, xt in norm_names:
+                if not xt:
+                    continue
+                espn_tokens = core_tokens(xt)
+                if len(espn_tokens) < 2:
+                    continue
+
+                reason = None
+                similarity = fuzz.ratio(xt, et)
+                same_transliterated_name = xt == et
+                same_token_order_variant = sorted(espn_tokens) == sorted(ea_tokens)
+                same_first_last = (
+                    len(espn_tokens) >= 2 and len(ea_tokens) >= 2 and
+                    espn_tokens[0] == ea_tokens[0] and
+                    espn_tokens[-1] == ea_tokens[-1]
+                )
+                first_initial_match = (
+                    len(espn_tokens[0]) == 1 and
+                    espn_tokens[0][0] == ea_tokens[0][0] and
+                    espn_tokens[-1] == ea_tokens[-1]
+                ) or (
+                    len(ea_tokens[0]) == 1 and
+                    ea_tokens[0][0] == espn_tokens[0][0] and
+                    espn_tokens[-1] == ea_tokens[-1]
+                )
+
+                if same_transliterated_name:
+                    reason = "transliteration_only"
+                    similarity = 100.0
+                elif same_token_order_variant:
+                    reason = "name_order_or_token_variant"
+                    similarity = 100.0
+                elif same_first_last:
+                    reason = "middle_name_or_initial_expansion"
+                    similarity = 100.0
+                elif first_initial_match:
+                    reason = "first_initial_and_exact_surname"
+                elif (
+                    similarity >= 93 and
+                    espn_tokens[-1] == ea_tokens[-1] and
+                    fuzz.ratio(espn_tokens[0], ea_tokens[0]) >= 88
+                ):
+                    reason = "near_spelling_same_surname"
+
+                if reason is None:
+                    continue
+
+                candidate = {
+                    "id": pid,
+                    "name": player.get("name", ""),
+                    "overall": player.get("overall", ""),
+                    "position": player.get("position", ""),
+                    "nationality": player.get("nationality", ""),
+                    "similarity": round(similarity, 1),
+                    "reason": reason,
+                    "position_match": position_match,
+                    "nationality_match": nationality_match,
+                    "surname_match": espn_tokens[-1] == ea_tokens[-1],
+                    "context_match_count": context_match_count,
+                    "context_mismatch": context_mismatch,
+                }
+                if best is None or candidate["similarity"] > best["similarity"]:
+                    best = candidate
+
+        if best is None:
+            continue
+
+        # A conflicting known position or nationality is a hard stop. When
+        # both are known, require both for approximate (not exact) identities.
+        if best["context_mismatch"]:
+            continue
+
+        exact_variant = best["reason"] in {
+            "transliteration_only",
+            "name_order_or_token_variant",
+        }
+        if exact_variant and context_match_count >= 1:
             confidence = "high"
-        elif best_score >= 90 and (position_match or nationality_match):
-            confidence = "high"
-        elif best_score >= 82 and surname_match and (position_match or nationality_match or initial_match):
-            confidence = "high"
-        elif best_score >= 78 and surname_match and (position_match or nationality_match):
-            confidence = "medium"
-        elif best_score >= 72 and surname_match:
-            confidence = "low"
+        elif best["reason"] == "middle_name_or_initial_expansion" and context_match_count >= 1:
+            confidence = "high" if context_match_count == 2 or not (position_known and nationality_known) else "medium"
+        elif best["reason"] in {"first_initial_and_exact_surname", "near_spelling_same_surname"}:
+            if context_match_count == 2:
+                confidence = "high"
+            elif context_match_count == 1:
+                confidence = "medium"
+            else:
+                continue
         else:
             continue
+
         output.append({
-            "id": pid,
-            "name": player.get("name", ""),
-            "overall": player.get("overall", ""),
-            "position": player.get("position", ""),
-            "nationality": player.get("nationality", ""),
-            "similarity": round(best_score, 1),
+            **best,
             "confidence": confidence,
-            "reason": best_reason,
-            "position_match": position_match,
-            "nationality_match": nationality_match,
-            "surname_match": surname_match,
         })
+
     output.sort(key=lambda x: (
         {"high": 3, "medium": 2, "low": 1}[x["confidence"]],
+        x["context_match_count"],
         x["similarity"],
         x["position_match"],
         x["nationality_match"],
     ), reverse=True)
+    # Multiple EA IDs can represent same-looking names. Preserve alternatives
+    # in the report rather than silently collapsing potential collisions.
     return output[:limit]
 
 def main():

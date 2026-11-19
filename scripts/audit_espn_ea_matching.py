@@ -197,7 +197,9 @@ def load_ea_snapshot(db):
 
 def score_is_usable(player):
     # Mirrors deriveEaPlayerScores()'s hasAnyPlayerData gate.
-    overall = player.get("overall", player.get("overallRating"))
+    overall = player.get("overall")
+    if overall is None:
+        overall = player.get("overallRating")
     if isinstance(overall, dict):
         overall = overall.get("value")
     if isinstance(overall, (int, float)) and not isinstance(overall, bool):
@@ -417,6 +419,27 @@ def main():
             if status == "ambiguous_exact":
                 ambiguous += 1
                 totals["ambiguous_exact"] += 1
+                unmatched_rows.append({
+                    "league": team.get("league", ""),
+                    "team": team_name,
+                    "espn_team_id": team.get("espnId", ""),
+                    "espn_player_id": player["espn_id"],
+                    "espn_player": player["name"],
+                    "espn_name_candidates": " | ".join(player["names"]),
+                    "position": player["position"],
+                    "nationality": player["nationality"],
+                    "candidate_count": duplicate_count,
+                    "top_candidate": "",
+                    "top_candidate_id": "",
+                    "top_candidate_overall": "",
+                    "top_candidate_position": "",
+                    "top_candidate_nationality": "",
+                    "similarity": "",
+                    "confidence": "ambiguous",
+                    "reason": "multiple_exact_EA_records_could_not_be_disambiguated",
+                    "other_candidates": "",
+                })
+                continue
             elif match:
                 identity_exact += 1
                 totals["exact_identity_matches"] += 1

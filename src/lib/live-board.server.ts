@@ -3,6 +3,7 @@ import { LEAGUES, TEAMS, formRate, isCup, snapshotBoard, type Board, type Fixtur
 import { getEspnJson } from "@/lib/espn/transport.server"
 import { getUpcomingInternationalFixtures, type InternationalFixture } from "@/lib/international/fixtures.server"
 import { INTERNATIONAL_COMPETITIONS } from "@/lib/international/competitions"
+import { splitInternationalSimulationData } from "@/lib/international/simulation-availability"
 import { estimateHomeAdvantage } from "@/lib/home-advantage"
 import { getFirebaseAdminFirestore, hasFirebaseAdminCredentials } from "@/lib/firebase/admin"
 
@@ -598,14 +599,11 @@ async function loadLeague(
 }
 
 export async function mergeInternationalFixtures(board: Board, international: InternationalFixture[]): Promise<Board> {
-  const nowMs = Date.now()
-  // The shared simulator board and Best Picks contain future fixtures only.
-  // Results and in-progress games are rendered by the date-specific page.
-  const upcoming = international.filter((fixture) => {
-    const kickoff = new Date(fixture.kickoff).getTime()
-    return !fixture.completed && fixture.statusState === "pre" && kickoff > nowMs
-  })
-  if (!upcoming.length) {
+  // All countries on the selected date remain available for manual simulation,
+  // including sides whose match is already live or completed. Only the future
+  // fixtures returned by this split are added to the upcoming board.
+  const { upcomingFixtures: upcoming, sides } = splitInternationalSimulationData(international, Date.now())
+  if (!sides.length) {
     return {
       ...board,
       teams: board.teams.filter((team) => team.league !== "int"),
@@ -615,7 +613,7 @@ export async function mergeInternationalFixtures(board: Board, international: In
         ...board.leagueStatus,
         int: {
           standings: "snapshot",
-          fixtures: "live",
+          fixtures: "snapshot",
           teamCount: 0,
           fixtureCount: 0,
           updatedAt: new Date().toISOString(),
@@ -626,36 +624,9 @@ export async function mergeInternationalFixtures(board: Board, international: In
     }
   }
 
-  const sides = new Map<string, {
-    id: string
-    name: string
-    short: string
-    espnId: string
-    feedSlug: string
-    color: string | null
-    competitionName: string
-    competitionRegion: string
-  }>()
-  for (const fixture of upcoming) {
-    for (const side of [fixture.home, fixture.away]) {
-      const key = fixture.competitionSlug + ":" + side.espnId
-      if (sides.has(key)) continue
-      sides.set(key, {
-        id: "int-" + fixture.competitionSlug.replace(/[^a-z0-9]+/gi, "-") + "-" + side.espnId,
-        name: side.name,
-        short: (side.abbreviation || side.name.slice(0, 3)).slice(0, 4).toUpperCase(),
-        espnId: side.espnId,
-        feedSlug: fixture.competitionSlug,
-        color: side.color,
-        competitionName: fixture.competition,
-        competitionRegion: fixture.region,
-      })
-    }
-  }
-
   // Ratings are based on the same team's previous completed international
   // competition fixtures only. No current/future match score enters the rate.
-  const nationalTeams = await Promise.all([...sides.values()].map(async (side): Promise<Team> => {
+  const nationalTeams = await Promise.all(sides.map(async (side): Promise<Team> => {
     const games = await recentGames(side.feedSlug, side.espnId).catch(() => null)
     const sample = formRate(games ?? undefined, 5)
     const color = side.color && /^[0-9a-fA-F]{6}$/.test(side.color.replace("#", ""))
@@ -715,7 +686,9 @@ export async function mergeInternationalFixtures(board: Board, international: In
 
   const uniqueTeams = new Map(board.teams.filter((team) => team.league !== "int").map((team) => [team.id, team]))
   nationalTeams.forEach((team) => uniqueTeams.set(team.id, team))
-  const weekendLabel = internationalFixtures.length + " upcoming national-team fixtures"
+  const weekendLabel = internationalFixtures.length
+    ? internationalFixtures.length + " upcoming national-team fixtures"
+    : "No upcoming international window"
   const now = new Date().toISOString()
 
   return {
@@ -727,7 +700,7 @@ export async function mergeInternationalFixtures(board: Board, international: In
       ...board.leagueStatus,
       int: {
         standings: "live",
-        fixtures: "live",
+        fixtures: internationalFixtures.length ? "live" : "snapshot",
         teamCount: nationalTeams.length,
         fixtureCount: internationalFixtures.length,
         updatedAt: now,

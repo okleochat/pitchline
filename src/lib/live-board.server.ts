@@ -729,6 +729,11 @@ async function withNationalTeamDirectory(board: Board): Promise<Board> {
   }
 
   const oldIdToCanonical = new Map<string, string>()
+  const fixtureTeamIds = new Set(
+    board.fixtures
+      .filter((fixture) => fixture.league === "int")
+      .flatMap((fixture) => [fixture.homeId, fixture.awayId]),
+  )
   const teamsWithoutEspnId: Team[] = []
   for (const current of board.teams) {
     if (current.league !== "int") continue
@@ -747,6 +752,7 @@ async function withNationalTeamDirectory(board: Board): Promise<Board> {
 
     // Keep a fixture-derived rating when it has completed-match evidence;
     // otherwise retain the directory's regional feed choice and neutral base.
+    const directoryOnly = current.directoryOnly === true && !fixtureTeamIds.has(current.id)
     if ((current.formMatches ?? 0) > (catalog.formMatches ?? 0)) {
       byEspnId.set(current.espnId, {
         ...catalog,
@@ -754,10 +760,10 @@ async function withNationalTeamDirectory(board: Board): Promise<Board> {
         defense: current.defense,
         formMatches: current.formMatches,
         ratingSource: current.ratingSource ?? catalog.ratingSource,
-        directoryOnly: false,
+        directoryOnly,
       })
     } else {
-      byEspnId.set(current.espnId, { ...catalog, directoryOnly: false })
+      byEspnId.set(current.espnId, { ...catalog, directoryOnly })
     }
   }
 

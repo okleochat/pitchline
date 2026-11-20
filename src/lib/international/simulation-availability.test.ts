@@ -38,6 +38,7 @@ test("international simulator keeps countries from completed and live fixtures s
 
   assert.deepEqual(upcomingFixtures.map((item) => item.id), ["future"])
   assert.deepEqual(sides.map((side) => side.name), ["Nigeria", "Ghana", "Senegal", "Cameroon"])
+  assert.deepEqual(sides.map((side) => side.id), ["int-1", "int-2", "int-3", "int-4"])
 })
 
 test("international simulator does not expose non-upcoming matches as future fixtures", () => {

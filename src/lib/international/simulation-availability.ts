@@ -31,7 +31,7 @@ export function splitInternationalSimulationData(
       const key = fixture.competitionSlug + ":" + side.espnId
       if (sides.has(key)) continue
       sides.set(key, {
-        id: "int-" + fixture.competitionSlug.replace(/[^a-z0-9]+/gi, "-") + "-" + side.espnId,
+        id: "int-" + side.espnId,
         name: side.name,
         short: (side.abbreviation || side.name.slice(0, 3)).slice(0, 4).toUpperCase(),
         espnId: side.espnId,

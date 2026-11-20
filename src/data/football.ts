@@ -35,6 +35,8 @@ export type Team = {
   formMatches?: number
   /** Human-readable provenance for a rating derived from a non-league-table feed. */
   ratingSource?: string
+  /** Country-directory entries are selectable, but not rows in the active competition table. */
+  directoryOnly?: boolean
   /** Tournament whose historical results underpin a national-team rating. */
   competitionName?: string
   /** ESPN team id when the live feed built this club. */

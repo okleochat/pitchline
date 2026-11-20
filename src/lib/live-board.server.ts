@@ -607,7 +607,7 @@ export async function mergeInternationalFixtures(board: Board, international: In
   if (!sides.length) {
     return {
       ...board,
-      teams: board.teams.filter((team) => team.league !== "int" || team.directoryOnly),
+      teams: board.teams.map((team) => team.league === "int" ? { ...team, directoryOnly: true } : team),
       fixtures: board.fixtures.filter((fixture) => fixture.league !== "int"),
       weekends: { ...board.weekends, int: "No upcoming international window" },
       leagueStatus: {
@@ -685,8 +685,12 @@ export async function mergeInternationalFixtures(board: Board, international: In
     }]
   })
 
-  const uniqueTeams = new Map(board.teams.filter((team) => team.league !== "int" || team.directoryOnly).map((team) => [team.id, team]))
-  nationalTeams.forEach((team) => uniqueTeams.set(team.id, team))
+  const selectedSideIds = new Set(nationalTeams.map((team) => team.id))
+  const uniqueTeams = new Map(board.teams.map((team) => [
+    team.id,
+    team.league === "int" ? { ...team, directoryOnly: !selectedSideIds.has(team.id) } : team,
+  ]))
+  nationalTeams.forEach((team) => uniqueTeams.set(team.id, { ...team, directoryOnly: false }))
   const weekendLabel = internationalFixtures.length
     ? internationalFixtures.length + " upcoming national-team fixtures"
     : "No upcoming international window"

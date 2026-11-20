@@ -46,9 +46,10 @@ export async function GET(request: NextRequest) {
       return fixture.completed || fixture.statusState === "in" || kickoff <= now
     })
 
-    // Only future fixtures enter the simulator. Results and live matches are
-    // returned separately, preventing current form from leaking into past picks.
-    const board = await mergeInternationalFixtures(baseBoard, upcomingFixtures)
+    // All date-scoped sides enter the simulator's team registry, but the board
+    // merger itself adds only future fixtures. Results and live matches remain
+    // separately rendered and cannot leak into Best Picks or upcoming fixtures.
+    const board = await mergeInternationalFixtures(baseBoard, fixtureResult.fixtures)
 
     return NextResponse.json({
       board,

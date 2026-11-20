@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { SiteHeader } from "@/components/site-header"
 import { useFirebaseSession } from "@/components/auth/firebase-auth-provider"
-import { ArrowLeftRight, Check, ChevronDown, LoaderCircle, Minus, Pause, Play, Plus, RotateCcw, Sparkles } from "lucide-react"
+import { ArrowLeftRight, CalendarDays, Check, ChevronDown, LoaderCircle, Minus, Pause, Play, Plus, RotateCcw, Sparkles } from "lucide-react"
 import {
   LEAGUES,
   formRate,
@@ -1537,7 +1537,8 @@ export function Pitchline({
                 </span>
               </label>
               <div>
-                <label className="block text-sm font-medium" htmlFor="picks-date">
+                <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor="picks-date">
+                  <CalendarDays aria-hidden="true" className="size-4 text-muted" />
                   Match date
                 </label>
                 <div className="mt-2 flex gap-2">
@@ -1546,7 +1547,8 @@ export function Pitchline({
                     type="date"
                     value={pickDate}
                     onChange={(event) => setPickDate(event.target.value)}
-                    className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-card px-3 text-base"
+                    aria-label="Filter Best Picks by match date"
+                    className="h-11 min-w-0 flex-1 cursor-pointer rounded-lg border border-border bg-card px-3 text-base"
                   />
                   {pickDate ? (
                     <button

@@ -704,7 +704,8 @@ export function Pitchline({
   const session = useFirebaseSession()
   const isPro = session.user?.isPro === true
   const firstInitialFixture = initial.fixtures.find((fixture) => fixture.league === initialLeague)
-  const firstInitialTeam = initial.teams.find((team) => team.league === initialLeague)
+  const firstInitialTeam = initial.teams.find((team) => team.league === initialLeague && !team.directoryOnly)
+    ?? initial.teams.find((team) => team.league === initialLeague)
   const [board, setBoard] = useState(initial)
   const [league, setLeague] = useState<LeagueId>(initialLeague)
   const [homeId, setHomeId] = useState(firstInitialFixture?.homeId ?? firstInitialTeam?.id ?? "eng-ars")
@@ -847,13 +848,16 @@ export function Pitchline({
     if (initialLeague === "int") {
       setLeague("int")
       const fixture = initial.fixtures.find((item) => item.league === "int")
-      const firstTeam = initial.teams.find((team) => team.league === "int")
+      const firstTeam = initial.teams.find((team) => team.league === "int" && !team.directoryOnly)
+        ?? initial.teams.find((team) => team.league === "int")
       if (fixture) {
         setHomeId(fixture.homeId)
         setAwayId(fixture.awayId)
       } else if (firstTeam) {
         setHomeId(firstTeam.id)
-        setAwayId(initial.teams.find((team) => team.league === "int" && team.id !== firstTeam.id)?.id ?? firstTeam.id)
+        const secondTeam = initial.teams.find((team) => team.league === "int" && !team.directoryOnly && team.id !== firstTeam.id)
+          ?? initial.teams.find((team) => team.league === "int" && team.id !== firstTeam.id)
+        setAwayId(secondTeam?.id ?? firstTeam.id)
       }
     } else if (saved) {
       if (saved.league && LEAGUES.some((item) => item.id === saved.league)) setLeague(saved.league)
@@ -2241,7 +2245,7 @@ export function Pitchline({
             <h2 className="font-display text-2xl tracking-tight">{leagueName(league)} board</h2>
             <p className="mt-1 text-sm text-muted">Competition overview</p>
           </div>
-          <p className="text-sm text-muted">Select a club to set your match.</p>
+          <p className="text-sm text-muted">Select a team to set your match.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-full text-left text-sm">
@@ -2250,7 +2254,7 @@ export function Pitchline({
                 <th className="py-2 pr-2 font-medium">#</th>
                 <th className="py-2 pr-2 font-medium">
                   <button type="button" className="h-11" onClick={() => toggleSort("name")}>
-                    Club
+                    {league === "int" ? "Country" : "Club"}
                   </button>
                 </th>
                 <th className="py-2 pr-2 text-right font-medium">

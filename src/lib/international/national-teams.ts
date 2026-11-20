@@ -43,6 +43,10 @@ export function mapNationalTeamDirectory(
       ? "#" + rawColor.toLowerCase()
       : "#1e3348"
 
+    // Keep the first canonical display name when the same country appears
+    // in several ESPN competition directories (for example, "Spain").
+    if (byId.has(espnId)) continue
+
     byId.set(espnId, {
       id: "int-" + espnId,
       name,

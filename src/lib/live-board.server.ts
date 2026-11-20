@@ -4,6 +4,7 @@ import { getEspnJson } from "@/lib/espn/transport.server"
 import { getUpcomingInternationalFixtures, type InternationalFixture } from "@/lib/international/fixtures.server"
 import { INTERNATIONAL_COMPETITIONS } from "@/lib/international/competitions"
 import { splitInternationalSimulationData } from "@/lib/international/simulation-availability"
+import { getNationalTeamDirectory } from "@/lib/international/national-teams.server"
 import { estimateHomeAdvantage } from "@/lib/home-advantage"
 import { getFirebaseAdminFirestore, hasFirebaseAdminCredentials } from "@/lib/firebase/admin"
 
@@ -711,6 +712,80 @@ export async function mergeInternationalFixtures(board: Board, international: In
   }
 }
 
+
+/**
+ * Keep the complete country catalogue available to manual simulation, even
+ * when those countries have no fixture in the current 30-day window.
+ * Older saved boards used competition-specific IDs, so normalize to int-{ESPN
+ * ID} and remap fixture references to avoid duplicate countries.
+ */
+async function withNationalTeamDirectory(board: Board): Promise<Board> {
+  const directory = await getNationalTeamDirectory().catch(() => [])
+  if (!directory.length) return board
+
+  const byEspnId = new Map<string, Team>()
+  for (const team of directory) {
+    if (team.espnId) byEspnId.set(team.espnId, team)
+  }
+
+  const oldIdToCanonical = new Map<string, string>()
+  const teamsWithoutEspnId: Team[] = []
+  for (const current of board.teams) {
+    if (current.league !== "int") continue
+    if (!current.espnId || !/^\d{1,12}$/.test(current.espnId)) {
+      teamsWithoutEspnId.push({ ...current, directoryOnly: false })
+      continue
+    }
+
+    const canonicalId = "int-" + current.espnId
+    oldIdToCanonical.set(current.id, canonicalId)
+    const catalog = byEspnId.get(current.espnId)
+    if (!catalog) {
+      byEspnId.set(current.espnId, { ...current, id: canonicalId, directoryOnly: false })
+      continue
+    }
+
+    // Keep a fixture-derived rating when it has completed-match evidence;
+    // otherwise retain the directory's regional feed choice and neutral base.
+    if ((current.formMatches ?? 0) > (catalog.formMatches ?? 0)) {
+      byEspnId.set(current.espnId, {
+        ...catalog,
+        attack: current.attack,
+        defense: current.defense,
+        formMatches: current.formMatches,
+        ratingSource: current.ratingSource ?? catalog.ratingSource,
+        directoryOnly: false,
+      })
+    } else {
+      byEspnId.set(current.espnId, { ...catalog, directoryOnly: false })
+    }
+  }
+
+  const nationalTeams = [...byEspnId.values(), ...teamsWithoutEspnId]
+  const fixtures = board.fixtures.map((fixture) => fixture.league !== "int"
+    ? fixture
+    : {
+        ...fixture,
+        homeId: oldIdToCanonical.get(fixture.homeId) ?? fixture.homeId,
+        awayId: oldIdToCanonical.get(fixture.awayId) ?? fixture.awayId,
+      })
+  const now = new Date().toISOString()
+
+  return {
+    ...board,
+    teams: [...board.teams.filter((team) => team.league !== "int"), ...nationalTeams],
+    fixtures,
+    leagueStatus: {
+      ...board.leagueStatus,
+      int: {
+        ...board.leagueStatus.int,
+        teamCount: nationalTeams.length,
+        updatedAt: now,
+      },
+    },
+  }
+}
+
 async function buildBoard(): Promise<Board> {
   const saved = snapshotBoard()
   const domesticLeagues = LEAGUES.filter((league) => !league.cup && league.id !== "int")
@@ -818,7 +893,7 @@ export async function getBoardSnapshot(): Promise<Board> {
     const saved = await readStoredBoard()
     if (saved?.source === "live" && saved.fixtures.every((fixture) =>
       typeof fixture.kickoffAt === "string" && Number.isFinite(Date.parse(fixture.kickoffAt))
-    )) return saved
+    )) return withNationalTeamDirectory(saved)
   } catch (error) {
     console.warn("[pitchline/board] Saved snapshot unavailable; rebuilding live board", {
       message: error instanceof Error ? error.message : "unknown error",
@@ -831,7 +906,7 @@ export async function getBoardSnapshot(): Promise<Board> {
     console.warn("[pitchline/board] Live first-render refresh failed; using bundled fallback", {
       message: error instanceof Error ? error.message : "unknown error",
     })
-    return snapshotBoard()
+    return withNationalTeamDirectory(snapshotBoard())
   }
 }
 
@@ -840,7 +915,7 @@ export async function refreshLiveBoard(): Promise<Board> {
   if (!hasFirebaseAdminCredentials()) {
     throw new Error("Firebase Admin credentials are not available to the Production runtime.")
   }
-  const board = await buildBoard()
+  const board = await withNationalTeamDirectory(await buildBoard())
   const domesticLeagues = LEAGUES.filter((league) => league.id !== "int")
   const liveLeagueCount = domesticLeagues.filter(
     (league) => board.leagueStatus[league.id]?.standings === "live",
@@ -852,7 +927,8 @@ export async function refreshLiveBoard(): Promise<Board> {
   )
 
   // Never replace a good database snapshot with an incomplete ESPN outage.
-  if (board.source !== "live" || liveLeagueCount < minimumLiveLeagues || board.teams.length < minimumTeams) {
+  const domesticTeamCount = board.teams.filter((team) => team.league !== "int").length
+  if (board.source !== "live" || liveLeagueCount < minimumLiveLeagues || domesticTeamCount < minimumTeams) {
     throw new Error(
       `ESPN board refresh coverage too low (live leagues ${liveLeagueCount}/${domesticLeagues.length}; teams ${board.teams.length}/${minimumTeams}).`,
     )
@@ -888,24 +964,25 @@ export function getLiveBoard(): Promise<Board> {
       }
 
       if (saved?.source === "live") {
-        cache = { at: Date.now(), ttl: TTL_MS, board: saved }
-        return saved
+        const enriched = await withNationalTeamDirectory(saved)
+        cache = { at: Date.now(), ttl: TTL_MS, board: enriched }
+        return enriched
       }
 
       try {
-        const live = await buildBoard()
+        const live = await withNationalTeamDirectory(await buildBoard())
         if (live.source === "live") {
           cache = { at: Date.now(), ttl: TTL_MS, board: live }
           return live
         }
-        const fallback = saved ?? live ?? snapshotBoard()
+        const fallback = await withNationalTeamDirectory(saved ?? live ?? snapshotBoard())
         cache = { at: Date.now(), ttl: BOARD_MEMORY_CACHE_MS, board: fallback }
         return fallback
       } catch (error) {
         console.error("[pitchline/board] ESPN fallback failed; using last known board", {
           message: error instanceof Error ? error.message : "unknown error",
         })
-        const fallback = saved ?? cache?.board ?? snapshotBoard()
+        const fallback = await withNationalTeamDirectory(saved ?? cache?.board ?? snapshotBoard())
         cache = { at: Date.now(), ttl: 15 * 1000, board: fallback }
         return fallback
       }

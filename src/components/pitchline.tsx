@@ -908,6 +908,14 @@ export function Pitchline({
   const edge = edgePct / 100
   const same = home.id === away.id
 
+  // National teams do not have a domestic league-season sample. Switch to
+  // their last five completed international matches as soon as one is chosen.
+  useEffect(() => {
+    if (formWindow === "season" && (home.league === "int" || away.league === "int")) {
+      setFormWindow("5")
+    }
+  }, [formWindow, home.id, home.league, away.id, away.league])
+
   useEffect(() => {
     if (formWindow === "season") {
       setFormPair(null)
@@ -1183,7 +1191,7 @@ export function Pitchline({
   const totals = report ? splitTotal(report.scores, totalLine) : null
 
   const table = useMemo(() => {
-    const peers = board.teams.filter((team) => team.league === league)
+    const peers = board.teams.filter((team) => team.league === league && !team.directoryOnly)
     const rows = peers.map((team) => ({
       team,
       net: team.attack - team.defense,
